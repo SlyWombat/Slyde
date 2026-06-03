@@ -23,7 +23,13 @@ tests/                      client <-> emulator integration tests
 - ✅ Protocol reverse-engineered and documented; validated live against a firmware-6.02 frame.
 - ✅ `memento-core` client library (discovery, config, display control, **image upload**).
 - ✅ `memento-emulator` — full server-side emulator; client is tested end-to-end against it.
-- ⏳ Backend (Immich + orchestration), web UI, containerized deployment.
+- ✅ `memento-backend` — FastAPI + Immich integration + image pipeline + sync state.
+- ✅ Web UI (React/TS/Vite/Tailwind).
+- ✅ Containerized; deployable via Docker Compose (see [`docs/USAGE.md`](docs/USAGE.md) and
+  [`deploy/`](deploy/)).
+
+See [`docs/USAGE.md`](docs/USAGE.md) for setup and [`docs/architecture.md`](docs/architecture.md)
+for design.
 
 ## Develop
 ```bash

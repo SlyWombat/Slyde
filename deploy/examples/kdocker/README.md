@@ -13,7 +13,9 @@ docker build -t memento-manager:latest .
 ## 2. Create the stack
 ```bash
 sudo install -d -o "$USER" -g "$USER" /data/stacks/memento-manager
-sudo install -d -o "$USER" -g "$USER" /data/memento/data
+# The container runs as uid 1000 (the image's "app" user); a bind-mounted data dir must be
+# writable by that uid (a named volume would inherit it automatically).
+sudo install -d -o 1000 -g 1000 /data/memento/data
 cp deploy/examples/kdocker/compose.yaml /data/stacks/memento-manager/compose.yaml
 cp deploy/examples/kdocker/.env.example  /data/stacks/memento-manager/.env
 # edit /data/stacks/memento-manager/.env — set IMMICH_API_KEY and confirm FRAME_HOST

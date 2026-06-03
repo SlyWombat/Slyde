@@ -89,6 +89,26 @@ class FrameService:
 
         return await self._with_client(host, run)
 
+    async def delete_album(self, host: str, name: str) -> AlbumData:
+        """Delete a (non-reserved) folder from the frame. Photos stay in the library."""
+        def run(client: FrameClient) -> AlbumData:
+            data = client.get_album_data()
+            data.remove_album(name)
+            client.send_album_data(data)
+            return data
+
+        return await self._with_client(host, run)
+
+    async def remove_from_album(self, host: str, album: str, filename: str) -> AlbumData:
+        """Remove a file from a folder (without deleting the photo from the frame)."""
+        def run(client: FrameClient) -> AlbumData:
+            data = client.get_album_data()
+            data.remove_image(album, filename)
+            client.send_album_data(data)
+            return data
+
+        return await self._with_client(host, run)
+
     async def mirror_album(
         self,
         host: str,

@@ -5,15 +5,21 @@ import type { Album, SyncResult } from "../api/types";
 
 type Tab = "immich" | "upload";
 
+const NEW_FOLDER = "__new__";
+
 export function AddPhotos({ host, targetAlbum }: { host: string; targetAlbum: string | null }) {
   const [tab, setTab] = useState<Tab>("immich");
-  const target = targetAlbum ?? "";
-  const label = targetAlbum ? `“${targetAlbum}”` : "the frame (Photos)";
+  const [choice, setChoice] = useState<string>(targetAlbum ?? "");
+  const [newName, setNewName] = useState("");
+  const albums = useQuery({ queryKey: ["albums", host], queryFn: () => api.albums(host) });
+
+  // Destination folder for uploads/sync: a chosen frame folder, a new one, or Photos (empty).
+  const destination = choice === NEW_FOLDER ? newName.trim() : choice;
 
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-3">
       <div className="flex items-center gap-2">
-        <span className="font-semibold">Add photos to {label}</span>
+        <span className="font-semibold">Add photos</span>
         <div className="ml-auto flex gap-1 rounded-lg bg-ink p-1 text-sm">
           <TabButton active={tab === "immich"} onClick={() => setTab("immich")}>
             From Immich
@@ -23,10 +29,39 @@ export function AddPhotos({ host, targetAlbum }: { host: string; targetAlbum: st
           </TabButton>
         </div>
       </div>
+
+      <label className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-slate-400">Destination folder</span>
+        <select
+          className="rounded bg-ink px-2 py-1"
+          value={choice}
+          onChange={(e) => setChoice(e.target.value)}
+        >
+          <option value="">Photos (all)</option>
+          {albums.data
+            ?.filter((a) => !a.reserved)
+            .map((a) => (
+              <option key={a.name} value={a.name}>
+                {a.display_name}
+              </option>
+            ))}
+          <option value={NEW_FOLDER}>New folder…</option>
+        </select>
+        {choice === NEW_FOLDER && (
+          <input
+            className="rounded bg-ink px-2 py-1"
+            placeholder="Folder name"
+            value={newName}
+            maxLength={64}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+        )}
+      </label>
+
       {tab === "immich" ? (
-        <ImmichPicker host={host} target={target} />
+        <ImmichPicker host={host} target={destination} />
       ) : (
-        <DirectUpload host={host} target={target} />
+        <DirectUpload host={host} target={destination} />
       )}
     </div>
   );
@@ -76,7 +111,7 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
     },
   });
   const subscribe = useMutation({
-    mutationFn: () => api.subscribe(host, album!.id, album!.name),
+    mutationFn: () => api.subscribe(host, album!.id, target || album!.name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["albums", host] });
       qc.invalidateQueries({ queryKey: ["subscriptions", host] });

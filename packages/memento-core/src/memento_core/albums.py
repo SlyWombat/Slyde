@@ -62,6 +62,17 @@ class AlbumData:
         if filename not in album.images:
             album.images.append(filename)
 
+    def remove_album(self, name: str) -> bool:
+        """Remove a (non-reserved) album/folder. Returns True if it existed."""
+        before = len(self.albums)
+        self.albums = [a for a in self.albums if not (a.name == name and not a.reserved)]
+        return len(self.albums) != before
+
+    def remove_image(self, album_name: str, filename: str) -> None:
+        album = self.get(album_name)
+        if album and filename in album.images:
+            album.images.remove(filename)
+
     def to_json(self) -> str:
         """Serialize to the ``AlbumData.json`` shape (mirror of GenerateAlbumDataJSON)."""
         obj: dict[str, object] = {}

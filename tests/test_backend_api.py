@@ -135,6 +135,23 @@ def test_create_album(client: ApiHarness) -> None:
     assert any(a["name"] == "Holidays" for a in albums)
 
 
+def test_create_then_delete_folder(client: ApiHarness) -> None:
+    client.post(f"{F}/albums", json={"name": "Temp"})
+    assert any(a["name"] == "Temp" for a in client.get(f"{F}/albums").json())
+    after = client.delete(f"{F}/albums/Temp").json()
+    assert not any(a["name"] == "Temp" for a in after)
+
+
+def test_remove_from_folder_keeps_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
+    client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Trip"})
+    trip = next(a for a in client.get(f"{F}/albums").json() if a["name"] == "Trip")
+    img = trip["images"][0]
+    after = client.delete(f"{F}/albums/Trip/images/{img}").json()
+    trip2 = next((a for a in after if a["name"] == "Trip"), None)
+    assert trip2 is None or img not in trip2["images"]
+    assert img in frame.state.photos  # the photo itself stays on the frame
+
+
 def test_sync_into_target_album(client: ApiHarness, frame: EmulatedFrame) -> None:
     result = client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Beach"}).json()
     assert result["uploaded"] == 1

@@ -52,6 +52,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
+  deleteAlbum: (host: string, name: string) =>
+    request<FrameAlbum[]>(`/frames/${enc(host)}/albums/${enc(name)}`, { method: "DELETE" }),
+  removeFromAlbum: (host: string, name: string, filename: string) =>
+    request<FrameAlbum[]>(`/frames/${enc(host)}/albums/${enc(name)}/images/${enc(filename)}`, {
+      method: "DELETE",
+    }),
   frameThumbUrl: (host: string, image: string) =>
     `${BASE}/frames/${enc(host)}/thumbnail/${enc(image)}`,
   deletePhoto: (host: string, filename: string) =>

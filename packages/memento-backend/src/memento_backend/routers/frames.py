@@ -93,37 +93,39 @@ async def previous_image(host: str, frame: FrameDep) -> None:
     await frame.previous_image(host)
 
 
+def _albums(data: object) -> list[FrameAlbum]:
+    return [
+        FrameAlbum(name=a.name, display_name=a.display_name, reserved=a.reserved,
+                   image_count=len(a.images), images=a.images)
+        for a in data.albums  # type: ignore[attr-defined]
+    ]
+
+
 @router.get("/{host}/albums", response_model=list[FrameAlbum])
 async def list_albums(host: str, frame: FrameDep) -> list[FrameAlbum]:
     try:
-        data = await frame.get_album_data(host)
+        return _albums(await frame.get_album_data(host))
     except FrameUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return [
-        FrameAlbum(
-            name=a.name,
-            display_name=a.display_name,
-            reserved=a.reserved,
-            image_count=len(a.images),
-            images=a.images,
-        )
-        for a in data.albums
-    ]
 
 
 @router.post("/{host}/albums", response_model=list[FrameAlbum], status_code=201)
 async def create_album(host: str, body: CreateAlbumRequest, frame: FrameDep) -> list[FrameAlbum]:
-    data = await frame.create_album(host, body.name)
-    return [
-        FrameAlbum(
-            name=a.name,
-            display_name=a.display_name,
-            reserved=a.reserved,
-            image_count=len(a.images),
-            images=a.images,
-        )
-        for a in data.albums
-    ]
+    return _albums(await frame.create_album(host, body.name))
+
+
+@router.delete("/{host}/albums/{name}", response_model=list[FrameAlbum])
+async def delete_album(host: str, name: str, frame: FrameDep) -> list[FrameAlbum]:
+    """Delete a folder from the frame (reserved folders can't be deleted; photos are kept)."""
+    return _albums(await frame.delete_album(host, name))
+
+
+@router.delete("/{host}/albums/{name}/images/{filename}", response_model=list[FrameAlbum])
+async def remove_from_album(
+    host: str, name: str, filename: str, frame: FrameDep
+) -> list[FrameAlbum]:
+    """Remove a photo from a folder without deleting it from the frame."""
+    return _albums(await frame.remove_from_album(host, name, filename))
 
 
 @router.get("/{host}/thumbnail/{image}")

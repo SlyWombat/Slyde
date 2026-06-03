@@ -31,3 +31,6 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+# local image-match scratch data
+.match/

@@ -27,6 +27,17 @@ export function FrameAlbums({
     mutationFn: (filename: string) => api.deletePhoto(host, filename),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["albums", host] }),
   });
+  const removeFromFolder = useMutation({
+    mutationFn: (filename: string) => api.removeFromAlbum(host, selected!, filename),
+    onSuccess: (data) => qc.setQueryData(["albums", host], data),
+  });
+  const deleteFolder = useMutation({
+    mutationFn: (name: string) => api.deleteAlbum(host, name),
+    onSuccess: (data) => {
+      qc.setQueryData(["albums", host], data);
+      onSelect(null);
+    },
+  });
 
   const current: FrameAlbum | undefined = albums.data?.find((a) => a.name === selected);
 
@@ -76,8 +87,23 @@ export function FrameAlbums({
 
       {current && (
         <div>
-          <div className="mb-2 text-sm text-slate-400">
-            {current.display_name} — {current.image_count} photos
+          <div className="mb-2 flex items-center gap-2 text-sm text-slate-400">
+            <span>
+              {current.display_name} — {current.image_count} photos
+            </span>
+            {!current.reserved && (
+              <button
+                className="btn ml-auto px-2 py-0.5 text-xs text-red-300"
+                disabled={deleteFolder.isPending}
+                onClick={() => {
+                  if (confirm(`Delete folder "${current.display_name}"? Photos stay on the frame.`))
+                    deleteFolder.mutate(current.name);
+                }}
+                title="Delete this folder (photos remain on the frame)"
+              >
+                Delete folder
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
             {current.images.map((img) => (
@@ -88,12 +114,25 @@ export function FrameAlbums({
                   loading="lazy"
                   className="h-full w-full bg-ink object-cover"
                 />
+                {!current.reserved && (
+                  <button
+                    onClick={() => removeFromFolder.mutate(img)}
+                    disabled={removeFromFolder.isPending}
+                    className="absolute left-1 top-1 hidden rounded bg-black/70 px-1.5 text-xs
+                               text-amber-300 group-hover:block"
+                    title="Remove from this folder (keep on frame)"
+                  >
+                    −
+                  </button>
+                )}
                 <button
-                  onClick={() => remove.mutate(img)}
+                  onClick={() => {
+                    if (confirm(`Delete ${img} from the frame entirely?`)) remove.mutate(img);
+                  }}
                   disabled={remove.isPending}
                   className="absolute right-1 top-1 hidden rounded bg-black/70 px-1.5 text-xs
                              text-red-300 group-hover:block"
-                  title="Remove from frame"
+                  title="Delete from the frame"
                 >
                   ✕
                 </button>

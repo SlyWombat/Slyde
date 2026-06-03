@@ -18,3 +18,9 @@ services:
     #   - "2017:2017"
     #   - "2018:2018"
     #   - "8099:8099"
+    # Persist config/photos/albums so they survive a restart (MEMENTO_EMULATOR_DATA=/data).
+    volumes:
+      - emulator-data:/data
+
+volumes:
+  emulator-data:

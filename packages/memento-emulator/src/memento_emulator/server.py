@@ -15,6 +15,7 @@ import socket
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
+from time import monotonic
 
 from memento_core.albums import parse_album_data
 from memento_core.crypto import aes_encrypt, maybe_aes_decrypt
@@ -79,6 +80,7 @@ class EmulatedFrame:
         self._serve_udp()
         self._serve_tcp(self.ports.control, self._handle_control)
         self._serve_tcp(self.ports.file, self._register_file_socket)
+        self._spawn(self._cycle_loop)
         return self
 
     def stop(self) -> None:
@@ -99,6 +101,24 @@ class EmulatedFrame:
         t = threading.Thread(target=fn, args=args, daemon=True)
         t.start()
         self._threads.append(t)
+
+    # -- slideshow ------------------------------------------------------------
+    def _cycle_loop(self) -> None:
+        """Auto-advance the displayed image every ``DisplayTime`` seconds, like the real frame.
+
+        Honours ``DisplayOn`` (paused when off) and ``ShuffleOn`` (random vs sequential). Config
+        is re-read every tick so changes from the manager take effect without a restart.
+        """
+        last = monotonic()
+        while not self._stop.wait(0.5):
+            config = self.state.config
+            if not config.get("DisplayOn", True):
+                last = monotonic()
+                continue
+            interval = max(1, int(config.get("DisplayTime", 60) or 60))
+            if monotonic() - last >= interval:
+                last = monotonic()
+                self.state.advance(shuffle=bool(config.get("ShuffleOn", False)))
 
     # -- UDP discovery --------------------------------------------------------
     def _serve_udp(self) -> None:
@@ -247,6 +267,12 @@ class EmulatedFrame:
                 action + 1,
                 data=json.dumps({"srcfilename": self.state.current_image}),
             )
+        elif action == Flow.NextFrame:
+            self.state.advance(shuffle=bool(self.state.config.get("ShuffleOn", False)))
+            self._reply(conn, T_CONTROL_FLOW, action + 1)
+        elif action == Flow.PreviousFrame:
+            self.state.advance(step=-1)
+            self._reply(conn, T_CONTROL_FLOW, action + 1)
         else:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
 

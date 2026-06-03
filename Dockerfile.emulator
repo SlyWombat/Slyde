@@ -9,4 +9,7 @@ COPY packages/memento-emulator ./packages/memento-emulator
 RUN pip install ./packages/memento-core ./packages/memento-emulator
 
 EXPOSE 2015/udp 2016/udp 2017 2018 8099
+# Persist state under /data so config/photos survive a restart (mount a volume to keep it).
+ENV MEMENTO_EMULATOR_DATA=/data
+VOLUME ["/data"]
 CMD ["memento-emulator", "--host", "0.0.0.0", "--web-host", "0.0.0.0", "--name", "Emulated Frame"]

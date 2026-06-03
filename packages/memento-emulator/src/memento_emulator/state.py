@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import random
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from memento_core.albums import ALBUM_PHOTOS, AlbumData
+from memento_core.albums import ALBUM_PHOTOS, AlbumData, parse_album_data
 from memento_core.client import image_to_thumb, thumb_to_image
 from memento_core.protocol import JsonDict
 
@@ -96,13 +99,22 @@ class FrameState:
     albums: AlbumData = field(default_factory=AlbumData)
     current_album: str = ALBUM_PHOTOS
     current_image: str = ""
+    # When set, config/photos/albums are persisted here so they survive a restart (like a real
+    # frame's NVRAM/flash). When None the frame is purely in-memory (tests/ephemeral dev).
+    data_dir: Path | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def __post_init__(self) -> None:
+        if self.data_dir is not None:
+            self.data_dir = Path(self.data_dir)
+        if self.data_dir is not None and self._load():
+            self.name = str(self.config.get("Name", self.name))
+            return
         self.config["Name"] = self.name
         self.config["GUID"] = self.config.get("GUID", DEFAULT_CONFIG["GUID"])
         # The frame always keeps the reserved "Photos" album holding the full library.
         self.albums.add_album(ALBUM_PHOTOS)
+        self._save()
 
     # -- photos ---------------------------------------------------------------
     def add_photo(self, name: str, data: bytes) -> None:
@@ -114,6 +126,8 @@ class FrameState:
             self.albums.add_image(ALBUM_PHOTOS, key)
             if not self.current_image:
                 self.current_image = key
+        self._write_photo(key, data)
+        self._save()
 
     def remove_photo(self, name: str) -> bool:
         with self._lock:
@@ -122,7 +136,34 @@ class FrameState:
                 if key in album.images:
                     album.images.remove(key)
             self.thumbnails.pop(key, None)
-            return self.photos.pop(key, None) is not None
+            existed = self.photos.pop(key, None) is not None
+            if key == self.current_image:
+                photos = self.albums.get(self.current_album)
+                self.current_image = next(iter(photos.images), "") if photos else ""
+        self._delete_photo_file(key)
+        self._save()
+        return existed
+
+    def advance(self, *, shuffle: bool = False, step: int = 1) -> str | None:
+        """Move to the next/previous image in the current album (the slideshow tick)."""
+        with self._lock:
+            album = self.albums.get(self.current_album) or self.albums.get(ALBUM_PHOTOS)
+            names = list(album.images) if album else sorted(self.photos)
+            if not names:
+                self.current_image = ""
+            elif shuffle and len(names) > 1:
+                self.current_image = random.choice(
+                    [n for n in names if n != self.current_image]
+                )
+            else:
+                try:
+                    i = names.index(self.current_image)
+                except ValueError:
+                    i = -step
+                self.current_image = names[(i + step) % len(names)]
+            current = self.current_image
+        self._save()
+        return current or None
 
     def photo_names(self) -> list[str]:
         with self._lock:
@@ -132,6 +173,7 @@ class FrameState:
     def set_albums(self, album_data: AlbumData) -> None:
         with self._lock:
             self.albums = album_data
+        self._save()
 
     def thumbnails_list_text(self) -> str:
         version = self.config.get("SoftwareVersion", "6.02")
@@ -151,6 +193,63 @@ class FrameState:
     def update_config(self, patch: JsonDict) -> None:
         with self._lock:
             self.config.update(patch)
+        self._save()
+
+    # -- persistence (survives a restart, like the real frame's flash) --------
+    def _photo_path(self, key: str) -> Path:
+        assert self.data_dir is not None
+        return self.data_dir / "photos" / f"{hashlib.sha1(key.encode()).hexdigest()}.bin"
+
+    def _write_photo(self, key: str, data: bytes) -> None:
+        if self.data_dir is None:
+            return
+        path = self._photo_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    def _delete_photo_file(self, key: str) -> None:
+        if self.data_dir is None:
+            return
+        self._photo_path(key).unlink(missing_ok=True)
+
+    def _save(self) -> None:
+        if self.data_dir is None:
+            return
+        with self._lock:
+            snapshot = json.dumps(
+                {
+                    "config": self.config,
+                    "albums": self.albums.to_json(),
+                    "current_album": self.current_album,
+                    "current_image": self.current_image,
+                    "photos": sorted(self.photos),
+                }
+            )
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.data_dir / "state.json.tmp"
+        tmp.write_text(snapshot)
+        tmp.replace(self.data_dir / "state.json")
+
+    def _load(self) -> bool:
+        assert self.data_dir is not None
+        path = self.data_dir / "state.json"
+        if not path.exists():
+            return False
+        snapshot = json.loads(path.read_text())
+        self.config = {**DEFAULT_CONFIG, **snapshot.get("config", {})}
+        albums_json = snapshot.get("albums")
+        self.albums = parse_album_data(albums_json) if albums_json else AlbumData()
+        if self.albums.get(ALBUM_PHOTOS) is None:
+            self.albums.add_album(ALBUM_PHOTOS)
+        for key in snapshot.get("photos", []):
+            photo_file = self._photo_path(key)
+            if photo_file.exists():
+                data = photo_file.read_bytes()
+                self.photos[key] = data
+                self.thumbnails[key] = _make_thumbnail(data)
+        self.current_album = snapshot.get("current_album", ALBUM_PHOTOS)
+        self.current_image = snapshot.get("current_image", "")
+        return True
 
     def discovery_info(self) -> JsonDict:
         with self._lock:

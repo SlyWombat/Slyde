@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import time
+from pathlib import Path
 
 from memento_core.protocol import DEFAULT_PORTS
 
@@ -36,16 +38,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--advertise-ip", default="", help="IP to advertise/display (default: auto-detect)"
     )
+    parser.add_argument(
+        "--data-dir",
+        default=os.environ.get("MEMENTO_EMULATOR_DATA", ""),
+        help="Persist config/photos/albums here so they survive a restart (default: in-memory)",
+    )
     args = parser.parse_args(argv)
 
     advertise_ip = args.advertise_ip or _detect_ip()
-    state = FrameState(name=args.name, ip=advertise_ip)
+    data_dir = Path(args.data_dir) if args.data_dir else None
+    state = FrameState(name=args.name, ip=advertise_ip, data_dir=data_dir)
     frame = EmulatedFrame(state, host=args.host, ports=DEFAULT_PORTS).start()
     print(
         f"Emulated frame '{args.name}' at {advertise_ip} "
         f"(udp {DEFAULT_PORTS.broadcast}/{DEFAULT_PORTS.broadcast_response}, "
         f"tcp {DEFAULT_PORTS.control}/{DEFAULT_PORTS.file})."
     )
+    print(f"State: {'persisted at ' + str(data_dir) if data_dir else 'in-memory (not persisted)'}.")
     web: EmulatorWeb | None = None
     if args.web_port:
         web = EmulatorWeb(

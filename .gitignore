@@ -34,3 +34,6 @@ Thumbs.db
 
 # local image-match scratch data
 .match/
+
+# local Claude Code session state
+.claude/

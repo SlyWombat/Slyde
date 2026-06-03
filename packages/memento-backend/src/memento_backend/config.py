@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,6 +20,13 @@ class Settings(BaseSettings):
     )
     frame_discovery: bool = Field(True, description="Use UDP broadcast discovery when no host set")
     frame_canvas: str = Field("3240x2160", description="Target image size WxH")
+    frame_fit: Literal["contain", "cover", "blur", "smart"] = Field(
+        "smart", description="Fit images to the canvas: contain|cover|blur|smart"
+    )
+    frame_crop_tolerance: float = Field(
+        0.12, ge=0.0, le=1.0,
+        description="Smart mode: crop if <= this fraction of the long edge is lost, else blur-fill",
+    )
 
     # Immich ------------------------------------------------------------------
     immich_base_url: str = Field(

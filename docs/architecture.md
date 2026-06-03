@@ -103,7 +103,8 @@ filled-in instance of the generic config below.
 The frame canvas is **3240×2160 landscape** (portrait variant exists). Immich originals must be
 transformed before upload:
 1. Fetch original/derivative from Immich (`/api/assets/{id}/original` or thumbnail).
-2. Resize/letterbox to 3240×2160 honoring orientation (frame has `SideBars` options).
+2. Fit to 3240×2160 per `FRAME_FIT` — `contain` (solid bars), `cover` (crop), `blur` (blurred
+   sides), or `smart` (crop near-aspect, blur-fill portraits, the default).
 3. Apply EXIF orientation; output JPEG (frame stores `.jpg`).
 4. Upload via `WriteFile` (control 2017 + raw bytes 2018), then frame generates its thumbnail.
 Transformations use Pillow. Frame upload is idempotent by destination filename; we track a
@@ -141,6 +142,8 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | `FRAME_HOSTS` | _(empty)_ | Comma-separated extra hosts to always list in the picker (e.g. an emulator) |
 | `FRAME_DISCOVERY` | `true` | Enable UDP broadcast discovery when no host is set |
 | `FRAME_CANVAS` | `3240x2160` | Target image size `WxH` (portrait variant supported) |
+| `FRAME_FIT` | `smart` | Off-aspect fit: `contain`\|`cover`\|`blur`\|`smart` (crop near, blur-fill far) |
+| `FRAME_CROP_TOLERANCE` | `0.12` | Smart mode: crop if ≤ this fraction of the long edge is lost |
 | `IMMICH_BASE_URL` | _(required)_ | Immich instance base URL |
 | `IMMICH_API_KEY` | _(required, secret)_ | Immich API key |
 | `IMMICH_ASSET_SIZE` | `preview` | Source fetched from Immich (`thumbnail`/`preview` or `original`) |

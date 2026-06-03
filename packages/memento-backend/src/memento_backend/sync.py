@@ -75,7 +75,11 @@ class SyncService:
             dest = dest_name_for(asset.file_name, asset.id)
             try:
                 source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
-                prepared = await asyncio.to_thread(prepare_for_frame, source, canvas)
+                prepared = await asyncio.to_thread(
+                    prepare_for_frame, source, canvas,
+                    fit=self._settings.frame_fit,
+                    crop_tolerance=self._settings.frame_crop_tolerance,
+                )
             except Exception as exc:
                 result.failed += 1
                 result.items.append(
@@ -159,7 +163,11 @@ class SyncService:
         for file_name, raw in files:
             dest = dest_name_for(file_name, hashlib.sha256(raw).hexdigest())
             try:
-                prepared = await asyncio.to_thread(prepare_for_frame, raw, canvas)
+                prepared = await asyncio.to_thread(
+                    prepare_for_frame, raw, canvas,
+                    fit=self._settings.frame_fit,
+                    crop_tolerance=self._settings.frame_crop_tolerance,
+                )
             except Exception as exc:
                 result.failed += 1
                 result.items.append(

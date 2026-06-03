@@ -1,0 +1,19 @@
+# Portable Compose file. Copy .env.example -> .env, fill it in, then `docker compose up -d`.
+# Works on any Docker host; nothing here is specific to a particular deployment.
+services:
+  memento-manager:
+    build: .
+    image: memento-manager:latest
+    container_name: memento-manager
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - memento-data:/data
+    # To use UDP broadcast discovery (instead of setting FRAME_HOST), the container must share
+    # the host's network so broadcasts reach the LAN. Uncomment and remove `ports:` above:
+    # network_mode: host
+
+volumes:
+  memento-data:

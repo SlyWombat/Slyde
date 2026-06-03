@@ -579,10 +579,14 @@ version = "0.1.0"
 source = { editable = "packages/memento-emulator" }
 dependencies = [
     { name = "memento-core" },
+    { name = "pillow" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "memento-core", editable = "packages/memento-core" }]
+requires-dist = [
+    { name = "memento-core", editable = "packages/memento-core" },
+    { name = "pillow", specifier = ">=10.4" },
+]
 
 [[package]]
 name = "memento-workspace"

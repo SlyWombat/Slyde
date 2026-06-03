@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "memento-core",
+    "pillow>=10.4",
 ]
 
 [project.scripts]

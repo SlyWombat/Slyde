@@ -138,6 +138,14 @@ def test_sync_into_target_album(client: ApiHarness, frame: EmulatedFrame) -> Non
     assert beach is not None and dest in beach["images"]
 
 
+def test_resync_skips_after_upload(client: ApiHarness, frame: EmulatedFrame) -> None:
+    first = client.post(f"{F}/sync", json={"album_id": "a1"}).json()
+    assert first["uploaded"] == 1 and first["skipped"] == 0
+    # A second identical sync must skip (the record was written after the upload succeeded).
+    second = client.post(f"{F}/sync", json={"album_id": "a1"}).json()
+    assert second["uploaded"] == 0 and second["skipped"] == 1
+
+
 def test_direct_upload_and_thumbnail(client: ApiHarness, frame: EmulatedFrame) -> None:
     files = {"files": ("snap.png", _png_bytes(), "image/png")}
     result = client.post(f"{F}/upload", files=files, data={"target_album": "Direct"}).json()

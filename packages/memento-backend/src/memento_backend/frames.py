@@ -94,18 +94,31 @@ class FrameService:
 
     # -- upload (with album assignment) ---------------------------------------
     async def upload_images(
-        self, host: str, items: list[tuple[bytes, str]], album: str | None
-    ) -> None:
-        """Upload (data, dest_name) items; optionally add their filenames to ``album``."""
+        self,
+        host: str,
+        items: list[tuple[bytes, str]],
+        album: str | None,
+        on_uploaded: Callable[[str], None] | None = None,
+    ) -> list[str]:
+        """Upload (data, dest_name) items; optionally add them to ``album``.
 
-        def run(client: FrameClient) -> None:
+        ``on_uploaded(dest)`` is called after each individual upload succeeds (so callers can
+        record durable state only for photos that actually landed). Returns the uploaded dests.
+        """
+
+        def run(client: FrameClient) -> list[str]:
+            uploaded: list[str] = []
             for data, dest in items:
                 client.upload_image(data, dest)
-            if album and items:
+                uploaded.append(dest)
+                if on_uploaded is not None:
+                    on_uploaded(dest)
+            if album and uploaded:
                 album_data = client.get_album_data()
                 album_data.add_album(album)
-                for _data, dest in items:
+                for dest in uploaded:
                     album_data.add_image(album, dest.lower())
                 client.send_album_data(album_data)
+            return uploaded
 
-        await self._with_client(host, run)
+        return await self._with_client(host, run)

@@ -1,9 +1,14 @@
-"""Sync service: Immich (or direct uploads) -> image pipeline -> frame, with album assignment."""
+"""Sync service: Immich (or direct uploads) -> image pipeline -> frame, with album assignment.
+
+Durable state is recorded only *after* an upload succeeds (per item), so an interrupted sync
+never leaves phantom "already synced" rows that would make future syncs skip everything.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 from collections.abc import Callable
 
@@ -15,6 +20,7 @@ from .schemas import SyncItem, SyncRequest, SyncResult
 from .store import Store, SyncedPhoto
 
 _MAX_NAME = 64  # frame filename limit (Cadre.Utils.VerifyFilename)
+_log = logging.getLogger(__name__)
 
 
 def dest_name_for(file_name: str, unique: str) -> str:
@@ -52,7 +58,11 @@ class SyncService:
         """Sync Immich assets to ``host``, optionally adding them to ``req.target_album``."""
         result = SyncResult()
         canvas = self._settings.canvas
+        album_id = req.target_album or req.album_id
         to_upload: list[tuple[bytes, str]] = []
+        meta: dict[str, tuple[str, str]] = {}  # dest -> (asset_id, digest)
+        candidates: list[tuple[str, str]] = []  # (asset_id, dest)
+
         async with self._immich_factory() as client:
             assets = await self._assets_for(client, req)
             for asset in assets:
@@ -64,11 +74,10 @@ class SyncService:
                         )
                     )
                     continue
-                dest = dest_name_for(asset.file_name, asset.id)
                 try:
                     source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
                     digest = hashlib.sha256(source).hexdigest()
-                    existing = self._store.get(asset.id)
+                    existing = self._store.get(host, asset.id)
                     if existing and existing.content_hash == digest:
                         result.skipped += 1
                         result.items.append(
@@ -80,33 +89,56 @@ class SyncService:
                             )
                         )
                         continue
+                    dest = dest_name_for(asset.file_name, asset.id)
                     prepared = await asyncio.to_thread(prepare_for_frame, source, canvas)
                     to_upload.append((prepared, dest))
-                    self._store.upsert(
-                        SyncedPhoto(
-                            asset_id=asset.id,
-                            dest_name=dest,
-                            content_hash=digest,
-                            album_id=req.target_album or req.album_id,
-                            synced_at="",
-                        )
-                    )
-                    result.uploaded += 1
-                    result.items.append(
-                        SyncItem(asset_id=asset.id, dest_name=dest, status="uploaded")
-                    )
+                    meta[dest] = (asset.id, digest)
+                    candidates.append((asset.id, dest))
                 except Exception as exc:
                     result.failed += 1
                     result.items.append(
                         SyncItem(
-                            asset_id=asset.id,
-                            dest_name=dest,
-                            status="failed",
-                            detail=str(exc)[:200],
+                            asset_id=asset.id, dest_name="", status="failed", detail=str(exc)[:200]
                         )
                     )
-        if to_upload:
-            await self._frame.upload_images(host, to_upload, req.target_album)
+
+        if not to_upload:
+            return result
+
+        succeeded: set[str] = set()
+
+        def on_uploaded(dest: str) -> None:
+            asset_id, digest = meta[dest]
+            self._store.upsert(
+                SyncedPhoto(
+                    host=host,
+                    asset_id=asset_id,
+                    dest_name=dest,
+                    content_hash=digest,
+                    album_id=album_id,
+                )
+            )
+            succeeded.add(dest)
+
+        try:
+            await self._frame.upload_images(host, to_upload, req.target_album, on_uploaded)
+        except Exception:
+            _log.exception("frame upload interrupted for %s", host)
+
+        for asset_id, dest in candidates:
+            if dest in succeeded:
+                result.uploaded += 1
+                result.items.append(SyncItem(asset_id=asset_id, dest_name=dest, status="uploaded"))
+            else:
+                result.failed += 1
+                result.items.append(
+                    SyncItem(
+                        asset_id=asset_id,
+                        dest_name=dest,
+                        status="failed",
+                        detail="upload did not complete",
+                    )
+                )
         return result
 
     async def upload_files(
@@ -136,4 +168,4 @@ class SyncService:
 
     async def remove(self, host: str, filename: str) -> None:
         await self._frame.delete_photo(host, filename)
-        self._store.delete_by_dest(filename)
+        self._store.delete_by_dest(host, filename)

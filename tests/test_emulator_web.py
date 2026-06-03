@@ -19,6 +19,8 @@ def test_web_serves_state_and_photos() -> None:
 
         state_json = json.load(urllib.request.urlopen(base + "/api/state"))
         assert state_json["name"] == "WebFrame"
+        assert state_json["address"] == "127.0.0.1"
+        assert state_json["ports"]["control"] == 2017 and state_json["ports"]["file"] == 2018
         assert "a.jpg" in state_json["photos"]
         assert "WiFiPSWD" not in state_json["config"]
 

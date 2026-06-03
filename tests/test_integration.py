@@ -78,6 +78,17 @@ def test_create_album_and_send_round_trips(frame: EmulatedFrame) -> None:
     assert holidays is not None and "holiday1.jpg" in holidays.images
 
 
+def test_config_then_transfer_on_same_frame(frame: EmulatedFrame) -> None:
+    # Mirrors the UI: a control-only call (config) followed by a file-transfer call (albums)
+    # via separate connections to the same frame. Regression for the lazy-file-connect fix —
+    # an eagerly-opened-but-unused file socket used to poison the emulator's pairing queue.
+    with _client() as c:
+        c.get_config()
+    with _client() as c:
+        data = c.get_album_data()
+    assert data.get(ALBUM_PHOTOS) is not None
+
+
 def test_discovery_over_loopback(frame: EmulatedFrame) -> None:
     found = discover(host=HOST, timeout=2.0, attempts=3, ports=PORTS)
     assert any(f.name == "Test Frame" and f.ip == HOST for f in found)

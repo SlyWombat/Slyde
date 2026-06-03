@@ -44,8 +44,9 @@ class FrameClient:
 
     # -- lifecycle ------------------------------------------------------------
     def connect(self) -> FrameClient:
+        # Only the control channel is opened up front; the file channel is connected lazily on
+        # the first transfer (so control-only operations like get_config never open it).
         self.control.connect()
-        self.file.connect()
         return self
 
     def close(self) -> None:
@@ -97,6 +98,7 @@ class FrameClient:
     # -- file transfer (generic) ----------------------------------------------
     # Transfer actions come in groups of 5: base, +1 Started, +2 Ended, +3 Succeeded, +4 Failed.
     def _download(self, base: Transfer, dest: str) -> bytes:
+        self.file.connect()  # ensure the file channel exists before requesting the transfer
         started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
         self.control.send(T_TRANSFER_FILE, base, data=json.dumps({"dstfilename": dest}))
         s = self.control.wait_for(T_TRANSFER_FILE, [started, failed])
@@ -116,6 +118,7 @@ class FrameClient:
         progress: Callable[[int, int], None] | None = None,
         info: JsonDict | None = None,
     ) -> None:
+        self.file.connect()  # ensure the file channel exists before requesting the transfer
         started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
         payload = json.dumps(
             {

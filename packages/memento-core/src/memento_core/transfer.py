@@ -24,6 +24,9 @@ class FileChannel:
         self._sock: socket.socket | None = None
 
     def connect(self) -> None:
+        """Open the file connection (idempotent — opened lazily, only when a transfer needs it)."""
+        if self._sock is not None:
+            return
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
         sock.connect((self._host, self._ports.file))

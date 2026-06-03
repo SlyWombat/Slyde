@@ -12,6 +12,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
+from memento_core.protocol import DEFAULT_PORTS, Ports
+
 from .state import FrameState
 
 _PAGE = """<!doctype html>
@@ -43,6 +45,7 @@ _PAGE = """<!doctype html>
 <body>
 <header><span class="dot"></span>
   <div><h1 id="name">Memento Frame Emulator</h1>
+  <div class="sub" id="addr"></div>
   <div class="sub" id="meta"></div></div>
 </header>
 <main>
@@ -54,6 +57,8 @@ _PAGE = """<!doctype html>
 async function refresh() {
   const s = await (await fetch('/api/state')).json();
   document.getElementById('name').textContent = s.name;
+  document.getElementById('addr').textContent =
+    `IP ${s.address} · control ${s.ports.control} · file ${s.ports.file} · web ${s.ports.web}`;
   document.getElementById('meta').textContent =
     `fw ${s.config.SoftwareVersion} · ${s.config.ScreenSize}" ${s.config.Orientation}`;
   const frame = document.getElementById('frame');
@@ -72,7 +77,7 @@ refresh(); setInterval(refresh, 2000);
 """
 
 
-def _make_handler(state: FrameState) -> type[BaseHTTPRequestHandler]:
+def _make_handler(state: FrameState, ports: Ports, web_port: int) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:  # silence default logging
             pass
@@ -88,7 +93,8 @@ def _make_handler(state: FrameState) -> type[BaseHTTPRequestHandler]:
             if self.path == "/" or self.path.startswith("/index"):
                 self._send(200, _PAGE.encode(), "text/html; charset=utf-8")
             elif self.path == "/api/state":
-                self._send(200, json.dumps(_state_json(state)).encode(), "application/json")
+                body = json.dumps(_state_json(state, ports, web_port)).encode()
+                self._send(200, body, "application/json")
             elif self.path.startswith("/photo/"):
                 name = unquote(self.path[len("/photo/") :])
                 data = state.photos.get(name.lower())
@@ -102,10 +108,12 @@ def _make_handler(state: FrameState) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def _state_json(state: FrameState) -> dict[str, object]:
+def _state_json(state: FrameState, ports: Ports, web_port: int) -> dict[str, object]:
     config = {k: v for k, v in state.config.items() if not k.startswith("WiFi")}
     return {
         "name": state.name,
+        "address": state.ip,
+        "ports": {"control": ports.control, "file": ports.file, "web": web_port},
         "config": config,
         "current_image": state.current_image,
         "photos": state.photo_names(),
@@ -124,8 +132,15 @@ def _state_json(state: FrameState) -> dict[str, object]:
 class EmulatorWeb:
     """A background HTTP server visualizing a :class:`FrameState`."""
 
-    def __init__(self, state: FrameState, *, host: str = "0.0.0.0", port: int = 8099) -> None:
-        self._server = ThreadingHTTPServer((host, port), _make_handler(state))
+    def __init__(
+        self,
+        state: FrameState,
+        *,
+        host: str = "0.0.0.0",
+        port: int = 8099,
+        ports: Ports = DEFAULT_PORTS,
+    ) -> None:
+        self._server = ThreadingHTTPServer((host, port), _make_handler(state, ports, port))
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property

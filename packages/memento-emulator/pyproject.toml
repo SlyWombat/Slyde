@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memento-emulator"
+version = "0.1.0"
+description = "A faithful emulator of the Memento Smart Frame's server side, for testing and dev."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "memento-core",
+]
+
+[project.scripts]
+memento-emulator = "memento_emulator.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memento_emulator"]
+
+[tool.hatch.metadata]
+allow-direct-references = true

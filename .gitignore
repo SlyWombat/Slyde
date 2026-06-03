@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+*.env
+
+# Reverse-engineering binaries (copyrighted originals; keep local only)
+reversing/bin/
+*.apk
+*.dll
+*.exe
+
+# Decompiler output (regenerable from bin/)
+reversing/decompiled/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# uv.lock IS committed (reproducible installs) — do not ignore it.
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,43 @@
+# Workspace root for the Memento Manager monorepo.
+# Dev tooling config lives here; runtime packages live under packages/*.
+[project]
+name = "memento-workspace"
+version = "0.0.0"
+description = "Dev workspace for Memento Smart Frame tooling (not published)."
+requires-python = ">=3.11"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+memento-core = { workspace = true }
+memento-emulator = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "memento-core",
+    "memento-emulator",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages/memento-core/src", "packages/memento-emulator/src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+files = ["packages/memento-core/src", "packages/memento-emulator/src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error"]

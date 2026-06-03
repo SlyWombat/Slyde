@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memento-core"
+version = "0.1.0"
+description = "Local-network client library for the Memento Smart Frame (reverse-engineered protocol)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Memento Manager contributors" }]
+keywords = ["memento", "smartframe", "digital-frame", "reverse-engineering"]
+dependencies = [
+    "cryptography>=41",
+]
+
+[project.scripts]
+memento = "memento_core.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memento_core"]

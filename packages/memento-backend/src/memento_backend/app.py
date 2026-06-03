@@ -37,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.frame = frame_service
         app.state.immich_factory = immich_factory
         app.state.sync = sync_service
+        app.state.scheduler = scheduler
         scheduler.start()
         try:
             yield

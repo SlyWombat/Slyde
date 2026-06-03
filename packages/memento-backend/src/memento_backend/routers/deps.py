@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 
 from ..config import Settings
 from ..frames import FrameService
+from ..scheduler import SyncScheduler
 from ..store import Store
 from ..sync import SyncService
 
@@ -28,6 +29,10 @@ def get_sync(request: Request) -> SyncService:
     return request.app.state.sync  # type: ignore[no-any-return]
 
 
+def get_scheduler(request: Request) -> SyncScheduler:
+    return request.app.state.scheduler  # type: ignore[no-any-return]
+
+
 def get_immich_factory(request: Request):  # type: ignore[no-untyped-def]
     return request.app.state.immich_factory
 
@@ -36,3 +41,4 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 StoreDep = Annotated[Store, Depends(get_store)]
 FrameDep = Annotated[FrameService, Depends(get_frame)]
 SyncDep = Annotated[SyncService, Depends(get_sync)]
+SchedulerDep = Annotated[SyncScheduler, Depends(get_scheduler)]

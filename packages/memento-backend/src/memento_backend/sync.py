@@ -238,10 +238,19 @@ class SyncService:
         )
         return result
 
-    async def run_due_subscriptions(self) -> None:
-        """Re-mirror every subscription (used by the scheduler)."""
+    async def run_due_subscriptions(self) -> dict[str, int]:
+        """Re-mirror every subscription (used by the scheduler). Returns an aggregate summary."""
+        summary = {"subscriptions": 0, "added": 0, "removed": 0, "failed": 0}
         for sub in self._store.list_subscriptions():
+            summary["subscriptions"] += 1
             try:
-                await self.sync_subscription(sub.host, sub.immich_album_id, sub.target_album)
+                result = await self.sync_subscription(
+                    sub.host, sub.immich_album_id, sub.target_album
+                )
+                summary["added"] += result.uploaded
+                summary["removed"] += result.removed
+                summary["failed"] += result.failed
             except Exception:
+                summary["failed"] += 1
                 _log.exception("subscription sync failed: %s/%s", sub.host, sub.immich_album_id)
+        return summary

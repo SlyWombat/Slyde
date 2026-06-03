@@ -107,6 +107,12 @@ def test_health(client: ApiHarness) -> None:
     assert body["status"] == "ok" and body["immich_configured"] is True
 
 
+def test_sync_health_kpi(client: ApiHarness) -> None:
+    res = client.get("/api/health/sync")
+    assert res.status_code == 200
+    assert res.text.startswith("OK")  # no subscriptions yet -> healthy
+
+
 def test_list_frames_includes_configured(client: ApiHarness) -> None:
     frames = client.get("/api/frames").json()
     assert any(f["ip"] == HOST for f in frames)

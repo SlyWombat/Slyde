@@ -1,7 +1,10 @@
-"""SQLite store for sync state — which Immich assets are on which frame, and their content hash.
+"""SQLite store for sync state.
 
-Keyed by (host, asset_id) so each frame is tracked independently. Records are written only
-*after* a successful upload, so an interrupted sync never leaves phantom "already synced" rows.
+Two tables, both keyed by ``host`` so each frame is independent:
+
+* ``synced_photo`` — which Immich asset is on which frame (and as what file). Written only
+  *after* a successful upload, so an interrupted sync never leaves phantom rows.
+* ``album_sync`` — "keep in sync" subscriptions: an Immich album mirrored 1:1 to a frame album.
 """
 
 from __future__ import annotations
@@ -21,6 +24,15 @@ CREATE TABLE IF NOT EXISTS synced_photo (
     synced_at    TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (host, asset_id)
 );
+CREATE TABLE IF NOT EXISTS album_sync (
+    host            TEXT NOT NULL,
+    immich_album_id TEXT NOT NULL,
+    target_album    TEXT NOT NULL,
+    last_synced_at  TEXT,
+    last_result     TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (host, immich_album_id)
+);
 """
 
 
@@ -32,6 +44,15 @@ class SyncedPhoto:
     content_hash: str
     album_id: str | None = None
     synced_at: str = ""
+
+
+@dataclass
+class Subscription:
+    host: str
+    immich_album_id: str
+    target_album: str
+    last_synced_at: str | None = None
+    last_result: str | None = None
 
 
 class Store:
@@ -52,6 +73,7 @@ class Store:
         finally:
             conn.close()
 
+    # -- synced photos --------------------------------------------------------
     def upsert(self, photo: SyncedPhoto) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -68,14 +90,21 @@ class Store:
             row = conn.execute(
                 "SELECT * FROM synced_photo WHERE host = ? AND asset_id = ?", (host, asset_id)
             ).fetchone()
-        return _row(row) if row else None
+        return _photo(row) if row else None
 
-    def list_for_host(self, host: str) -> list[SyncedPhoto]:
+    def list_for_album(self, host: str, immich_album_id: str) -> list[SyncedPhoto]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM synced_photo WHERE host = ? ORDER BY synced_at DESC", (host,)
+                "SELECT * FROM synced_photo WHERE host = ? AND album_id = ?",
+                (host, immich_album_id),
             ).fetchall()
-        return [_row(r) for r in rows]
+        return [_photo(r) for r in rows]
+
+    def delete(self, host: str, asset_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM synced_photo WHERE host = ? AND asset_id = ?", (host, asset_id)
+            )
 
     def delete_by_dest(self, host: str, dest_name: str) -> bool:
         with self._conn() as conn:
@@ -84,8 +113,42 @@ class Store:
             )
             return cur.rowcount > 0
 
+    # -- subscriptions --------------------------------------------------------
+    def add_subscription(self, host: str, immich_album_id: str, target_album: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO album_sync (host, immich_album_id, target_album) VALUES (?, ?, ?) "
+                "ON CONFLICT(host, immich_album_id) "
+                "DO UPDATE SET target_album=excluded.target_album",
+                (host, immich_album_id, target_album),
+            )
 
-def _row(row: sqlite3.Row) -> SyncedPhoto:
+    def remove_subscription(self, host: str, immich_album_id: str) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM album_sync WHERE host = ? AND immich_album_id = ?",
+                (host, immich_album_id),
+            )
+            return cur.rowcount > 0
+
+    def touch_subscription(self, host: str, immich_album_id: str, result: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE album_sync SET last_synced_at=datetime('now'), last_result=? "
+                "WHERE host = ? AND immich_album_id = ?",
+                (result, host, immich_album_id),
+            )
+
+    def list_subscriptions(self, host: str | None = None) -> list[Subscription]:
+        with self._conn() as conn:
+            if host is None:
+                rows = conn.execute("SELECT * FROM album_sync").fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM album_sync WHERE host = ?", (host,)).fetchall()
+        return [_subscription(r) for r in rows]
+
+
+def _photo(row: sqlite3.Row) -> SyncedPhoto:
     return SyncedPhoto(
         host=row["host"],
         asset_id=row["asset_id"],
@@ -93,4 +156,14 @@ def _row(row: sqlite3.Row) -> SyncedPhoto:
         content_hash=row["content_hash"],
         album_id=row["album_id"],
         synced_at=row["synced_at"],
+    )
+
+
+def _subscription(row: sqlite3.Row) -> Subscription:
+    return Subscription(
+        host=row["host"],
+        immich_album_id=row["immich_album_id"],
+        target_album=row["target_album"],
+        last_synced_at=row["last_synced_at"],
+        last_result=row["last_result"],
     )

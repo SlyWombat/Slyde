@@ -46,8 +46,9 @@ function TabButton(props: { active: boolean; onClick: () => void; children: Reac
 function SyncSummary({ result }: { result: SyncResult }) {
   return (
     <div className="rounded-lg bg-ink px-3 py-2 text-sm">
-      <span className="text-emerald-300">{result.uploaded} uploaded</span> ·{" "}
-      <span className="text-slate-400">{result.skipped} skipped</span>
+      <span className="text-emerald-300">{result.uploaded} added</span> ·{" "}
+      <span className="text-slate-400">{result.skipped} kept</span>
+      {result.removed > 0 && <span className="text-amber-300"> · {result.removed} removed</span>}
       {result.failed > 0 && <span className="text-red-300"> · {result.failed} failed</span>}
     </div>
   );
@@ -72,6 +73,13 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
     onSuccess: () => {
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ["albums", host] });
+    },
+  });
+  const subscribe = useMutation({
+    mutationFn: () => api.subscribe(host, album!.id, album!.name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["albums", host] });
+      qc.invalidateQueries({ queryKey: ["subscriptions", host] });
     },
   });
 
@@ -142,9 +150,22 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
         <span className="font-medium">{album.name}</span>
         <span className="text-slate-500">({album.asset_count})</span>
       </div>
-      <div className="flex gap-2">
-        <button className="btn-accent" disabled={sync.isPending} onClick={() => sync.mutate(body())}>
-          {sync.isPending ? "Syncing…" : "Add whole album"}
+      <div className="flex flex-wrap gap-2">
+        <button
+          className="btn-accent"
+          disabled={subscribe.isPending}
+          onClick={() => subscribe.mutate()}
+          title="Mirror this album to a frame folder and keep it updated automatically"
+        >
+          {subscribe.isPending ? "Syncing…" : "Sync & keep updated"}
+        </button>
+        <button
+          className="btn"
+          disabled={sync.isPending}
+          onClick={() => sync.mutate(body())}
+          title="Copy the album's photos once (no automatic updates)"
+        >
+          {sync.isPending ? "Adding…" : "Add once"}
         </button>
         <button
           className="btn"
@@ -154,8 +175,13 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
           Add selected ({selected.size})
         </button>
       </div>
+      {subscribe.data && <SyncSummary result={subscribe.data} />}
       {sync.data && <SyncSummary result={sync.data} />}
-      {sync.isError && <div className="text-sm text-red-300">{(sync.error as Error).message}</div>}
+      {(sync.isError || subscribe.isError) && (
+        <div className="text-sm text-red-300">
+          {((sync.error ?? subscribe.error) as Error).message}
+        </div>
+      )}
       {assets.isLoading ? (
         <div className="text-sm text-slate-400">Loading photos…</div>
       ) : (

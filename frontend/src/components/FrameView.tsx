@@ -3,6 +3,7 @@ import { AddPhotos } from "./AddPhotos";
 import { FrameAlbums } from "./FrameAlbums";
 import { FramePanel } from "./FramePanel";
 import { SettingsPanel } from "./SettingsPanel";
+import { SyncedAlbums } from "./SyncedAlbums";
 
 export function FrameView({ host, onBack }: { host: string; onBack: () => void }) {
   const [album, setAlbum] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export function FrameView({ host, onBack }: { host: string; onBack: () => void }
         </div>
         <div className="space-y-4">
           <FramePanel host={host} />
+          <SyncedAlbums host={host} />
           <SettingsPanel host={host} />
         </div>
       </div>

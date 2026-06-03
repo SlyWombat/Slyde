@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     )
     immich_api_key: str = Field("", description="Immich API key", repr=False)
     immich_asset_size: str = Field("preview", description="Immich thumbnail size or 'original'")
+    sync_interval_minutes: int = Field(
+        15, description="How often to re-mirror kept-in-sync albums (0 disables the scheduler)"
+    )
 
     # Service -----------------------------------------------------------------
     database_url: str = Field("sqlite:///./memento.db", description="State store URL")

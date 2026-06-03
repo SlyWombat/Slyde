@@ -88,7 +88,20 @@ class SyncResult(BaseModel):
     uploaded: int = 0
     skipped: int = 0
     failed: int = 0
+    removed: int = 0
     items: list[SyncItem] = Field(default_factory=list)
+
+
+class SubscribeRequest(BaseModel):
+    album_id: str
+    target_album: str = Field(min_length=1, max_length=64)
+
+
+class Subscription(BaseModel):
+    immich_album_id: str
+    target_album: str
+    last_synced_at: str | None = None
+    last_result: str | None = None
 
 
 class SyncedPhoto(BaseModel):

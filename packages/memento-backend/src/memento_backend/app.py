@@ -13,6 +13,7 @@ from .config import Settings, get_settings
 from .frames import FrameService
 from .immich import ImmichClient
 from .routers import frames, health, immich
+from .scheduler import SyncScheduler
 from .store import Store
 from .sync import SyncService
 
@@ -28,12 +29,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         def immich_factory() -> ImmichClient:
             return ImmichClient(settings.immich_base_url, settings.immich_api_key)
 
+        sync_service = SyncService(settings, frame_service, store, immich_factory)
+        scheduler = SyncScheduler(sync_service, settings.sync_interval_minutes)
+
         app.state.settings = settings
         app.state.store = store
         app.state.frame = frame_service
         app.state.immich_factory = immich_factory
-        app.state.sync = SyncService(settings, frame_service, store, immich_factory)
-        yield
+        app.state.sync = sync_service
+        scheduler.start()
+        try:
+            yield
+        finally:
+            await scheduler.stop()
 
     app = FastAPI(title="Memento Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(health.router, prefix="/api")

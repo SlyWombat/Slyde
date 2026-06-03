@@ -6,6 +6,7 @@ import type {
   FrameInfo,
   FrameSummary,
   Health,
+  Subscription,
   SyncResult,
 } from "./types";
 
@@ -64,6 +65,17 @@ export const api = {
     if (targetAlbum) form.append("target_album", targetAlbum);
     return request<SyncResult>(`/frames/${enc(host)}/upload`, { method: "POST", body: form });
   },
+
+  // -- subscriptions (keep an album in sync) -------------------------------
+  subscriptions: (host: string) =>
+    request<Subscription[]>(`/frames/${enc(host)}/subscriptions`),
+  subscribe: (host: string, albumId: string, targetAlbum: string) =>
+    request<SyncResult>(`/frames/${enc(host)}/subscriptions`, {
+      method: "POST",
+      body: JSON.stringify({ album_id: albumId, target_album: targetAlbum }),
+    }),
+  unsubscribe: (host: string, albumId: string) =>
+    request<void>(`/frames/${enc(host)}/subscriptions/${enc(albumId)}`, { method: "DELETE" }),
 
   // -- immich --------------------------------------------------------------
   immichAlbums: () => request<Album[]>("/immich/albums"),

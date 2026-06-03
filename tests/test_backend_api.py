@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 from collections.abc import Iterator
+from typing import ClassVar
 
 import httpx
 import pytest
@@ -165,3 +166,59 @@ def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
 def test_immich_albums(client: ApiHarness) -> None:
     albums = client.get("/api/immich/albums").json()
     assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]
+
+
+class MutableImmich:
+    """Fake Immich whose 'Cats' album contents can change between syncs."""
+
+    assets: ClassVar[list[ImmichAsset]] = []
+
+    async def __aenter__(self) -> MutableImmich:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def album_assets(self, album_id: str) -> list[ImmichAsset]:
+        return list(MutableImmich.assets)
+
+    async def asset_bytes(self, asset_id: str, size: str) -> bytes:
+        return _png_bytes()
+
+
+def _cat(n: int) -> ImmichAsset:
+    return ImmichAsset(id=f"c{n}", file_name=f"cat{n}.jpg", type="IMAGE")
+
+
+def _cats_count(client: ApiHarness) -> int:
+    albums = client.get(f"{F}/albums").json()
+    cats = next((a for a in albums if a["name"] == "Cats"), None)
+    return cats["image_count"] if cats else 0
+
+
+def test_subscription_mirror_lifecycle(client: ApiHarness, frame: EmulatedFrame) -> None:
+    client.app.state.sync._immich_factory = MutableImmich
+
+    # Subscribe: mirrors the Immich album onto a frame album and syncs now.
+    MutableImmich.assets = [_cat(1)]
+    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
+    assert res["uploaded"] == 1
+    subs = client.get(f"{F}/subscriptions").json()
+    assert len(subs) == 1 and subs[0]["target_album"] == "Cats"
+    assert _cats_count(client) == 1
+
+    # A new Immich item is mirrored in (existing one is skipped, not re-uploaded).
+    MutableImmich.assets = [_cat(1), _cat(2)]
+    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
+    assert res["uploaded"] == 1 and res["skipped"] == 1
+    assert _cats_count(client) == 2
+
+    # A removed Immich item is dropped from the frame album (1:1 mirror).
+    MutableImmich.assets = [_cat(2)]
+    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
+    assert res["removed"] == 1
+    assert _cats_count(client) == 1
+
+    # Unsubscribe stops syncing.
+    assert client.delete(f"{F}/subscriptions/a1").status_code == 204
+    assert client.get(f"{F}/subscriptions").json() == []

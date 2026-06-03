@@ -13,6 +13,8 @@ from ..schemas import (
     FrameAlbum,
     FrameInfo,
     FrameSummary,
+    SubscribeRequest,
+    Subscription,
     SyncRequest,
     SyncResult,
 )
@@ -156,3 +158,29 @@ async def upload(
 @router.delete("/{host}/photos/{filename}", status_code=204)
 async def delete_photo(host: str, filename: str, syncer: SyncDep) -> None:
     await syncer.remove(host, filename)
+
+
+# -- subscriptions (keep an Immich album mirrored 1:1 to a frame album) --------
+@router.get("/{host}/subscriptions", response_model=list[Subscription])
+async def list_subscriptions(host: str, syncer: SyncDep) -> list[Subscription]:
+    return [
+        Subscription(
+            immich_album_id=s.immich_album_id,
+            target_album=s.target_album,
+            last_synced_at=s.last_synced_at,
+            last_result=s.last_result,
+        )
+        for s in syncer.list_subscriptions(host)
+    ]
+
+
+@router.post("/{host}/subscriptions", response_model=SyncResult)
+async def subscribe(host: str, body: SubscribeRequest, syncer: SyncDep) -> SyncResult:
+    """Mirror an Immich album to a frame album and keep it in sync (an initial sync runs now)."""
+    return await syncer.subscribe(host, body.album_id, body.target_album)
+
+
+@router.delete("/{host}/subscriptions/{album_id}", status_code=204)
+async def unsubscribe(host: str, album_id: str, syncer: SyncDep) -> None:
+    if not syncer.unsubscribe(host, album_id):
+        raise HTTPException(status_code=404, detail="not a subscription")

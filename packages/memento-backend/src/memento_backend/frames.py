@@ -89,6 +89,32 @@ class FrameService:
 
         return await self._with_client(host, run)
 
+    async def mirror_album(
+        self,
+        host: str,
+        keep_dests: list[str],
+        to_upload: list[tuple[bytes, str]],
+        album_name: str,
+        on_uploaded: Callable[[str], None] | None = None,
+    ) -> list[str]:
+        """Upload new images, then set ``album_name`` to exactly ``keep_dests`` + uploaded — a
+        1:1 mirror of the source. Returns the dests that uploaded successfully."""
+
+        def run(client: FrameClient) -> list[str]:
+            uploaded: list[str] = []
+            for data, dest in to_upload:
+                client.upload_image(data, dest)
+                uploaded.append(dest)
+                if on_uploaded is not None:
+                    on_uploaded(dest)
+            album_data = client.get_album_data()
+            album = album_data.get(album_name) or album_data.add_album(album_name)
+            album.images = list(dict.fromkeys(keep_dests + uploaded))
+            client.send_album_data(album_data)
+            return uploaded
+
+        return await self._with_client(host, run)
+
     async def delete_photo(self, host: str, filename: str) -> None:
         await self._with_client(host, lambda c: c.delete_image(filename))
 

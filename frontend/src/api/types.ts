@@ -65,7 +65,15 @@ export interface SyncResult {
   uploaded: number;
   skipped: number;
   failed: number;
+  removed: number;
   items: SyncItem[];
+}
+
+export interface Subscription {
+  immich_album_id: string;
+  target_album: string;
+  last_synced_at: string | null;
+  last_result: string | null;
 }
 
 export interface Health {

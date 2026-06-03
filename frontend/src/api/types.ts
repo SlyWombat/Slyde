@@ -79,7 +79,10 @@ export interface Subscription {
 export interface Health {
   status: string;
   immich_configured: boolean;
-  frame_reachable: boolean | null;
+}
+
+export interface CurrentImage {
+  image: string | null;
 }
 
 export interface ConfigPatch {

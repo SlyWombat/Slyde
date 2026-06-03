@@ -15,9 +15,12 @@ images from an **Immich** library, with a modern web UI. Containerized; runs on 
 ## 1. Goals & non-goals
 **Goals**
 - Browse the Immich library and curate which photos appear on the frame.
-- Push/remove/reorder photos on the frame; adjust display settings (brightness, shuffle,
-  duration, orientation, calibration, away schedule) using the recovered local protocol.
-- Reflect live frame state (current image, config, album, thumbnails).
+- Push/remove photos and organize them into folders on the frame; adjust the display settings the
+  protocol exposes today (on/off, shuffle, slide duration, night mode, orientation/portrait,
+  rename) using the recovered local protocol. (Per-image reorder and the panel-calibration
+  settings — brightness, contrast, away schedule — are recognized by the protocol layer but not
+  yet surfaced in the UI.)
+- Reflect live frame state (current image, config, albums, thumbnails).
 - Run as a lightweight container on kdocker (ARM64, tight RAM), managed as a Dockge stack.
 - Fully testable without the physical frame, via a faithful **frame emulator**.
 
@@ -75,10 +78,12 @@ filled-in instance of the generic config below.
   would require re-implementing the protocol/crypto.)
 - **ADR-002 Frontend = React + TS + Vite + Tailwind** (+ shadcn/ui, TanStack Query). Mainstream,
   rich ecosystem, fast modern UI.
-- **ADR-003 Ship standard Docker images + a generic Compose file.** Images are built
-  **multi-arch (amd64 + arm64)** so they run anywhere. We provide a portable `compose.yaml` and
-  an `.env.example`. Orchestrator-specific glue (e.g. our Dockge stack, or a k8s manifest) lives
-  under `deploy/examples/` only — the image and compose file assume no particular orchestrator.
+- **ADR-003 Ship standard Docker images + a generic Compose file.** The `Dockerfile` and
+  `Dockerfile.emulator` build on the host architecture (we build them directly on the ARM64
+  kdocker target); a portable `compose.yaml` and an `.env.example` are provided. Automated
+  multi-arch (amd64 + arm64) publishing via buildx is a planned addition, not yet wired in CI.
+  Orchestrator-specific glue (e.g. our Dockge stack, or a k8s manifest) lives under
+  `deploy/examples/` only — the image and compose file assume no particular orchestrator.
 - **ADR-004 Single container** (API serves SPA) rather than separate nginx — minimizes the
   memory footprint on the 4 GB NanoPi. A reverse proxy is unnecessary on the LAN; external
   exposure (if ever) goes through the existing Cloudflare Tunnel like other services.
@@ -91,7 +96,7 @@ filled-in instance of the generic config below.
   it has its own package, CLI, and compose service, and is the default target in dev/CI.
 - **ADR-008 12-factor configuration, nothing hardcoded.** All runtime values come from env
   (Pydantic `BaseSettings`) with documented defaults; config is validated at startup. Frame
-  target, Immich, DB path, bind address/port, canvas size, sync schedule — all configurable.
+  target, Immich, DB path, bind address/port, canvas size, sync interval — all configurable.
   Shipped code contains no environment-specific constants. An `.env.example` documents every key.
 
 ## 5. Image pipeline (Immich → frame)
@@ -110,12 +115,14 @@ content hash to avoid re-uploading unchanged assets.
   discover, connect, get config, **upload**, list albums, change settings. No real frame.
 - **Contract**: emulator validated against captured real-frame responses (golden fixtures from
   the live 6.02 frame) so it stays faithful.
-- **Frontend**: vitest (unit) + Playwright (e2e against backend+emulator).
-- **CI** (GitHub Actions): ruff + mypy + pytest + frontend build/test; build multi-arch images.
+- **Frontend**: `tsc --noEmit` typecheck, ESLint, and a production `vite build` (also run during
+  the Docker image build). Component/e2e suites (vitest/Playwright) are a planned addition.
+- **CI** (GitHub Actions): ruff (lint + format) + mypy (strict) + pytest with coverage. Frontend
+  build and image publishing are not yet in CI (built locally / in the Docker image stage).
 
 ## 7. Quality gates
 - Python: `ruff` (lint+format), `mypy --strict` on core/backend, `pytest` w/ coverage.
-- TS: `eslint`, `tsc --noEmit`, `prettier`.
+- TS: ESLint, `tsc --noEmit`, `vite build`.
 - `pre-commit` hooks; Conventional Commits; PR-based review.
 
 ## 8. Security notes
@@ -131,14 +138,16 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `FRAME_HOST` | _(empty → discover)_ | Explicit frame IP/host; empty enables UDP discovery |
-| `FRAME_DISCOVERY` | `true` | Enable broadcast discovery |
-| `FRAME_PORTS` | `2015,2016,2017,2018` | Override only if firmware differs |
-| `FRAME_CANVAS` | `3240x2160` | Target image size (portrait variant supported) |
+| `FRAME_HOSTS` | _(empty)_ | Comma-separated extra hosts to always list in the picker (e.g. an emulator) |
+| `FRAME_DISCOVERY` | `true` | Enable UDP broadcast discovery when no host is set |
+| `FRAME_CANVAS` | `3240x2160` | Target image size `WxH` (portrait variant supported) |
 | `IMMICH_BASE_URL` | _(required)_ | Immich instance base URL |
 | `IMMICH_API_KEY` | _(required, secret)_ | Immich API key |
-| `DATABASE_URL` | `sqlite:////data/memento.db` | State store (path configurable) |
+| `IMMICH_ASSET_SIZE` | `preview` | Source fetched from Immich (`thumbnail`/`preview` or `original`) |
+| `SYNC_INTERVAL_MINUTES` | `15` | How often kept-in-sync albums re-mirror (`0` disables the scheduler) |
+| `DATABASE_URL` | `sqlite:///./memento.db` | State store (`/data/memento.db` in the image) |
 | `BIND_HOST` / `BIND_PORT` | `0.0.0.0` / `8080` | API + SPA bind |
-| `SYNC_SCHEDULE` | _(empty → manual)_ | Optional cron for auto-sync |
+| `STATIC_DIR` | _(empty)_ | Built SPA directory to serve (set in the image) |
 | `LOG_LEVEL` | `INFO` | Logging |
 
 Secrets are never logged. Frame Wi-Fi credentials returned by the device are never persisted or

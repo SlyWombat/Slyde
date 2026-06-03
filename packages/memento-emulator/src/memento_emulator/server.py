@@ -243,10 +243,24 @@ class EmulatedFrame:
                 data=json.dumps({"DateTime": now, "ServerTime": "False"}),
             )
         elif action == Setup.GetCurrentAlbum:
-            album = {"Name": self.state.current_album, "Images": self.state.photo_names()}
+            album = {"Name": self.state.current_album, "Images": self.state.current_album_images()}
             self._reply(conn, T_CHANGE_SETUP, Setup.GetCurrentAlbum + 1, data=json.dumps(album))
+        elif action == Setup.SendCurrentAlbum:
+            payload = msg.json()
+            if isinstance(payload, dict) and payload.get("Name"):
+                self.state.set_current_album(str(payload["Name"]))
+            self._reply(conn, T_CHANGE_SETUP, action + 1)
+        elif action == Setup.SendTime:
+            # The frame sets its RTC; the emulator answers GetFrameTime from host time, so just ack
+            # (don't merge the time payload into the config).
+            self._reply(conn, T_CHANGE_SETUP, action + 1)
+        elif action == Setup.ChangeOrientation:
+            payload = msg.json()
+            if isinstance(payload, dict):
+                self.state.set_orientation(payload)
+            self._reply(conn, T_CHANGE_SETUP, action + 1)
         else:
-            # SendConfig / Change* — apply patch if the payload is a config-ish object, then ack.
+            # SendConfig / other Change* — apply the patch if it's a config-ish object, then ack.
             payload = msg.json()
             if isinstance(payload, dict):
                 self.state.update_config(payload)
@@ -272,6 +286,17 @@ class EmulatedFrame:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         elif action == Flow.PreviousFrame:
             self.state.advance(step=-1)
+            self._reply(conn, T_CONTROL_FLOW, action + 1)
+        elif action == Flow.DisplayImage:
+            payload = msg.json()
+            name = payload.get("srcfilename") or payload.get("m_SourceFileName") if (
+                isinstance(payload, dict)
+            ) else None
+            if name:
+                self.state.show_image(str(name))
+            self._reply(conn, T_CONTROL_FLOW, action + 1)
+        elif action == Flow.FactoryReset:
+            self.state.factory_reset()
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         else:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
@@ -314,6 +339,12 @@ class EmulatedFrame:
         elif action == Transfer.SendAlbumsEnded:
             self._reply(conn, T_TRANSFER_FILE, Transfer.SendAlbumsSucceeded)
         # Downloads (frame -> client)
+        elif action == Transfer.ReadFile:
+            name = str(info.get("srcfilename") or info.get("dstfilename") or "")
+            blob = self.state.get_photo(name) or b""
+            self._serve_download(conn, file_sock, Transfer.ReadFileStarted, blob)
+        elif action == Transfer.ReadFileEnded:
+            self._reply(conn, T_TRANSFER_FILE, Transfer.ReadFileSucceeded)
         elif action == Transfer.GetAlbums:
             blob = aes_encrypt(self.state.albums.to_json()).encode("utf-8")
             self._serve_download(conn, file_sock, Transfer.GetAlbumsStarted, blob)

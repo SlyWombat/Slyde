@@ -6,12 +6,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
-from .frames import FrameService
-from .immich import ImmichClient
+from .frames import FrameService, FrameUnavailable
+from .immich import ImmichClient, ImmichError
 from .routers import frames, health, immich
 from .scheduler import SyncScheduler
 from .store import Store
@@ -45,6 +46,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await scheduler.stop()
 
     app = FastAPI(title="Memento Manager", version="0.1.0", lifespan=lifespan)
+
+    @app.exception_handler(FrameUnavailable)
+    async def _frame_unavailable(_request: Request, exc: FrameUnavailable) -> JSONResponse:
+        # The frame is offline / can't be resolved — a transient upstream condition, not a 500.
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+    @app.exception_handler(ImmichError)
+    async def _immich_error(_request: Request, exc: ImmichError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
+
     app.include_router(health.router, prefix="/api")
     app.include_router(frames.router, prefix="/api")
     app.include_router(immich.router, prefix="/api")

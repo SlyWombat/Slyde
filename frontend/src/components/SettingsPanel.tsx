@@ -39,6 +39,9 @@ export function SettingsPanel({ host }: { host: string }) {
         <label className="flex items-center justify-between text-sm">
           <span className="text-slate-300">Slide time (s)</span>
           <input
+            // Keyed to the live value so an external/clamped update re-seeds the field
+            // (an uncontrolled input only reads defaultValue once, on mount).
+            key={cfg.DisplayTime ?? 60}
             type="number"
             min={1}
             className="w-20 rounded bg-ink px-2 py-1 text-right"

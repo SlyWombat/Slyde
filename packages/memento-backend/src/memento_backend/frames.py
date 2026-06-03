@@ -64,6 +64,9 @@ class FrameService:
 
         return await self._with_client(host, run)
 
+    async def get_current_image(self, host: str) -> str:
+        return await self._with_client(host, lambda c: c.get_current_image_name())
+
     async def next_image(self, host: str) -> None:
         await self._with_client(host, lambda c: c.next_image())
 

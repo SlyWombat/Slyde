@@ -2,6 +2,7 @@ import type {
   Album,
   Asset,
   ConfigPatch,
+  CurrentImage,
   FrameAlbum,
   FrameInfo,
   FrameSummary,
@@ -45,6 +46,7 @@ export const api = {
     }),
   next: (host: string) => request<void>(`/frames/${enc(host)}/next`, { method: "POST" }),
   previous: (host: string) => request<void>(`/frames/${enc(host)}/previous`, { method: "POST" }),
+  currentImage: (host: string) => request<CurrentImage>(`/frames/${enc(host)}/current`),
 
   albums: (host: string) => request<FrameAlbum[]>(`/frames/${enc(host)}/albums`),
   createAlbum: (host: string, name: string) =>

@@ -10,6 +10,7 @@ from ..frames import FrameUnavailable
 from ..schemas import (
     ConfigPatch,
     CreateAlbumRequest,
+    CurrentImage,
     FrameAlbum,
     FrameInfo,
     FrameSummary,
@@ -81,6 +82,12 @@ async def frame_info(host: str, frame: FrameDep) -> FrameInfo:
 async def update_config(host: str, patch: ConfigPatch, frame: FrameDep) -> FrameInfo:
     config = await frame.update_config(host, patch.patch())
     return FrameInfo(host=host, config=_strip_wifi(config))
+
+
+@router.get("/{host}/current", response_model=CurrentImage)
+async def current_image(host: str, frame: FrameDep) -> CurrentImage:
+    """The image the frame is currently displaying (for a live preview)."""
+    return CurrentImage(image=(await frame.get_current_image(host)) or None)
 
 
 @router.post("/{host}/next", status_code=204)

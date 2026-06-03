@@ -11,7 +11,8 @@ from memento_core import FrameClient, discover
 frames = discover()                      # UDP broadcast; returns FrameInfo list
 with FrameClient(frames[0].ip) as frame:
     print(frame.get_config()["Name"])
-    frame.upload_image("photo.jpg", "vacation01.jpg")
+    frame.upload_file("photo.jpg", "vacation01.jpg")   # from a path
+    # ...or upload raw bytes directly: frame.upload_image(data, "vacation01.jpg")
 ```
 
 Nothing is hardcoded to any particular deployment — the frame is located by discovery or an

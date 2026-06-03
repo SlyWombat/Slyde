@@ -162,6 +162,24 @@ class FrameClient:
         p = Path(path)
         self.upload_image(p.read_bytes(), dest_name or p.name, **kwargs)  # type: ignore[arg-type]
 
+    def download_image(self, name: str) -> bytes:
+        """Download a stored image's full bytes back from the frame (ReadFile handshake)."""
+        return self._download(Transfer.ReadFile, name)
+
+    def display_image(self, name: str) -> None:
+        """Jump the frame's display to a specific stored image by name."""
+        self.control.request(
+            T_CONTROL_FLOW, Flow.DisplayImage, data=json.dumps({"srcfilename": name})
+        )
+
+    def set_current_album(self, name: str) -> None:
+        """Select the active album the slideshow cycles through."""
+        self.change_setup(Setup.SendCurrentAlbum, {"Name": name})
+
+    def factory_reset(self) -> None:
+        """Wipe the frame back to factory defaults (photos, albums, and settings)."""
+        self.control.request(T_CONTROL_FLOW, Flow.FactoryReset)
+
     # -- albums ---------------------------------------------------------------
     def get_album_data(self) -> AlbumData:
         """Download + AES-decrypt + parse the frame's album structure."""

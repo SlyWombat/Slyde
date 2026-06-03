@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import random
+import shutil
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -165,9 +166,71 @@ class FrameState:
         self._save()
         return current or None
 
+    def show_image(self, name: str) -> bool:
+        """Jump the display to a specific image by name (Flow.DisplayImage)."""
+        key = name.lower()
+        with self._lock:
+            if key not in self.photos:
+                return False
+            self.current_image = key
+        self._save()
+        return True
+
     def photo_names(self) -> list[str]:
         with self._lock:
             return sorted(self.photos)
+
+    def get_photo(self, name: str) -> bytes | None:
+        with self._lock:
+            return self.photos.get(name.lower())
+
+    # -- current album --------------------------------------------------------
+    def current_album_images(self) -> list[str]:
+        """Images in the selected album (the reserved Photos album is the whole library)."""
+        with self._lock:
+            album = self.albums.get(self.current_album)
+            return list(album.images) if album else sorted(self.photos)
+
+    def set_current_album(self, name: str) -> bool:
+        """Select the active album (what the slideshow cycles), starting at its first image."""
+        with self._lock:
+            album = self.albums.get(name)
+            if album is None:
+                return False
+            self.current_album = name
+            self.current_image = next(iter(album.images), "")
+        self._save()
+        return True
+
+    def set_orientation(self, patch: JsonDict) -> None:
+        """Re-orient the canvas, keeping Orientation/PortraitMode/Width/Height consistent."""
+        with self._lock:
+            if "Orientation" in patch:
+                portrait = str(patch["Orientation"]).lower().startswith("portrait")
+            elif "PortraitMode" in patch:
+                portrait = bool(patch["PortraitMode"])
+            else:
+                portrait = str(self.config.get("Orientation", "")).lower().startswith("portrait")
+            lo, hi = sorted((int(self.config.get("Width", 0)), int(self.config.get("Height", 0))))
+            self.config["Width"], self.config["Height"] = (lo, hi) if portrait else (hi, lo)
+            self.config["PortraitMode"] = portrait
+            self.config["Orientation"] = "Portrait" if portrait else "Landscape"
+        self._save()
+
+    def factory_reset(self) -> None:
+        """Wipe photos/albums/config back to defaults, as the real frame does."""
+        with self._lock:
+            self.config = dict(DEFAULT_CONFIG)
+            self.config["Name"] = self.name
+            self.photos.clear()
+            self.thumbnails.clear()
+            self.albums = AlbumData()
+            self.albums.add_album(ALBUM_PHOTOS)
+            self.current_album = ALBUM_PHOTOS
+            self.current_image = ""
+        if self.data_dir is not None:
+            shutil.rmtree(self.data_dir / "photos", ignore_errors=True)
+        self._save()
 
     # -- albums & thumbnails --------------------------------------------------
     def set_albums(self, album_data: AlbumData) -> None:

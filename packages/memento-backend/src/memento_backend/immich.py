@@ -64,10 +64,6 @@ class ImmichClient:
             raise ImmichError(f"Immich GET {path} -> {resp.status_code}: {resp.text[:200]}")
         return resp
 
-    async def ping(self) -> bool:
-        resp = await self._client.get("/api/server/ping")
-        return resp.status_code == 200
-
     async def list_albums(self) -> list[ImmichAlbum]:
         data = (await self._get("/api/albums")).json()
         return [

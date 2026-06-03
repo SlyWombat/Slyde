@@ -186,6 +186,12 @@ def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
     assert dest not in frame.state.photos
 
 
+def test_current_image_after_sync(client: ApiHarness, frame: EmulatedFrame) -> None:
+    client.post(f"{F}/sync", json={"album_id": "a1"})
+    body = client.get(f"{F}/current").json()
+    assert body["image"] in frame.state.photos
+
+
 def test_immich_albums(client: ApiHarness) -> None:
     albums = client.get("/api/immich/albums").json()
     assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]

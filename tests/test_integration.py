@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from conftest import HOST, PORTS
-from memento_core import FrameClient, discover
+from memento_core import FrameClient, Setup, discover
 from memento_core.albums import ALBUM_PHOTOS
 from memento_emulator import EmulatedFrame
 
@@ -87,6 +87,51 @@ def test_config_then_transfer_on_same_frame(frame: EmulatedFrame) -> None:
     with _client() as c:
         data = c.get_album_data()
     assert data.get(ALBUM_PHOTOS) is not None
+
+
+def test_download_image_round_trips_back(frame: EmulatedFrame) -> None:
+    blob = b"\xff\xd8\xff" + b"ORIGINAL" * 4000 + b"\xff\xd9"
+    with _client() as c:
+        c.upload_image(blob, "orig.jpg")
+        got = c.download_image("orig.jpg")
+    assert got == blob
+
+
+def test_display_image_sets_current(frame: EmulatedFrame) -> None:
+    frame.state.add_photo("one.jpg", b"a")
+    frame.state.add_photo("two.jpg", b"b")
+    with _client() as c:
+        c.display_image("two.jpg")
+        assert c.get_current_image_name() == "two.jpg"
+
+
+def test_set_current_album_selects_and_filters(frame: EmulatedFrame) -> None:
+    frame.state.add_photo("trip1.jpg", b"a")
+    data = frame.state.albums
+    data.add_album("Trip")
+    data.add_image("Trip", "trip1.jpg")
+    with _client() as c:
+        c.set_current_album("Trip")
+        album = c.get_current_album()
+    assert frame.state.current_album == "Trip"
+    assert isinstance(album, dict) and album["Images"] == ["trip1.jpg"]
+
+
+def test_change_orientation_keeps_dimensions_consistent(frame: EmulatedFrame) -> None:
+    with _client() as c:
+        c.change_setup(Setup.ChangeOrientation, {"Orientation": "Portrait"})
+        cfg = c.get_config()
+    assert cfg["Orientation"] == "Portrait" and cfg["PortraitMode"] is True
+    assert cfg["Width"] < cfg["Height"]  # portrait swaps the canvas
+
+
+def test_factory_reset_wipes_state(frame: EmulatedFrame) -> None:
+    frame.state.add_photo("doomed.jpg", b"data")
+    frame.state.update_config({"DisplayTime": 5})
+    with _client() as c:
+        c.factory_reset()
+    assert frame.state.photos == {}
+    assert frame.state.config["DisplayTime"] == 60  # back to default
 
 
 def test_discovery_over_loopback(frame: EmulatedFrame) -> None:

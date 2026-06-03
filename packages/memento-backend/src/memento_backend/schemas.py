@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field
 class Health(BaseModel):
     status: str = "ok"
     immich_configured: bool
-    frame_reachable: bool | None = None
+
+
+class CurrentImage(BaseModel):
+    """The image the frame is currently displaying (None when the library is empty)."""
+
+    image: str | None = None
 
 
 class Album(BaseModel):

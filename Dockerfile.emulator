@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+# The Memento frame emulator — protocol channels (UDP 2015/2016, TCP 2017/2018) + a web UI.
+FROM python:3.12-slim AS runtime
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+
+COPY packages/memento-core ./packages/memento-core
+COPY packages/memento-emulator ./packages/memento-emulator
+RUN pip install ./packages/memento-core ./packages/memento-emulator
+
+EXPOSE 2015/udp 2016/udp 2017 2018 8099
+CMD ["memento-emulator", "--host", "0.0.0.0", "--web-host", "0.0.0.0", "--name", "Emulated Frame"]

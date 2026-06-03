@@ -157,9 +157,7 @@ class EmulatedFrame:
     def _claim_file_socket(self, ip: str, timeout: float = 5.0) -> socket.socket:
         """Take ownership of the next unclaimed file connection from ``ip``."""
         with self._file_cv:
-            if not self._file_cv.wait_for(
-                lambda: bool(self._file_socks.get(ip)), timeout=timeout
-            ):
+            if not self._file_cv.wait_for(lambda: bool(self._file_socks.get(ip)), timeout=timeout):
                 raise TimeoutError(f"no file socket from {ip}")
             return self._file_socks[ip].pop(0)
 

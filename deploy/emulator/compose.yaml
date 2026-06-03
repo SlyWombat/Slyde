@@ -1,0 +1,20 @@
+# Run the Memento frame emulator on its own. Build context is the repo root.
+#   docker compose -f deploy/emulator/compose.yaml up --build
+# Then point the app at it with FRAME_HOST=<this host> and open the web UI on :8099.
+services:
+  memento-emulator:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.emulator
+    image: memento-emulator:latest
+    container_name: memento-emulator
+    restart: unless-stopped
+    # Host networking lets UDP broadcast discovery reach the emulator. On platforms without it,
+    # drop network_mode and publish the ports below, and target the emulator by FRAME_HOST.
+    network_mode: host
+    # ports:
+    #   - "2015:2015/udp"
+    #   - "2016:2016/udp"
+    #   - "2017:2017"
+    #   - "2018:2018"
+    #   - "8099:8099"

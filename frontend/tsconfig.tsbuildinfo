@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/api/client.ts","./src/api/types.ts","./src/components/AlbumBrowser.tsx","./src/components/FramePanel.tsx","./src/components/OnFrame.tsx","./src/components/SettingsPanel.tsx","./vite.config.ts"],"version":"5.9.3"}

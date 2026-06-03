@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from ..immich import ImmichError
 from ..schemas import Album, Asset
@@ -40,3 +40,15 @@ async def album_assets(album_id: str, settings: SettingsDep, factory: ImmichFact
     except ImmichError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return [Asset(id=a.id, file_name=a.file_name, type=a.type) for a in assets]
+
+
+@router.get("/assets/{asset_id}/thumbnail")
+async def asset_thumbnail(asset_id: str, settings: SettingsDep, factory: ImmichFactory) -> Response:
+    """Proxy an Immich thumbnail so the browser can render it without the API key."""
+    _require_immich(settings)
+    try:
+        async with factory() as client:  # type: ignore[operator]
+            data = await client.asset_bytes(asset_id, "thumbnail")
+    except ImmichError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return Response(content=data, media_type="image/jpeg")

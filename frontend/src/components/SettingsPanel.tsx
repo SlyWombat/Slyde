@@ -9,12 +9,12 @@ const TOGGLES: { key: keyof ConfigPatch; label: string }[] = [
   { key: "PortraitMode", label: "Portrait" },
 ];
 
-export function SettingsPanel() {
+export function SettingsPanel({ host }: { host: string }) {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["frame"], queryFn: api.frame });
+  const { data } = useQuery({ queryKey: ["frame", host], queryFn: () => api.frame(host) });
   const update = useMutation({
-    mutationFn: (patch: ConfigPatch) => api.updateConfig(patch),
-    onSuccess: (info) => qc.setQueryData(["frame"], info),
+    mutationFn: (patch: ConfigPatch) => api.updateConfig(host, patch),
+    onSuccess: (info) => qc.setQueryData(["frame", host], info),
   });
 
   if (!data) return null;

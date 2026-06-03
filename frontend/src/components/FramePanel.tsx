@@ -1,12 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 
-export function FramePanel() {
-  const { data, isLoading, error } = useQuery({ queryKey: ["frame"], queryFn: api.frame });
-  const next = useMutation({ mutationFn: api.next });
-  const prev = useMutation({ mutationFn: api.previous });
+export function FramePanel({ host }: { host: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["frame", host],
+    queryFn: () => api.frame(host),
+  });
+  const next = useMutation({ mutationFn: () => api.next(host) });
+  const prev = useMutation({ mutationFn: () => api.previous(host) });
 
-  if (isLoading) return <div className="card">Locating frame…</div>;
+  if (isLoading) return <div className="card">Loading frame…</div>;
   if (error)
     return (
       <div className="card border-red-500/40">

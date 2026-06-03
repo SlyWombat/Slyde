@@ -16,6 +16,25 @@ export interface FrameInfo {
   config: FrameConfig;
 }
 
+export interface FrameSummary {
+  name: string;
+  ip: string;
+  mac: string;
+  softver: number;
+  hardver: number;
+  size: number;
+  orientation: string;
+  guid: string;
+}
+
+export interface FrameAlbum {
+  name: string;
+  display_name: string;
+  reserved: boolean;
+  image_count: number;
+  images: string[];
+}
+
 export interface Album {
   id: string;
   name: string;

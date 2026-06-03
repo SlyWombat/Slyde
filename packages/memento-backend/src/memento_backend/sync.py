@@ -95,7 +95,12 @@ class SyncService:
         return to_upload, meta
 
     def _recorder(
-        self, host: str, meta: dict[str, tuple[str, str]], album_id: str | None, done: set[str]
+        self,
+        host: str,
+        meta: dict[str, tuple[str, str]],
+        album_id: str | None,
+        done: set[str],
+        result: SyncResult,
     ) -> Callable[[str], None]:
         def on_uploaded(dest: str) -> None:
             asset_id, digest = meta[dest]
@@ -109,6 +114,7 @@ class SyncService:
                 )
             )
             done.add(dest)
+            result.uploaded = len(done)  # live progress for background jobs
 
         return on_uploaded
 
@@ -136,19 +142,28 @@ class SyncService:
         result.failed += len(to_upload) - len(done)
 
     # -- one-off sync ---------------------------------------------------------
-    async def sync(self, host: str, req: SyncRequest) -> SyncResult:
-        """Add Immich assets to ``host`` (and optionally ``req.target_album``). No removals."""
-        result = SyncResult()
+    async def sync(
+        self, host: str, req: SyncRequest, *, result: SyncResult | None = None
+    ) -> SyncResult:
+        """Add Immich assets to ``host`` (and optionally ``req.target_album``). No removals.
+
+        ``result`` may be supplied so a background job can observe live progress.
+        """
+        result = result if result is not None else SyncResult()
         album_id = req.target_album or req.album_id
         async with self._immich_factory() as client:
             assets = await self._assets_for(client, req)
+            result.total = len(assets)
             to_upload, meta = await self._prepare_new(client, host, assets, result)
         if not to_upload:
             return result
         done: set[str] = set()
         try:
             await self._frame.upload_images(
-                host, to_upload, req.target_album, self._recorder(host, meta, album_id, done)
+                host,
+                to_upload,
+                req.target_album,
+                self._recorder(host, meta, album_id, done, result),
             )
         except Exception:  # partial progress preserved via the recorder
             _log.exception("frame upload interrupted for %s", host)
@@ -195,18 +210,30 @@ class SyncService:
     def list_subscriptions(self, host: str) -> list[Subscription]:
         return self._store.list_subscriptions(host)
 
-    async def subscribe(self, host: str, immich_album_id: str, target_album: str) -> SyncResult:
+    async def subscribe(
+        self,
+        host: str,
+        immich_album_id: str,
+        target_album: str,
+        *,
+        result: SyncResult | None = None,
+    ) -> SyncResult:
         self._store.add_subscription(host, immich_album_id, target_album)
-        return await self.sync_subscription(host, immich_album_id, target_album)
+        return await self.sync_subscription(host, immich_album_id, target_album, result=result)
 
     def unsubscribe(self, host: str, immich_album_id: str) -> bool:
         return self._store.remove_subscription(host, immich_album_id)
 
     async def sync_subscription(
-        self, host: str, immich_album_id: str, target_album: str
+        self,
+        host: str,
+        immich_album_id: str,
+        target_album: str,
+        *,
+        result: SyncResult | None = None,
     ) -> SyncResult:
         """Mirror an Immich album 1:1 onto ``target_album``: add new, drop departed."""
-        result = SyncResult()
+        result = result if result is not None else SyncResult()
         keep_dests: list[str] = []
         new_assets: list[ImmichAsset] = []
         desired_ids: set[str] = set()
@@ -222,6 +249,7 @@ class SyncService:
                     result.skipped += 1
                 else:
                     new_assets.append(asset)
+            result.total = len(desired_ids)
             to_upload, meta = await self._prepare_new(client, host, new_assets, result)
 
         done: set[str] = set()
@@ -231,7 +259,7 @@ class SyncService:
                 keep_dests,
                 to_upload,
                 target_album,
-                self._recorder(host, meta, immich_album_id, done),
+                self._recorder(host, meta, immich_album_id, done, result),
             )
         except Exception:  # partial progress preserved via the recorder
             _log.exception("subscription mirror interrupted for %s/%s", host, immich_album_id)

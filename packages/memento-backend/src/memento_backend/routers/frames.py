@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
 from ..frames import FrameUnavailable
+from ..jobs import SyncJob
 from ..schemas import (
     ConfigPatch,
     CreateAlbumRequest,
@@ -16,14 +17,26 @@ from ..schemas import (
     FrameSummary,
     SubscribeRequest,
     Subscription,
+    SyncJobInfo,
     SyncRequest,
     SyncResult,
 )
-from .deps import FrameDep, SettingsDep, SyncDep
+from .deps import FrameDep, JobsDep, SettingsDep, SyncDep
 
 router = APIRouter(prefix="/frames", tags=["frames"])
 
 _WIFI_KEYS = ("WiFiSSID", "WiFiPSWD")
+
+
+def _job_info(job: SyncJob) -> SyncJobInfo:
+    return SyncJobInfo(
+        id=job.id,
+        host=job.host,
+        label=job.label,
+        status=job.status,
+        error=job.error,
+        result=job.result,
+    )
 
 
 def _strip_wifi(config: dict[str, Any]) -> dict[str, Any]:
@@ -152,9 +165,30 @@ async def thumbnail(host: str, image: str, frame: FrameDep) -> Response:
 
 @router.post("/{host}/sync", response_model=SyncResult)
 async def sync(host: str, request: SyncRequest, syncer: SyncDep) -> SyncResult:
+    """Synchronous sync (small/selected sets). For whole albums prefer the job endpoint below."""
     if not request.album_id and not request.asset_ids:
         raise HTTPException(status_code=400, detail="provide album_id and/or asset_ids")
     return await syncer.sync(host, request)
+
+
+@router.post("/{host}/sync/jobs", response_model=SyncJobInfo, status_code=202)
+async def start_sync_job(
+    host: str, request: SyncRequest, syncer: SyncDep, jobs: JobsDep
+) -> SyncJobInfo:
+    """Start a background sync (won't block the request); poll the GET endpoint for progress."""
+    if not request.album_id and not request.asset_ids:
+        raise HTTPException(status_code=400, detail="provide album_id and/or asset_ids")
+    label = request.target_album or request.album_id or "selected photos"
+    job = jobs.start(host, label, lambda result: syncer.sync(host, request, result=result))
+    return _job_info(job)
+
+
+@router.get("/{host}/sync/jobs/{job_id}", response_model=SyncJobInfo)
+async def get_sync_job(host: str, job_id: str, jobs: JobsDep) -> SyncJobInfo:
+    job = jobs.get(job_id)
+    if job is None or job.host != host:
+        raise HTTPException(status_code=404, detail="no such job")
+    return _job_info(job)
 
 
 @router.post("/{host}/upload", response_model=SyncResult)
@@ -188,10 +222,21 @@ async def list_subscriptions(host: str, syncer: SyncDep) -> list[Subscription]:
     ]
 
 
-@router.post("/{host}/subscriptions", response_model=SyncResult)
-async def subscribe(host: str, body: SubscribeRequest, syncer: SyncDep) -> SyncResult:
-    """Mirror an Immich album to a frame album and keep it in sync (an initial sync runs now)."""
-    return await syncer.subscribe(host, body.album_id, body.target_album)
+@router.post("/{host}/subscriptions", response_model=SyncJobInfo, status_code=202)
+async def subscribe(
+    host: str, body: SubscribeRequest, syncer: SyncDep, jobs: JobsDep
+) -> SyncJobInfo:
+    """Mirror an Immich album to a frame album and keep it in sync.
+
+    The initial mirror runs as a background job (poll the sync-job endpoint for progress); the
+    subscription itself is recorded as part of that job.
+    """
+    job = jobs.start(
+        host,
+        body.target_album,
+        lambda result: syncer.subscribe(host, body.album_id, body.target_album, result=result),
+    )
+    return _job_info(job)
 
 
 @router.delete("/{host}/subscriptions/{album_id}", status_code=204)

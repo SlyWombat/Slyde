@@ -8,6 +8,7 @@ import type {
   FrameSummary,
   Health,
   Subscription,
+  SyncJobInfo,
   SyncResult,
 } from "./types";
 
@@ -67,6 +68,17 @@ export const api = {
 
   sync: (host: string, body: { album_id?: string; asset_ids?: string[]; target_album?: string }) =>
     request<SyncResult>(`/frames/${enc(host)}/sync`, { method: "POST", body: JSON.stringify(body) }),
+  // Background sync: start a job, then poll syncJob() until status != "running".
+  startSyncJob: (
+    host: string,
+    body: { album_id?: string; asset_ids?: string[]; target_album?: string },
+  ) =>
+    request<SyncJobInfo>(`/frames/${enc(host)}/sync/jobs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  syncJob: (host: string, id: string) =>
+    request<SyncJobInfo>(`/frames/${enc(host)}/sync/jobs/${enc(id)}`),
   upload: (host: string, files: File[], targetAlbum?: string) => {
     const form = new FormData();
     files.forEach((f) => form.append("files", f));
@@ -78,7 +90,7 @@ export const api = {
   subscriptions: (host: string) =>
     request<Subscription[]>(`/frames/${enc(host)}/subscriptions`),
   subscribe: (host: string, albumId: string, targetAlbum: string) =>
-    request<SyncResult>(`/frames/${enc(host)}/subscriptions`, {
+    request<SyncJobInfo>(`/frames/${enc(host)}/subscriptions`, {
       method: "POST",
       body: JSON.stringify({ album_id: albumId, target_album: targetAlbum }),
     }),

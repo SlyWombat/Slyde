@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { Album, SyncResult } from "../api/types";
+import type { Album, SyncJobInfo, SyncResult } from "../api/types";
 
 type Tab = "immich" | "upload";
 
@@ -89,9 +89,57 @@ function SyncSummary({ result }: { result: SyncResult }) {
   );
 }
 
+function JobProgress({ info }: { info: SyncJobInfo }) {
+  const r = info.result;
+  const processed = r.uploaded + r.skipped + r.failed;
+  const pct = r.total ? Math.round((processed / r.total) * 100) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="h-2 overflow-hidden rounded-full bg-ink">
+        <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="text-xs text-slate-400">
+        Syncing… {r.uploaded} added
+        {r.skipped > 0 && ` · ${r.skipped} kept`}
+        {r.total > 0 && ` · ${processed}/${r.total}`}
+      </div>
+    </div>
+  );
+}
+
+// Starts a background sync job and polls it to completion, invalidating views when it finishes.
+function useSyncJob(host: string) {
+  const qc = useQueryClient();
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const job = useQuery({
+    queryKey: ["sync-job", host, jobId],
+    queryFn: () => api.syncJob(host, jobId!),
+    enabled: !!jobId,
+    refetchInterval: (q) => (!q.state.data || q.state.data.status === "running" ? 1000 : false),
+  });
+  const status = job.data?.status;
+  useEffect(() => {
+    if (status && status !== "running") {
+      qc.invalidateQueries({ queryKey: ["albums", host] });
+      qc.invalidateQueries({ queryKey: ["subscriptions", host] });
+    }
+  }, [status, host, qc]);
+  const start = async (starter: () => Promise<SyncJobInfo>) => {
+    setStartError(null);
+    setJobId(null);
+    try {
+      setJobId((await starter()).id);
+    } catch (e) {
+      setStartError((e as Error).message);
+    }
+  };
+  const running = (!!jobId && !job.data) || status === "running";
+  return { info: job.data, start, running, startError };
+}
+
 // ----- Immich: searchable, sorted album list -----------------------------------
 function ImmichPicker({ host, target }: { host: string; target: string }) {
-  const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [album, setAlbum] = useState<Album | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -102,21 +150,7 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
     queryFn: () => api.immichAssets(album!.id),
     enabled: !!album,
   });
-  const sync = useMutation({
-    mutationFn: (body: { album_id?: string; asset_ids?: string[]; target_album?: string }) =>
-      api.sync(host, body),
-    onSuccess: () => {
-      setSelected(new Set());
-      qc.invalidateQueries({ queryKey: ["albums", host] });
-    },
-  });
-  const subscribe = useMutation({
-    mutationFn: () => api.subscribe(host, album!.id, target || album!.name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["albums", host] });
-      qc.invalidateQueries({ queryKey: ["subscriptions", host] });
-    },
-  });
+  const { info: job, start, running, startError } = useSyncJob(host);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -188,34 +222,36 @@ function ImmichPicker({ host, target }: { host: string; target: string }) {
       <div className="flex flex-wrap gap-2">
         <button
           className="btn-accent"
-          disabled={subscribe.isPending}
-          onClick={() => subscribe.mutate()}
+          disabled={running}
+          onClick={() => start(() => api.subscribe(host, album.id, target || album.name))}
           title="Mirror this album to a frame folder and keep it updated automatically"
         >
-          {subscribe.isPending ? "Syncing…" : "Sync & keep updated"}
+          Sync &amp; keep updated
         </button>
         <button
           className="btn"
-          disabled={sync.isPending}
-          onClick={() => sync.mutate(body())}
+          disabled={running}
+          onClick={() => start(() => api.startSyncJob(host, body()))}
           title="Copy the album's photos once (no automatic updates)"
         >
-          {sync.isPending ? "Adding…" : "Add once"}
+          Add once
         </button>
         <button
           className="btn"
-          disabled={sync.isPending || selected.size === 0}
-          onClick={() => sync.mutate(body([...selected]))}
+          disabled={running || selected.size === 0}
+          onClick={() => {
+            const ids = [...selected];
+            setSelected(new Set());
+            start(() => api.startSyncJob(host, body(ids)));
+          }}
         >
           Add selected ({selected.size})
         </button>
       </div>
-      {subscribe.data && <SyncSummary result={subscribe.data} />}
-      {sync.data && <SyncSummary result={sync.data} />}
-      {(sync.isError || subscribe.isError) && (
-        <div className="text-sm text-red-300">
-          {((sync.error ?? subscribe.error) as Error).message}
-        </div>
+      {job?.status === "running" && <JobProgress info={job} />}
+      {job?.status === "done" && <SyncSummary result={job.result} />}
+      {(job?.status === "error" || startError) && (
+        <div className="text-sm text-red-300">{job?.error ?? startError}</div>
       )}
       {assets.isLoading ? (
         <div className="text-sm text-slate-400">Loading photos…</div>

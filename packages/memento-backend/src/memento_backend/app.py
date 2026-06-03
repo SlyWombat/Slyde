@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings, get_settings
 from .frames import FrameService, FrameUnavailable
 from .immich import ImmichClient, ImmichError
+from .jobs import JobManager
 from .routers import frames, health, immich
 from .scheduler import SyncScheduler
 from .store import Store
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.immich_factory = immich_factory
         app.state.sync = sync_service
         app.state.scheduler = scheduler
+        app.state.jobs = JobManager()
         scheduler.start()
         try:
             yield

@@ -62,11 +62,21 @@ export interface SyncItem {
 }
 
 export interface SyncResult {
+  total: number;
   uploaded: number;
   skipped: number;
   failed: number;
   removed: number;
   items: SyncItem[];
+}
+
+export interface SyncJobInfo {
+  id: string;
+  host: string;
+  label: string;
+  status: "running" | "done" | "error";
+  error: string | null;
+  result: SyncResult;
 }
 
 export interface Subscription {

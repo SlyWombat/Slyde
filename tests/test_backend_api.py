@@ -102,6 +102,16 @@ def client(frame: EmulatedFrame, tmp_path) -> Iterator[ApiHarness]:  # type: ign
 F = f"/api/frames/{HOST}"
 
 
+def _await_job(client: ApiHarness, started: dict, tries: int = 300) -> dict:
+    """Poll a background sync job to completion (each GET pumps the harness event loop)."""
+    job = started
+    for _ in range(tries):
+        if job["status"] != "running":
+            return job
+        job = client.get(f"{F}/sync/jobs/{started['id']}").json()
+    raise AssertionError(f"job did not finish: {job}")
+
+
 def test_health(client: ApiHarness) -> None:
     body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["immich_configured"] is True
@@ -192,6 +202,19 @@ def test_current_image_after_sync(client: ApiHarness, frame: EmulatedFrame) -> N
     assert body["image"] in frame.state.photos
 
 
+def test_sync_job_runs_in_background(client: ApiHarness, frame: EmulatedFrame) -> None:
+    started = client.post(f"{F}/sync/jobs", json={"album_id": "a1"}).json()
+    assert started["status"] in {"running", "done"}
+    job = _await_job(client, started)
+    assert job["status"] == "done"
+    assert job["result"]["uploaded"] == 1
+    assert job["result"]["total"] >= 1
+
+
+def test_sync_job_404_for_unknown_id(client: ApiHarness) -> None:
+    assert client.get(f"{F}/sync/jobs/nope").status_code == 404
+
+
 def test_immich_albums(client: ApiHarness) -> None:
     albums = client.get("/api/immich/albums").json()
     assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]
@@ -228,24 +251,30 @@ def _cats_count(client: ApiHarness) -> int:
 def test_subscription_mirror_lifecycle(client: ApiHarness, frame: EmulatedFrame) -> None:
     client.app.state.sync._immich_factory = MutableImmich
 
-    # Subscribe: mirrors the Immich album onto a frame album and syncs now.
+    def subscribe() -> dict:
+        started = client.post(
+            f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}
+        ).json()
+        job = _await_job(client, started)
+        assert job["status"] == "done", job
+        return job["result"]
+
+    # Subscribe: mirrors the Immich album onto a frame album and syncs now (in the background).
     MutableImmich.assets = [_cat(1)]
-    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
-    assert res["uploaded"] == 1
+    assert subscribe()["uploaded"] == 1
     subs = client.get(f"{F}/subscriptions").json()
     assert len(subs) == 1 and subs[0]["target_album"] == "Cats"
     assert _cats_count(client) == 1
 
     # A new Immich item is mirrored in (existing one is skipped, not re-uploaded).
     MutableImmich.assets = [_cat(1), _cat(2)]
-    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
+    res = subscribe()
     assert res["uploaded"] == 1 and res["skipped"] == 1
     assert _cats_count(client) == 2
 
     # A removed Immich item is dropped from the frame album (1:1 mirror).
     MutableImmich.assets = [_cat(2)]
-    res = client.post(f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}).json()
-    assert res["removed"] == 1
+    assert subscribe()["removed"] == 1
     assert _cats_count(client) == 1
 
     # Unsubscribe stops syncing.

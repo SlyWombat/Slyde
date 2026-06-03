@@ -90,11 +90,23 @@ class SyncItem(BaseModel):
 
 
 class SyncResult(BaseModel):
+    total: int = 0  # assets considered (for progress)
     uploaded: int = 0
     skipped: int = 0
     failed: int = 0
     removed: int = 0
     items: list[SyncItem] = Field(default_factory=list)
+
+
+class SyncJobInfo(BaseModel):
+    """A background sync job and its live progress (poll until ``status`` != 'running')."""
+
+    id: str
+    host: str
+    label: str
+    status: str  # "running" | "done" | "error"
+    error: str | None = None
+    result: SyncResult
 
 
 class SubscribeRequest(BaseModel):

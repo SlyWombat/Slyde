@@ -93,3 +93,13 @@ def maybe_des_decrypt(field: str) -> str:
         return des_decrypt(field)
     except Exception:
         return field
+
+
+def maybe_aes_decrypt(text: str) -> str:
+    """File convention (album/current-album): plaintext JSON iff it starts with ``{``, else AES."""
+    if not text or text.lstrip().startswith("{"):
+        return text
+    try:
+        return aes_decrypt(text)
+    except Exception:
+        return text

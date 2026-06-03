@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from dataclasses import dataclass, field
 
+from memento_core.albums import ALBUM_PHOTOS, AlbumData
+from memento_core.client import image_to_thumb
 from memento_core.protocol import JsonDict
+
+# A minimal valid 1x1 PNG, used as the emulator's stand-in thumbnail.
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000a49444154789c6300010000050001"
+    "0d0a2db40000000049454e44ae426082"
+)
 
 # Modelled on a real firmware-6.02 GetConfig response. Wi-Fi values are placeholders — the real
 # device leaks its actual credentials here, which is exactly why this emulator uses fakes.
@@ -53,28 +63,54 @@ class FrameState:
     ip: str = "127.0.0.1"
     config: JsonDict = field(default_factory=lambda: dict(DEFAULT_CONFIG))
     photos: dict[str, bytes] = field(default_factory=dict)
-    current_album: str = "Default"
+    albums: AlbumData = field(default_factory=AlbumData)
+    current_album: str = ALBUM_PHOTOS
     current_image: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def __post_init__(self) -> None:
         self.config["Name"] = self.name
         self.config["GUID"] = self.config.get("GUID", DEFAULT_CONFIG["GUID"])
+        # The frame always keeps the reserved "Photos" album holding the full library.
+        self.albums.add_album(ALBUM_PHOTOS)
 
     # -- photos ---------------------------------------------------------------
     def add_photo(self, name: str, data: bytes) -> None:
         with self._lock:
-            self.photos[name.lower()] = data
+            key = name.lower()
+            self.photos[key] = data
+            self.albums.add_image(ALBUM_PHOTOS, key)
             if not self.current_image:
-                self.current_image = name.lower()
+                self.current_image = key
 
     def remove_photo(self, name: str) -> bool:
         with self._lock:
-            return self.photos.pop(name.lower(), None) is not None
+            key = name.lower()
+            for album in self.albums.albums:
+                if key in album.images:
+                    album.images.remove(key)
+            return self.photos.pop(key, None) is not None
 
     def photo_names(self) -> list[str]:
         with self._lock:
             return sorted(self.photos)
+
+    # -- albums & thumbnails --------------------------------------------------
+    def set_albums(self, album_data: AlbumData) -> None:
+        with self._lock:
+            self.albums = album_data
+
+    def thumbnails_list_text(self) -> str:
+        version = self.config.get("SoftwareVersion", "6.02")
+        with self._lock:
+            lines = [f"Memento Version {version}"]
+            for name, data in sorted(self.photos.items()):
+                md5 = hashlib.md5(data).hexdigest()
+                lines.append(f"{image_to_thumb(name)}|{md5}")
+        return "\n".join(lines)
+
+    def thumbnail_for(self, thumb_filename: str) -> bytes:
+        return _TINY_PNG
 
     # -- config ---------------------------------------------------------------
     def update_config(self, patch: JsonDict) -> None:

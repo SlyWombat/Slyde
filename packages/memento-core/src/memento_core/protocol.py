@@ -133,6 +133,15 @@ class Transfer(IntEnum):
     SendAlbumsFailed = 29
 
 
+# The device serializes enum fields (m_Action) as their string NAMES (Newtonsoft
+# StringEnumConverter), while it accepts integers on input. Map type -> enum to normalize.
+_ENUM_BY_TYPE: dict[str, type[IntEnum]] = {
+    T_CHANGE_SETUP: Setup,
+    T_CONTROL_FLOW: Flow,
+    T_TRANSFER_FILE: Transfer,
+}
+
+
 @dataclass
 class Message:
     """A decoded control-channel message."""
@@ -143,8 +152,30 @@ class Message:
 
     @property
     def action(self) -> int:
+        """The action as an int, accepting either an integer or an enum-name string."""
         value = self.obj.get("m_Action")
-        return int(value) if value is not None else -1
+        if value is None:
+            return -1
+        if isinstance(value, str):
+            enum = _ENUM_BY_TYPE.get(self.type)
+            if enum is not None and value in enum.__members__:
+                return int(enum[value].value)
+            try:
+                return int(value)
+            except ValueError:
+                return -1
+        return int(value)
+
+    @property
+    def file_size(self) -> int:
+        """Transfer size announced by the frame (top-level field or the data JSON 'filesize')."""
+        top = self.obj.get("m_FileSize")
+        if top:
+            return int(top)
+        payload = self.json()
+        if isinstance(payload, dict) and payload.get("filesize"):
+            return int(payload["filesize"])
+        return 0
 
     def data(self) -> str:
         """Decrypted data sub-payload (from whichever field this command type uses)."""
@@ -169,10 +200,29 @@ def encode(
     return f"{type_name}|{json.dumps(obj)}|{cid}|{EOF}".encode()
 
 
-def encode_reply(type_name: str, action: int, *, data: str = "", cid: int = 0) -> bytes:
-    """Build a device-style reply, including the Newtonsoft ``$type`` envelope."""
+def action_name(type_name: str, action: int) -> str | int:
+    """The enum member name for an action (as the device serializes it), or the int if unknown."""
+    enum = _ENUM_BY_TYPE.get(type_name)
+    if enum is not None:
+        try:
+            return enum(action).name
+        except ValueError:
+            pass
+    return int(action)
+
+
+def encode_reply(
+    type_name: str, action: int, *, data: str = "", file_size: int | None = None, cid: int = 0
+) -> bytes:
+    """Build a device-style reply: Newtonsoft ``$type`` envelope + string-named ``m_Action``."""
     full = f"{type_name}, {_ASSEMBLY}"
-    obj: dict[str, object] = {"$types": {full: "1"}, "$type": "1", "m_Action": int(action)}
+    obj: dict[str, object] = {
+        "$types": {full: "1"},
+        "$type": "1",
+        "m_Action": action_name(type_name, action),
+    }
+    if file_size is not None:
+        obj["m_FileSize"] = int(file_size)
     if data:
         obj[DATA_FIELD.get(type_name, "sData")] = crypto.des_encrypt(data)
     return f"{type_name}|{json.dumps(obj)}|{cid}|{EOF}".encode()

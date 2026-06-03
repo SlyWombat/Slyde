@@ -146,6 +146,36 @@ Broadcast (255.255.255.255:2015) does not traverse Tailscale. With a subnet rout
 the frame's LAN (here 192.168.10.0/24), reach the frame by **unicast**: scan TCP 2017/2018 to
 find it, then connect directly — discovery broadcast is not required once the IP is known.
 
+## Albums & thumbnails (recovered + validated live, 2026-06-03)
+
+### `m_Action` is serialized as the enum NAME
+The device serializes enum fields with Newtonsoft `StringEnumConverter`, so replies carry
+`"m_Action":"GetAlbumsStarted"` (a string), while it still accepts integers on input. Decoders
+must accept both. Transfer size is announced in the top-level `m_FileSize` field.
+
+### `AlbumData.json` (GetAlbums / SendAlbums) — **AES-encrypted**
+Unlike command payloads (DES), the album file uses the **AES** cipher (`Cadre.Utils.Decrypt`,
+same key as discovery). Plaintext iff it starts with `{`. Decrypted shape (flat, indexed keys):
+```json
+{ "AlbumName_0": "Photos_$%^&(*@#!", "ImageName_0": ["a.jpg","b.jpg"],
+  "AlbumName_1": "Holidays",         "ImageName_1": ["a.jpg"] }
+```
+- Images are referenced by **filename**; the same file can be in several albums.
+- Three **reserved** albums always exist: `Photos_$%^&(*@#!`, `Evening_$%^&(*@#!`,
+  `Remote_$%^&(*@#!` (suffix `_$%^&(*@#!`). "Photos" holds the entire library.
+- Limits: MAX_ALBUMS 67, MAX_IMAGES 3000, filename ≤ 64 chars; thumbnails 256×170.
+- Create/modify albums by editing this structure and `SendAlbums` it back (AES-encrypted).
+  GetThumbnails request: `{"dstfilename":"<name>.thumb.png"}`.
+
+### `ThumbnailsList.txt` (GetThumbnailsList) — **plaintext**
+A header line `Memento Version <ver>` followed by one line per image:
+```
+<imagename>.thumb.png|<md5-of-thumbnail>
+```
+Individual thumbnails are fetched with `GetThumbnails` as `<imagename>.thumb.png` (PNG bytes).
+
+> Confirmed against frame "Living Room": 33 albums (3 reserved + 30 user albums), 1164 images.
+
 ## Open items to confirm against the live device (Phase 2)
 - Exact `GetConfig`/`GetCurrentAlbum`/`GetAlbums` JSON schemas (read `SetupData.cs`,
   `Albums.cs` for the serializers; verify on the wire).

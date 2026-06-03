@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from . import crypto
+from .albums import AlbumData, parse_album_data
 from .control import ControlChannel
 from .protocol import (
     DEFAULT_PORTS,
@@ -19,6 +21,9 @@ from .protocol import (
     Transfer,
 )
 from .transfer import FileChannel
+
+ALBUM_DATA_FILE = "AlbumData.json"
+THUMBNAILS_LIST_FILE = "ThumbnailsList.txt"
 
 
 class FrameError(RuntimeError):
@@ -89,7 +94,46 @@ class FrameClient:
             T_CONTROL_FLOW, Flow.DeleteImage, data=json.dumps({"filenames": [filename]})
         )
 
-    # -- file transfer --------------------------------------------------------
+    # -- file transfer (generic) ----------------------------------------------
+    # Transfer actions come in groups of 5: base, +1 Started, +2 Ended, +3 Succeeded, +4 Failed.
+    def _download(self, base: Transfer, dest: str) -> bytes:
+        started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
+        self.control.send(T_TRANSFER_FILE, base, data=json.dumps({"dstfilename": dest}))
+        s = self.control.wait_for(T_TRANSFER_FILE, [started, failed])
+        if s.action == failed:
+            raise FrameError(f"frame failed to start transfer {base.name}")
+        data = self.file.recv_bytes(s.file_size) if s.file_size else b""
+        self.control.send(T_TRANSFER_FILE, ended, data=json.dumps({"dstfilename": dest}))
+        self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
+        return data
+
+    def _upload(
+        self,
+        base: Transfer,
+        data: bytes,
+        dest: str,
+        *,
+        progress: Callable[[int, int], None] | None = None,
+        info: JsonDict | None = None,
+    ) -> None:
+        started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
+        payload = json.dumps(
+            {
+                "srcfilename": dest,
+                "dstfilename": dest,
+                "filesize": str(len(data)),
+                "info": info or {},
+            }
+        )
+        self.control.send(T_TRANSFER_FILE, base, data=payload)
+        self.control.wait_for(T_TRANSFER_FILE, [started, failed])
+        self.file.send_bytes(data, progress=progress)
+        self.control.send(T_TRANSFER_FILE, ended, data=payload)
+        result = self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
+        if result.action == failed:
+            raise FrameError(f"frame rejected transfer {base.name} of {dest!r}")
+
+    # -- images ---------------------------------------------------------------
     def upload_image(
         self,
         data: bytes,
@@ -99,49 +143,63 @@ class FrameClient:
         progress: Callable[[int, int], None] | None = None,
     ) -> None:
         """Upload ``data`` as ``dest_name`` (WriteFile handshake + raw bytes on file channel)."""
-        payload = json.dumps(
-            {
-                "srcfilename": dest_name,
-                "dstfilename": dest_name,
-                "filesize": str(len(data)),
-                "info": info or {},
-            }
-        )
-        self.control.send(T_TRANSFER_FILE, Transfer.WriteFile, data=payload)
-        self.control.wait_for(
-            T_TRANSFER_FILE, [Transfer.WriteFileStarted, Transfer.WriteFileFailed]
-        )
-        self.file.send_bytes(data, progress=progress)
-        self.control.send(T_TRANSFER_FILE, Transfer.WriteFileEnded, data=payload)
-        result = self.control.wait_for(
-            T_TRANSFER_FILE, [Transfer.WriteFileSucceeded, Transfer.WriteFileFailed]
-        )
-        if result.action == Transfer.WriteFileFailed:
-            raise FrameError(f"frame rejected upload of {dest_name!r}")
+        self.upload(data, dest_name, info=info, progress=progress)
+
+    def upload(
+        self,
+        data: bytes,
+        dest_name: str,
+        *,
+        info: JsonDict | None = None,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> None:
+        self._upload(Transfer.WriteFile, data, dest_name, info=info, progress=progress)
 
     def upload_file(self, path: str | Path, dest_name: str | None = None, **kwargs: object) -> None:
         p = Path(path)
         self.upload_image(p.read_bytes(), dest_name or p.name, **kwargs)  # type: ignore[arg-type]
 
-    def get_albums(self) -> bytes:
-        """Request the albums data file; returns the raw bytes the frame sends."""
-        self.control.send(
-            T_TRANSFER_FILE, Transfer.GetAlbums, data=json.dumps({"dstfilename": "albums.dat"})
+    # -- albums ---------------------------------------------------------------
+    def get_album_data(self) -> AlbumData:
+        """Download + AES-decrypt + parse the frame's album structure."""
+        raw = self._download(Transfer.GetAlbums, ALBUM_DATA_FILE).decode("utf-8", "replace")
+        return parse_album_data(crypto.maybe_aes_decrypt(raw))
+
+    def send_album_data(self, album_data: AlbumData) -> None:
+        """AES-encrypt + upload the album structure back to the frame."""
+        encrypted = crypto.aes_encrypt(album_data.to_json()).encode("utf-8")
+        self._upload(Transfer.SendAlbums, encrypted, ALBUM_DATA_FILE)
+
+    # -- thumbnails -----------------------------------------------------------
+    def get_thumbnails_list(self) -> list[tuple[str, str]]:
+        """Return (image_filename, md5) for every image on the frame (from ThumbnailsList.txt)."""
+        text = self._download(Transfer.GetThumbnailsList, THUMBNAILS_LIST_FILE).decode(
+            "utf-8", "replace"
         )
-        started = self.control.wait_for(
-            T_TRANSFER_FILE, [Transfer.GetAlbumsStarted, Transfer.GetAlbumsFailed]
-        )
-        if started.action == Transfer.GetAlbumsFailed:
-            raise FrameError("frame failed to start albums transfer")
-        size = int(_as_dict(started.json()).get("filesize", 0))
-        data = self.file.recv_bytes(size) if size else b""
-        self.control.send(
-            T_TRANSFER_FILE, Transfer.GetAlbumsEnded, data=json.dumps({"dstfilename": "albums.dat"})
-        )
-        self.control.wait_for(
-            T_TRANSFER_FILE, [Transfer.GetAlbumsSucceeded, Transfer.GetAlbumsFailed]
-        )
-        return data
+        out: list[tuple[str, str]] = []
+        for line in text.splitlines():
+            if "|" not in line:
+                continue  # header line ("Memento Version x.y")
+            name, _, md5 = line.partition("|")
+            out.append((thumb_to_image(name.strip()), md5.strip()))
+        return out
+
+    def get_thumbnail(self, image_filename: str) -> bytes:
+        """Fetch the ``<name>.thumb.png`` thumbnail bytes for an image."""
+        return self._download(Transfer.GetThumbnails, image_to_thumb(image_filename))
+
+
+def image_to_thumb(image_filename: str) -> str:
+    stem = image_filename.rsplit(".", 1)[0]
+    return f"{stem}.thumb.png"
+
+
+def thumb_to_image(thumb_filename: str) -> str:
+    return (
+        thumb_filename[: -len(".thumb.png")] + ".jpg"
+        if thumb_filename.endswith(".thumb.png")
+        else thumb_filename
+    )
 
 
 def _as_dict(value: object) -> JsonDict:

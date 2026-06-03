@@ -16,6 +16,8 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from memento_core.albums import parse_album_data
+from memento_core.crypto import aes_encrypt, maybe_aes_decrypt
 from memento_core.protocol import (
     DEFAULT_PORTS,
     MAGIC,
@@ -24,6 +26,7 @@ from memento_core.protocol import (
     T_TRANSFER_FILE,
     Decoder,
     Flow,
+    JsonDict,
     Message,
     Ports,
     Setup,
@@ -179,9 +182,16 @@ class EmulatedFrame:
             self._dispatch_transfer(conn, ip, msg)
 
     def _reply(
-        self, conn: socket.socket, type_name: str, action: int, *, data: str = "", cid: int = 0
+        self,
+        conn: socket.socket,
+        type_name: str,
+        action: int,
+        *,
+        data: str = "",
+        file_size: int | None = None,
+        cid: int = 0,
     ) -> None:
-        conn.sendall(encode_reply(type_name, action, data=data, cid=cid))
+        conn.sendall(encode_reply(type_name, action, data=data, file_size=file_size, cid=cid))
 
     def _dispatch_setup(self, conn: socket.socket, msg: Message) -> None:
         action = msg.action
@@ -225,26 +235,48 @@ class EmulatedFrame:
         else:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
 
+    def _serve_download(self, conn: socket.socket, ip: str, started: int, blob: bytes) -> None:
+        self._reply(conn, T_TRANSFER_FILE, started, file_size=len(blob))
+        self._file_socket_for(ip).sendall(blob)
+
+    def _serve_upload(
+        self, conn: socket.socket, ip: str, info: JsonDict, started: int
+    ) -> tuple[str, bytes]:
+        dest = (info.get("dstfilename") or "upload").lower()
+        size = int(info.get("filesize", 0) or 0)
+        self._reply(conn, T_TRANSFER_FILE, started, data=json.dumps(info))
+        data = _recv_exact(self._file_socket_for(ip), size) if size else b""
+        return dest, data
+
     def _dispatch_transfer(self, conn: socket.socket, ip: str, msg: Message) -> None:
         action = msg.action
         payload = msg.json()
         info = payload if isinstance(payload, dict) else {}
+        # Uploads (client -> frame)
         if action == Transfer.WriteFile:
-            dest = (info.get("dstfilename") or "upload.jpg").lower()
-            size = int(info.get("filesize", 0) or 0)
-            self._reply(conn, T_TRANSFER_FILE, Transfer.WriteFileStarted, data=json.dumps(info))
-            fs = self._file_socket_for(ip)
-            data = _recv_exact(fs, size) if size else b""
+            dest, data = self._serve_upload(conn, ip, info, Transfer.WriteFileStarted)
             self.state.add_photo(dest, data)
         elif action == Transfer.WriteFileEnded:
             self._reply(conn, T_TRANSFER_FILE, Transfer.WriteFileSucceeded)
+        elif action == Transfer.SendAlbums:
+            _, data = self._serve_upload(conn, ip, info, Transfer.SendAlbumsStarted)
+            text = maybe_aes_decrypt(data.decode("utf-8", "replace"))
+            self.state.set_albums(parse_album_data(text))
+        elif action == Transfer.SendAlbumsEnded:
+            self._reply(conn, T_TRANSFER_FILE, Transfer.SendAlbumsSucceeded)
+        # Downloads (frame -> client)
         elif action == Transfer.GetAlbums:
-            blob = json.dumps(
-                {"album": self.state.current_album, "images": self.state.photo_names()}
-            ).encode()
-            started = {"dstfilename": "albums.dat", "filesize": str(len(blob))}
-            self._reply(conn, T_TRANSFER_FILE, Transfer.GetAlbumsStarted, data=json.dumps(started))
-            fs = self._file_socket_for(ip)
-            fs.sendall(blob)
+            blob = aes_encrypt(self.state.albums.to_json()).encode("utf-8")
+            self._serve_download(conn, ip, Transfer.GetAlbumsStarted, blob)
         elif action == Transfer.GetAlbumsEnded:
             self._reply(conn, T_TRANSFER_FILE, Transfer.GetAlbumsSucceeded)
+        elif action == Transfer.GetThumbnailsList:
+            blob = self.state.thumbnails_list_text().encode("utf-8")
+            self._serve_download(conn, ip, Transfer.GetThumbnailsListStarted, blob)
+        elif action == Transfer.GetThumbnailsListEnded:
+            self._reply(conn, T_TRANSFER_FILE, Transfer.GetThumbnailsListSucceeded)
+        elif action == Transfer.GetThumbnails:
+            blob = self.state.thumbnail_for(str(info.get("dstfilename", "")))
+            self._serve_download(conn, ip, Transfer.GetThumbnailsStarted, blob)
+        elif action == Transfer.GetThumbnailsEnded:
+            self._reply(conn, T_TRANSFER_FILE, Transfer.GetThumbnailsSucceeded)

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -57,6 +57,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(ImmichError)
     async def _immich_error(_request: Request, exc: ImmichError) -> JSONResponse:
         return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+    @app.middleware("http")
+    async def _spa_cache_control(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Cache content-hashed assets forever, but always revalidate index.html so a new
+        deploy is picked up without a manual hard-refresh."""
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/assets/"):
+            response.headers["cache-control"] = "public, max-age=31536000, immutable"
+        elif response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["cache-control"] = "no-cache"
+        return response
 
     app.include_router(health.router, prefix="/api")
     app.include_router(frames.router, prefix="/api")

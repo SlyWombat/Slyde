@@ -220,6 +220,28 @@ def test_immich_albums(client: ApiHarness) -> None:
     assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]
 
 
+def test_spa_cache_headers(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    static = tmp_path / "static"
+    (static / "assets").mkdir(parents=True)
+    (static / "index.html").write_text("<!doctype html><html></html>")
+    (static / "assets" / "app-abc123.js").write_text("console.log(1)")
+    settings = Settings(
+        frame_discovery=False,
+        immich_base_url="http://immich.test",
+        immich_api_key="k",
+        database_url=f"sqlite:///{tmp_path}/spa.db",
+        static_dir=str(static),
+    )
+    harness = ApiHarness(settings)
+    try:
+        # index.html must always revalidate so a deploy is picked up without a hard refresh.
+        assert harness.get("/").headers["cache-control"] == "no-cache"
+        # content-hashed assets can be cached forever.
+        assert "immutable" in harness.get("/assets/app-abc123.js").headers["cache-control"]
+    finally:
+        harness.close()
+
+
 class MutableImmich:
     """Fake Immich whose 'Cats' album contents can change between syncs."""
 

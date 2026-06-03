@@ -33,13 +33,19 @@ That's it — `FRAME_CANVAS` defaults to the 35″ frame's 3240×2160; change it
 > (VLANs, or Docker bridge networking), set `FRAME_HOST` to the frame's IP.
 
 ## Using the app
-- **Frame panel** (top right): the frame's name, firmware, screen, and **Previous / Next** buttons.
-- **Settings**: toggle display on/off, shuffle, night mode, portrait, and the slide duration.
-- **Immich albums** (left): pick an album, then either **Sync whole album** or tick individual
-  photos and **Sync selected**. Each photo is resized/letterboxed to the frame and uploaded.
-- **On the frame**: everything you've synced; **Remove** deletes a photo from the frame.
+1. **Pick a frame.** The start screen lists frames found on your network — click one to manage it
+   (or **Rescan**). If discovery can't reach it, set `FRAME_HOST` and it appears automatically.
+2. **See what's on the frame.** The frame's own **albums** are shown (including the built-in
+   *Photos* album holding everything); click an album to view its **existing thumbnails**.
+   **Create** a new album with the box at the top right. Hover a thumbnail and click ✕ to remove it.
+3. **Add photos to an album.** Select the target album, then in **Add photos**:
+   - **From Immich** — choose an Immich album, then *Add whole album* or tick photos and *Add selected*.
+   - **Upload files** — pick image files from your computer to send directly.
+   Each image is auto-resized/letterboxed to the frame and added to the chosen album (or *Photos*).
+4. **Control & settings** (right): name/firmware, **Previous/Next**, and toggles for display on/off,
+   shuffle, night mode, portrait, and slide duration.
 
-Re-running a sync is safe — unchanged photos are skipped (tracked by content hash).
+Re-running an Immich sync is safe — unchanged photos are skipped (tracked by content hash).
 
 ## Running without Docker (development)
 ```bash
@@ -50,10 +56,15 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
 ## Try it without a real frame
-A faithful frame **emulator** ships with the project, so you can explore safely:
+A faithful frame **emulator** ships with the project, with a **visual web UI** that shows what the
+frame would display (current image, albums, photos) and updates live as you upload.
 ```bash
-uv run memento-emulator --host 127.0.0.1 --name "Test Frame"
-# then point the backend at it: FRAME_HOST=127.0.0.1
+uv run memento-emulator --name "Test Frame"     # web UI on http://localhost:8099
+# point the backend at it:  FRAME_HOST=127.0.0.1
+```
+Or run it as its own container:
+```bash
+docker compose -f deploy/emulator/compose.yaml up --build   # web UI on :8099
 ```
 
 ## Privacy & security

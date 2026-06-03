@@ -1,7 +1,8 @@
 """Frame service: an async façade over the synchronous ``memento_core`` client.
 
-Blocking socket operations run in a worker thread so they don't stall the event loop. The frame
-target is resolved from config (explicit host) or discovery — never hardcoded.
+Blocking socket operations run in a worker thread so they don't stall the event loop. Operations
+are host-parameterized so the app can manage several frames; the host is resolved from an explicit
+value, config, or discovery — never hardcoded.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from memento_core import FrameClient, Ports, Setup, discover
+from memento_core import AlbumData, FrameClient, FrameInfo, Ports, Setup, discover
 
 from .config import Settings
 
@@ -26,53 +27,85 @@ class FrameService:
         self._settings = settings
         self._ports = ports or Ports()
 
-    async def resolve_host(self) -> str:
+    async def discover_frames(self, timeout: float = 4.0) -> list[FrameInfo]:
+        return await asyncio.to_thread(discover, timeout=timeout, ports=self._ports)
+
+    async def resolve_host(self, host: str | None = None) -> str:
+        if host:
+            return host
         if self._settings.frame_host:
             return self._settings.frame_host
         if not self._settings.frame_discovery:
-            raise FrameUnavailable("no FRAME_HOST set and discovery disabled")
-        frames = await asyncio.to_thread(discover, timeout=4.0, ports=self._ports)
+            raise FrameUnavailable("no frame host given and discovery disabled")
+        frames = await self.discover_frames()
         if not frames:
             raise FrameUnavailable("no frame found via discovery")
         return frames[0].ip
 
-    async def _with_client(self, fn: Callable[[FrameClient], T]) -> T:
-        host = await self.resolve_host()
+    async def _with_client(self, host: str, fn: Callable[[FrameClient], T]) -> T:
+        resolved = await self.resolve_host(host)
 
         def run() -> T:
-            with FrameClient(host, ports=self._ports) as client:
+            with FrameClient(resolved, ports=self._ports) as client:
                 return fn(client)
 
         return await asyncio.to_thread(run)
 
-    async def get_config(self) -> dict[str, Any]:
-        return await self._with_client(lambda c: c.get_config())
+    # -- config / display -----------------------------------------------------
+    async def get_config(self, host: str) -> dict[str, Any]:
+        return await self._with_client(host, lambda c: c.get_config())
 
-    async def get_frame_time(self) -> dict[str, Any]:
-        return await self._with_client(lambda c: c.get_frame_time())
-
-    async def set_config(self, action: Setup, payload: dict[str, Any]) -> None:
-        await self._with_client(lambda c: c.change_setup(action, payload))
-
-    async def update_config(self, patch: dict[str, Any]) -> dict[str, Any]:
-        """Merge ``patch`` into the live config and push it back (verified GetConfig→SendConfig)."""
-
+    async def update_config(self, host: str, patch: dict[str, Any]) -> dict[str, Any]:
         def run(client: FrameClient) -> dict[str, Any]:
             config = client.get_config()
             config.update(patch)
             client.change_setup(Setup.SendConfig, config)
             return config
 
-        return await self._with_client(run)
+        return await self._with_client(host, run)
 
-    async def upload(self, data: bytes, dest_name: str) -> None:
-        await self._with_client(lambda c: c.upload_image(data, dest_name))
+    async def next_image(self, host: str) -> None:
+        await self._with_client(host, lambda c: c.next_image())
 
-    async def delete(self, dest_name: str) -> None:
-        await self._with_client(lambda c: c.delete_image(dest_name))
+    async def previous_image(self, host: str) -> None:
+        await self._with_client(host, lambda c: c.previous_image())
 
-    async def next_image(self) -> None:
-        await self._with_client(lambda c: c.next_image())
+    # -- albums & thumbnails --------------------------------------------------
+    async def get_album_data(self, host: str) -> AlbumData:
+        return await self._with_client(host, lambda c: c.get_album_data())
 
-    async def previous_image(self) -> None:
-        await self._with_client(lambda c: c.previous_image())
+    async def get_thumbnails_list(self, host: str) -> list[tuple[str, str]]:
+        return await self._with_client(host, lambda c: c.get_thumbnails_list())
+
+    async def get_thumbnail(self, host: str, image_filename: str) -> bytes:
+        return await self._with_client(host, lambda c: c.get_thumbnail(image_filename))
+
+    async def create_album(self, host: str, name: str) -> AlbumData:
+        def run(client: FrameClient) -> AlbumData:
+            data = client.get_album_data()
+            data.add_album(name)
+            client.send_album_data(data)
+            return data
+
+        return await self._with_client(host, run)
+
+    async def delete_photo(self, host: str, filename: str) -> None:
+        await self._with_client(host, lambda c: c.delete_image(filename))
+
+    # -- upload (with album assignment) ---------------------------------------
+    async def upload_images(
+        self, host: str, items: list[tuple[bytes, str]], album: str | None
+    ) -> None:
+        """Upload (data, dest_name) items; optionally add their filenames to ``album``."""
+
+        def run(client: FrameClient) -> None:
+            for data, dest in items:
+                client.upload_image(data, dest)
+            if album and items:
+                album_data = client.get_album_data()
+                album_data.add_album(album)
+                for _data, dest in items:
+                    album_data.add_image(album, dest.lower())
+                client.send_album_data(album_data)
+
+        await self._with_client(host, run)

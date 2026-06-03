@@ -38,6 +38,10 @@ src = [
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI uses callables as parameter defaults by design.
+extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Depends", "fastapi.Query"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true

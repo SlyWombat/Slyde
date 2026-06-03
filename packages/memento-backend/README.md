@@ -16,5 +16,12 @@ uv run memento-backend          # serves on $BIND_HOST:$BIND_PORT (default 0.0.0
 # OpenAPI docs at /docs
 ```
 
-Key endpoints (all under `/api`): `health`, `frame`, `frame/config`, `frame/next|previous`,
-`immich/albums`, `immich/albums/{id}/assets`, `sync`, `photos`.
+Key endpoints (all under `/api`):
+- `GET /frames` — discover frames (start screen); `GET /frames/{host}` — config
+- `GET /frames/{host}/albums`, `POST /frames/{host}/albums` (create)
+- `GET /frames/{host}/thumbnail/{image}` — thumbnail of an image on the frame
+- `POST /frames/{host}/sync` — sync Immich assets (optional `target_album`)
+- `POST /frames/{host}/upload` — direct multipart upload (optional `target_album`)
+- `POST /frames/{host}/next|previous`, `PATCH /frames/{host}/config`,
+  `DELETE /frames/{host}/photos/{filename}`
+- `GET /immich/albums`, `GET /immich/albums/{id}/assets`, `GET /immich/assets/{id}/thumbnail`

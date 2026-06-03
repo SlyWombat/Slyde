@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings, get_settings
 from .frames import FrameService
 from .immich import ImmichClient
-from .routers import frame, health, immich, sync
+from .routers import frames, health, immich
 from .store import Store
 from .sync import SyncService
 
@@ -37,9 +37,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Memento Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(health.router, prefix="/api")
-    app.include_router(frame.router, prefix="/api")
+    app.include_router(frames.router, prefix="/api")
     app.include_router(immich.router, prefix="/api")
-    app.include_router(sync.router, prefix="/api")
 
     if settings.static_dir and Path(settings.static_dir).is_dir():
         # Serve the built SPA (and let client-side routing handle unknown paths).

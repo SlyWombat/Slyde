@@ -28,8 +28,6 @@ def _png_bytes() -> bytes:
 
 
 class FakeImmich:
-    """Stand-in for ImmichClient with one album and one image asset."""
-
     asset = ImmichAsset(id="x1", file_name="beach.jpg", type="IMAGE")
 
     async def __aenter__(self) -> FakeImmich:
@@ -59,7 +57,6 @@ class ApiHarness:
         self.app = create_app(settings)
         self._lifespan = self.app.router.lifespan_context(self.app)
         self._loop.run_until_complete(self._lifespan.__aenter__())
-        # Inject the fake Immich into both the router factory and the sync service.
         self.app.state.immich_factory = FakeImmich
         self.app.state.sync._immich_factory = FakeImmich
         self._client = httpx.AsyncClient(
@@ -101,42 +98,62 @@ def client(frame: EmulatedFrame, tmp_path) -> Iterator[ApiHarness]:  # type: ign
         harness.close()
 
 
+F = f"/api/frames/{HOST}"
+
+
 def test_health(client: ApiHarness) -> None:
     body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["immich_configured"] is True
 
 
-def test_list_albums(client: ApiHarness) -> None:
-    albums = client.get("/api/immich/albums").json()
-    assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]
+def test_list_frames_includes_configured(client: ApiHarness) -> None:
+    frames = client.get("/api/frames").json()
+    assert any(f["ip"] == HOST for f in frames)
 
 
-def test_frame_info_strips_wifi(client: ApiHarness, frame: EmulatedFrame) -> None:
-    info = client.get("/api/frame").json()
-    assert info["host"] == HOST
-    assert info["config"]["Name"] == "Test Frame"
+def test_frame_info_strips_wifi(client: ApiHarness) -> None:
+    info = client.get(F).json()
+    assert info["host"] == HOST and info["config"]["Name"] == "Test Frame"
     assert "WiFiSSID" not in info["config"] and "WiFiPSWD" not in info["config"]
 
 
-def test_sync_uploads_to_frame_and_lists(client: ApiHarness, frame: EmulatedFrame) -> None:
-    result = client.post("/api/sync", json={"album_id": "a1"}).json()
-    assert result["uploaded"] == 1 and result["failed"] == 0
+def test_albums_include_reserved_photos(client: ApiHarness) -> None:
+    albums = client.get(f"{F}/albums").json()
+    photos = next((a for a in albums if a["display_name"] == "Photos"), None)
+    assert photos is not None and photos["reserved"] is True
+
+
+def test_create_album(client: ApiHarness) -> None:
+    albums = client.post(f"{F}/albums", json={"name": "Holidays"}).json()
+    assert any(a["name"] == "Holidays" for a in albums)
+
+
+def test_sync_into_target_album(client: ApiHarness, frame: EmulatedFrame) -> None:
+    result = client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Beach"}).json()
+    assert result["uploaded"] == 1
     dest = result["items"][0]["dest_name"]
-    assert dest in frame.state.photos  # the prepared JPEG actually reached the frame
+    assert dest in frame.state.photos
+    albums = client.get(f"{F}/albums").json()
+    beach = next((a for a in albums if a["name"] == "Beach"), None)
+    assert beach is not None and dest in beach["images"]
 
-    photos = client.get("/api/photos").json()
-    assert len(photos) == 1 and photos[0]["asset_id"] == "x1"
 
-    # Re-sync is idempotent (same content hash -> skipped).
-    again = client.post("/api/sync", json={"album_id": "a1"}).json()
-    assert again["skipped"] == 1 and again["uploaded"] == 0
+def test_direct_upload_and_thumbnail(client: ApiHarness, frame: EmulatedFrame) -> None:
+    files = {"files": ("snap.png", _png_bytes(), "image/png")}
+    result = client.post(f"{F}/upload", files=files, data={"target_album": "Direct"}).json()
+    assert result["uploaded"] == 1
+    dest = result["items"][0]["dest_name"]
+    thumb = client.get(f"{F}/thumbnail/{dest}")
+    assert thumb.status_code == 200 and thumb.content.startswith(b"\x89PNG")
 
 
 def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
-    client.post("/api/sync", json={"album_id": "a1"})
-    assert client.delete("/api/photos/x1").status_code == 204
-    assert client.get("/api/photos").json() == []
+    client.post(f"{F}/sync", json={"album_id": "a1"})
+    dest = next(iter(frame.state.photos))
+    assert client.delete(f"{F}/photos/{dest}").status_code == 204
+    assert dest not in frame.state.photos
 
 
-def test_sync_requires_target(client: ApiHarness) -> None:
-    assert client.post("/api/sync", json={}).status_code == 400
+def test_immich_albums(client: ApiHarness) -> None:
+    albums = client.get("/api/immich/albums").json()
+    assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]

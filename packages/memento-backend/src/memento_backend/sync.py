@@ -1,4 +1,4 @@
-"""Sync service: Immich assets -> image pipeline -> frame upload -> recorded state."""
+"""Sync service: Immich (or direct uploads) -> image pipeline -> frame, with album assignment."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from .store import Store, SyncedPhoto
 _MAX_NAME = 64  # frame filename limit (Cadre.Utils.VerifyFilename)
 
 
-def dest_name_for(asset: ImmichAsset) -> str:
-    """A frame-safe, unique .jpg filename derived from the asset (<= 64 chars)."""
-    stem = re.sub(r"[^a-z0-9]+", "-", asset.file_name.rsplit(".", 1)[0].lower()).strip("-")
-    suffix = f"-{asset.id[:8]}.jpg"
+def dest_name_for(file_name: str, unique: str) -> str:
+    """A frame-safe, unique .jpg filename (<= 64 chars) from a source name + a unique suffix."""
+    stem = re.sub(r"[^a-z0-9]+", "-", file_name.rsplit(".", 1)[0].lower()).strip("-")
+    suffix = f"-{unique[:8]}.jpg"
     return (stem[: _MAX_NAME - len(suffix)] or "photo") + suffix
 
 
@@ -48,9 +48,11 @@ class SyncService:
             return [await client.get_asset(aid) for aid in req.asset_ids]
         return []
 
-    async def sync(self, req: SyncRequest) -> SyncResult:
+    async def sync(self, host: str, req: SyncRequest) -> SyncResult:
+        """Sync Immich assets to ``host``, optionally adding them to ``req.target_album``."""
         result = SyncResult()
         canvas = self._settings.canvas
+        to_upload: list[tuple[bytes, str]] = []
         async with self._immich_factory() as client:
             assets = await self._assets_for(client, req)
             for asset in assets:
@@ -62,7 +64,7 @@ class SyncService:
                         )
                     )
                     continue
-                dest = dest_name_for(asset)
+                dest = dest_name_for(asset.file_name, asset.id)
                 try:
                     source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
                     digest = hashlib.sha256(source).hexdigest()
@@ -72,20 +74,20 @@ class SyncService:
                         result.items.append(
                             SyncItem(
                                 asset_id=asset.id,
-                                dest_name=dest,
+                                dest_name=existing.dest_name,
                                 status="skipped",
                                 detail="unchanged",
                             )
                         )
                         continue
                     prepared = await asyncio.to_thread(prepare_for_frame, source, canvas)
-                    await self._frame.upload(prepared, dest)
+                    to_upload.append((prepared, dest))
                     self._store.upsert(
                         SyncedPhoto(
                             asset_id=asset.id,
                             dest_name=dest,
                             content_hash=digest,
-                            album_id=req.album_id,
+                            album_id=req.target_album or req.album_id,
                             synced_at="",
                         )
                     )
@@ -103,12 +105,35 @@ class SyncService:
                             detail=str(exc)[:200],
                         )
                     )
+        if to_upload:
+            await self._frame.upload_images(host, to_upload, req.target_album)
         return result
 
-    async def remove(self, asset_id: str) -> bool:
-        record = self._store.get(asset_id)
-        if not record:
-            return False
-        await self._frame.delete(record.dest_name)
-        self._store.delete(asset_id)
-        return True
+    async def upload_files(
+        self, host: str, files: list[tuple[str, bytes]], target_album: str | None
+    ) -> SyncResult:
+        """Directly upload raw image files (no Immich), optionally into ``target_album``."""
+        result = SyncResult()
+        canvas = self._settings.canvas
+        to_upload: list[tuple[bytes, str]] = []
+        for file_name, raw in files:
+            dest = dest_name_for(file_name, hashlib.sha256(raw).hexdigest())
+            try:
+                prepared = await asyncio.to_thread(prepare_for_frame, raw, canvas)
+                to_upload.append((prepared, dest))
+                result.uploaded += 1
+                result.items.append(SyncItem(asset_id=file_name, dest_name=dest, status="uploaded"))
+            except Exception as exc:
+                result.failed += 1
+                result.items.append(
+                    SyncItem(
+                        asset_id=file_name, dest_name=dest, status="failed", detail=str(exc)[:200]
+                    )
+                )
+        if to_upload:
+            await self._frame.upload_images(host, to_upload, target_album)
+        return result
+
+    async def remove(self, host: str, filename: str) -> None:
+        await self._frame.delete_photo(host, filename)
+        self._store.delete_by_dest(filename)

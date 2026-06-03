@@ -30,6 +30,31 @@ class FrameInfo(BaseModel):
     config: dict[str, Any]
 
 
+class FrameSummary(BaseModel):
+    """A discovered frame, for the start/selection screen."""
+
+    name: str
+    ip: str
+    mac: str = ""
+    softver: float = 0.0
+    hardver: float = 0.0
+    size: int = 0
+    orientation: str = ""
+    guid: str = ""
+
+
+class FrameAlbum(BaseModel):
+    name: str
+    display_name: str
+    reserved: bool
+    image_count: int
+    images: list[str] = Field(default_factory=list)
+
+
+class CreateAlbumRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
 class ConfigPatch(BaseModel):
     """Partial frame settings. Only provided fields are changed (merged into the live config)."""
 
@@ -47,6 +72,9 @@ class ConfigPatch(BaseModel):
 class SyncRequest(BaseModel):
     album_id: str | None = None
     asset_ids: list[str] = Field(default_factory=list)
+    target_album: str | None = Field(
+        default=None, description="Frame album to add the synced images to (created if needed)"
+    )
 
 
 class SyncItem(BaseModel):

@@ -12,11 +12,13 @@ members = ["packages/*"]
 [tool.uv.sources]
 memento-core = { workspace = true }
 memento-emulator = { workspace = true }
+memento-backend = { workspace = true }
 
 [dependency-groups]
 dev = [
     "memento-core",
     "memento-emulator",
+    "memento-backend",
     "pytest>=8",
     "pytest-cov>=5",
     "ruff>=0.6",
@@ -26,7 +28,12 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["packages/memento-core/src", "packages/memento-emulator/src", "tests"]
+src = [
+    "packages/memento-core/src",
+    "packages/memento-emulator/src",
+    "packages/memento-backend/src",
+    "tests",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -35,7 +42,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
-files = ["packages/memento-core/src", "packages/memento-emulator/src"]
+plugins = ["pydantic.mypy"]
+files = [
+    "packages/memento-core/src",
+    "packages/memento-emulator/src",
+    "packages/memento-backend/src",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

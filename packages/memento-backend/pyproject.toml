@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memento-backend"
+version = "0.1.0"
+description = "FastAPI service to manage a Memento Smart Frame from an Immich library."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "memento-core",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pillow>=10.4",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+memento-backend = "memento_backend.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memento_backend"]
+
+[tool.hatch.metadata]
+allow-direct-references = true

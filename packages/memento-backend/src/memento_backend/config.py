@@ -1,0 +1,48 @@
+"""Runtime configuration (12-factor). Nothing deployment-specific is baked in here."""
+
+from __future__ import annotations
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """All configuration comes from the environment (or an ``.env`` file)."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
+
+    # Frame -------------------------------------------------------------------
+    frame_host: str = Field("", description="Explicit frame IP/host; empty enables discovery")
+    frame_discovery: bool = Field(True, description="Use UDP broadcast discovery when no host set")
+    frame_canvas: str = Field("3240x2160", description="Target image size WxH")
+
+    # Immich ------------------------------------------------------------------
+    immich_base_url: str = Field(
+        "", description="Immich instance base URL, e.g. http://immich:2283"
+    )
+    immich_api_key: str = Field("", description="Immich API key", repr=False)
+    immich_asset_size: str = Field("preview", description="Immich thumbnail size or 'original'")
+
+    # Service -----------------------------------------------------------------
+    database_url: str = Field("sqlite:///./memento.db", description="State store URL")
+    bind_host: str = Field("0.0.0.0", description="API bind host")
+    bind_port: int = Field(8080, description="API bind port")
+    static_dir: str = Field("", description="Built SPA directory to serve, if any")
+    log_level: str = Field("INFO", description="Logging level")
+
+    @property
+    def canvas(self) -> tuple[int, int]:
+        w, _, h = self.frame_canvas.lower().partition("x")
+        return int(w), int(h)
+
+    @property
+    def sqlite_path(self) -> str:
+        """Filesystem path from a ``sqlite:///`` URL (the only scheme supported today)."""
+        prefix = "sqlite:///"
+        if not self.database_url.startswith(prefix):
+            raise ValueError(f"unsupported DATABASE_URL: {self.database_url!r}")
+        return self.database_url[len(prefix) :]
+
+
+def get_settings() -> Settings:
+    return Settings()

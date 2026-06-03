@@ -153,9 +153,7 @@ class FrameState:
             if not names:
                 self.current_image = ""
             elif shuffle and len(names) > 1:
-                self.current_image = random.choice(
-                    [n for n in names if n != self.current_image]
-                )
+                self.current_image = random.choice([n for n in names if n != self.current_image])
             else:
                 try:
                     i = names.index(self.current_image)

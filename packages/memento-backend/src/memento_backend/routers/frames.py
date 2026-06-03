@@ -102,8 +102,13 @@ async def previous_image(host: str, frame: FrameDep) -> None:
 
 def _albums(data: object) -> list[FrameAlbum]:
     return [
-        FrameAlbum(name=a.name, display_name=a.display_name, reserved=a.reserved,
-                   image_count=len(a.images), images=a.images)
+        FrameAlbum(
+            name=a.name,
+            display_name=a.display_name,
+            reserved=a.reserved,
+            image_count=len(a.images),
+            images=a.images,
+        )
         for a in data.albums  # type: ignore[attr-defined]
     ]
 

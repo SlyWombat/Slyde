@@ -76,7 +76,9 @@ class SyncService:
             try:
                 source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
                 prepared = await asyncio.to_thread(
-                    prepare_for_frame, source, canvas,
+                    prepare_for_frame,
+                    source,
+                    canvas,
                     fit=self._settings.frame_fit,
                     crop_tolerance=self._settings.frame_crop_tolerance,
                 )
@@ -164,7 +166,9 @@ class SyncService:
             dest = dest_name_for(file_name, hashlib.sha256(raw).hexdigest())
             try:
                 prepared = await asyncio.to_thread(
-                    prepare_for_frame, raw, canvas,
+                    prepare_for_frame,
+                    raw,
+                    canvas,
                     fit=self._settings.frame_fit,
                     crop_tolerance=self._settings.frame_crop_tolerance,
                 )

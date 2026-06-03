@@ -289,9 +289,11 @@ class EmulatedFrame:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         elif action == Flow.DisplayImage:
             payload = msg.json()
-            name = payload.get("srcfilename") or payload.get("m_SourceFileName") if (
-                isinstance(payload, dict)
-            ) else None
+            name = (
+                payload.get("srcfilename") or payload.get("m_SourceFileName")
+                if (isinstance(payload, dict))
+                else None
+            )
             if name:
                 self.state.show_image(str(name))
             self._reply(conn, T_CONTROL_FLOW, action + 1)

@@ -24,7 +24,9 @@ class Settings(BaseSettings):
         "smart", description="Fit images to the canvas: contain|cover|blur|smart"
     )
     frame_crop_tolerance: float = Field(
-        0.12, ge=0.0, le=1.0,
+        0.12,
+        ge=0.0,
+        le=1.0,
         description="Smart mode: crop if <= this fraction of the long edge is lost, else blur-fill",
     )
 

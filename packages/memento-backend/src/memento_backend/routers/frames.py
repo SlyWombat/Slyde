@@ -44,22 +44,25 @@ async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSumma
         )
         for f in found
     ]
-    configured = settings.frame_host
-    if configured and not any(s.ip == configured for s in summaries):
+    have = {s.ip for s in summaries}
+    for host in settings.configured_hosts:
+        if host in have:
+            continue
         try:
-            cfg = await frame.get_config(configured)
-            summaries.append(
-                FrameSummary(
-                    name=str(cfg.get("Name", configured)),
-                    ip=configured,
-                    softver=float(cfg.get("SoftwareVersion", 0) or 0),
-                    size=int(cfg.get("ScreenSize", 0) or 0),
-                    orientation=str(cfg.get("Orientation", "")),
-                    guid=str(cfg.get("GUID", "")),
-                )
-            )
+            cfg = await frame.get_config(host)
         except (FrameUnavailable, OSError):
-            pass
+            continue
+        summaries.append(
+            FrameSummary(
+                name=str(cfg.get("Name", host)),
+                ip=host,
+                softver=float(cfg.get("SoftwareVersion", 0) or 0),
+                size=int(cfg.get("ScreenSize", 0) or 0),
+                orientation=str(cfg.get("Orientation", "")),
+                guid=str(cfg.get("GUID", "")),
+            )
+        )
+        have.add(host)
     return summaries
 
 

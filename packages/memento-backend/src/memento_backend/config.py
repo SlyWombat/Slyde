@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     # Frame -------------------------------------------------------------------
     frame_host: str = Field("", description="Explicit frame IP/host; empty enables discovery")
+    frame_hosts: str = Field(
+        "", description="Comma-separated extra frame hosts to always list (e.g. an emulator)"
+    )
     frame_discovery: bool = Field(True, description="Use UDP broadcast discovery when no host set")
     frame_canvas: str = Field("3240x2160", description="Target image size WxH")
 
@@ -29,6 +32,16 @@ class Settings(BaseSettings):
     bind_port: int = Field(8080, description="API bind port")
     static_dir: str = Field("", description="Built SPA directory to serve, if any")
     log_level: str = Field("INFO", description="Logging level")
+
+    @property
+    def configured_hosts(self) -> list[str]:
+        """Explicit frame hosts to always include in the picker (FRAME_HOST + FRAME_HOSTS)."""
+        raw = [self.frame_host, *self.frame_hosts.split(",")]
+        out: list[str] = []
+        for host in (h.strip() for h in raw):
+            if host and host not in out:
+                out.append(host)
+        return out
 
     @property
     def canvas(self) -> tuple[int, int]:

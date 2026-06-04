@@ -57,7 +57,12 @@ class FirmwareService:
         raw = str(release.get("tag_name") or release.get("name") or "")
         match = re.search(r"\d+(?:\.\d+)*", raw)  # e.g. "softframe-v1.2.3" -> "1.2.3"
         version = match.group(0) if match else raw
-        assets = {str(a["name"]): str(a["browser_download_url"]) for a in release.get("assets", [])}
+        # Prefer the API asset URL (works for private repos with a token); fall back to the
+        # public browser_download_url (used by the file:// test fixtures).
+        assets = {
+            str(a["name"]): str(a.get("url") or a["browser_download_url"])
+            for a in release.get("assets", [])
+        }
         track = self._settings.firmware_track
         zip_name = next((n for n in assets if n.startswith(track) and n.endswith(".zip")), None)
         if zip_name is None:
@@ -82,14 +87,19 @@ class FirmwareService:
         return data
 
     # -- default network fetchers (overridable for tests) ---------------------
+    def _auth_headers(self) -> dict[str, str]:
+        token = self._settings.firmware_github_token
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
     async def _latest_release(self) -> dict[str, Any]:
         if self._release_fetch is not None:
             return await self._release_fetch()
         if not self._settings.firmware_repo:
             raise FirmwareError("FIRMWARE_REPO is not configured")
         url = f"https://api.github.com/repos/{self._settings.firmware_repo}/releases/latest"
+        headers = {"Accept": "application/vnd.github+json", **self._auth_headers()}
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, headers={"Accept": "application/vnd.github+json"})
+            resp = await client.get(url, headers=headers)
         if resp.status_code >= 400:
             raise FirmwareError(f"GitHub releases {resp.status_code}: {resp.text[:200]}")
         return dict(resp.json())
@@ -97,8 +107,10 @@ class FirmwareService:
     async def _fetch_bytes(self, url: str) -> bytes:
         if self._fetch is not None:
             return await self._fetch(url)
+        # octet-stream makes the API asset URL return the binary (not JSON metadata).
+        headers = {"Accept": "application/octet-stream", **self._auth_headers()}
         async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=headers)
         if resp.status_code >= 400:
             raise FirmwareError(f"fetch {url} -> {resp.status_code}")
         return resp.content

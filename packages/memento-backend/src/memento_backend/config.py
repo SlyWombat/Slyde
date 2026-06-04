@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     firmware_track: str = Field(
         "memento-softframe", description="Release asset prefix / device track to update"
     )
+    firmware_github_token: str = Field(
+        "",
+        description="GitHub token for release checks (required if the repo is private)",
+        repr=False,
+    )
     manager_base_url: str = Field(
         "", description="Frame-reachable base URL of this manager (for update serve URLs)"
     )

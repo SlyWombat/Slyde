@@ -50,4 +50,4 @@ Against a real frame, use its IP (e.g. `uv run memento config <frame-ip>`); Wi-F
 the device exposes are redacted by the CLI and never persisted.
 
 ## License
-MIT.
+[MIT](LICENSE) — free to use, modify, and distribute.

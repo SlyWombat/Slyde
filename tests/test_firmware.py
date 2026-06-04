@@ -77,3 +77,9 @@ def test_serve_unknown_track() -> None:
     svc = _service({"tag_name": "v1", "assets": []}, {})
     with pytest.raises(FirmwareError, match="unknown"):
         asyncio.run(svc.serve("nope"))
+
+
+def test_auth_headers_reflect_token() -> None:
+    assert FirmwareService(Settings())._auth_headers() == {}
+    with_token = FirmwareService(Settings(firmware_github_token="tok"))
+    assert with_token._auth_headers() == {"Authorization": "Bearer tok"}

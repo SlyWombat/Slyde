@@ -150,6 +150,7 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | `SYNC_INTERVAL_MINUTES` | `15` | How often kept-in-sync albums re-mirror (`0` disables the scheduler) |
 | `FIRMWARE_REPO` | _(empty)_ | GitHub `owner/repo` whose releases hold soft-frame update bundles |
 | `FIRMWARE_TRACK` | `memento-softframe` | Release-asset prefix / device track to update |
+| `FIRMWARE_GITHUB_TOKEN` | _(empty)_ | Token for release checks; only needed if `FIRMWARE_REPO` is private |
 | `MANAGER_BASE_URL` | _(derived)_ | Frame-reachable base URL of the manager (for update serve URLs) |
 | `DATABASE_URL` | `sqlite:///./memento.db` | State store (`/data/memento.db` in the image) |
 | `BIND_HOST` / `BIND_PORT` | `0.0.0.0` / `8080` | API + SPA bind |

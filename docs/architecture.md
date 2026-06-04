@@ -141,7 +141,7 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | `FRAME_HOST` | _(empty → discover)_ | Explicit frame IP/host; empty enables UDP discovery |
 | `FRAME_HOSTS` | _(empty)_ | Comma-separated extra hosts to always list in the picker (e.g. an emulator) |
 | `FRAME_DISCOVERY` | `true` | Enable UDP broadcast discovery when no host is set |
-| `FRAME_CANVAS` | `3240x2160` | Target image size `WxH` (portrait variant supported) |
+| `FRAME_CANVAS` | `3240x2160` | Fallback image size `WxH`; normally the frame's reported Width/Height is used |
 | `FRAME_FIT` | `smart` | Off-aspect fit: `contain`\|`cover`\|`blur`\|`smart` (crop near, blur-fill far) |
 | `FRAME_CROP_TOLERANCE` | `0.12` | Smart mode: crop if ≤ this fraction of the long edge is lost |
 | `IMMICH_BASE_URL` | _(required)_ | Immich instance base URL |

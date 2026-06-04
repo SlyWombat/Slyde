@@ -47,6 +47,18 @@ class SyncService:
         self._store = store
         self._immich_factory = immich_factory
 
+    async def _canvas_for(self, host: str) -> tuple[int, int]:
+        """The frame's own pixel canvas (Width x Height as it reports), so prepared images match
+        its resolution/orientation exactly. Falls back to the configured FRAME_CANVAS."""
+        try:
+            cfg = await self._frame.get_config(host)
+            width, height = int(cfg.get("Width", 0) or 0), int(cfg.get("Height", 0) or 0)
+            if width > 0 and height > 0:
+                return width, height
+        except Exception:  # any read failure just falls back to the default canvas
+            _log.warning("could not read canvas from %s; using configured default", host)
+        return self._settings.canvas
+
     async def _assets_for(self, client: ImmichClient, req: SyncRequest) -> list[ImmichAsset]:
         if req.album_id:
             assets = await client.album_assets(req.album_id)
@@ -59,10 +71,14 @@ class SyncService:
         return []
 
     async def _prepare_new(
-        self, client: ImmichClient, host: str, assets: list[ImmichAsset], result: SyncResult
+        self,
+        client: ImmichClient,
+        host: str,
+        assets: list[ImmichAsset],
+        result: SyncResult,
+        canvas: tuple[int, int],
     ) -> tuple[list[tuple[bytes, str]], dict[str, tuple[str, str]]]:
         """Fetch + prepare assets not already on ``host``; return (to_upload, dest->(id,hash))."""
-        canvas = self._settings.canvas
         to_upload: list[tuple[bytes, str]] = []
         meta: dict[str, tuple[str, str]] = {}
         for asset in assets:
@@ -151,10 +167,11 @@ class SyncService:
         """
         result = result if result is not None else SyncResult()
         album_id = req.target_album or req.album_id
+        canvas = await self._canvas_for(host)
         async with self._immich_factory() as client:
             assets = await self._assets_for(client, req)
             result.total = len(assets)
-            to_upload, meta = await self._prepare_new(client, host, assets, result)
+            to_upload, meta = await self._prepare_new(client, host, assets, result, canvas)
         if not to_upload:
             return result
         done: set[str] = set()
@@ -175,7 +192,7 @@ class SyncService:
         self, host: str, files: list[tuple[str, bytes]], target_album: str | None
     ) -> SyncResult:
         result = SyncResult()
-        canvas = self._settings.canvas
+        canvas = await self._canvas_for(host)
         to_upload: list[tuple[bytes, str]] = []
         for file_name, raw in files:
             dest = dest_name_for(file_name, hashlib.sha256(raw).hexdigest())
@@ -237,6 +254,7 @@ class SyncService:
         keep_dests: list[str] = []
         new_assets: list[ImmichAsset] = []
         desired_ids: set[str] = set()
+        canvas = await self._canvas_for(host)
 
         async with self._immich_factory() as client:
             for asset in await client.album_assets(immich_album_id):
@@ -250,7 +268,7 @@ class SyncService:
                 else:
                     new_assets.append(asset)
             result.total = len(desired_ids)
-            to_upload, meta = await self._prepare_new(client, host, new_assets, result)
+            to_upload, meta = await self._prepare_new(client, host, new_assets, result, canvas)
 
         done: set[str] = set()
         try:

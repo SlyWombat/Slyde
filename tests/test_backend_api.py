@@ -84,13 +84,15 @@ class ApiHarness:
 
 @pytest.fixture
 def client(frame: EmulatedFrame, tmp_path) -> Iterator[ApiHarness]:  # type: ignore[no-untyped-def]
+    # Make the emulated frame report a small canvas so per-frame-canvas prep stays fast in tests.
+    frame.state.config["Width"], frame.state.config["Height"] = 64, 48
     settings = Settings(
         frame_host=HOST,
         frame_discovery=False,
         immich_base_url="http://immich.test",
         immich_api_key="k",
         database_url=f"sqlite:///{tmp_path}/memento.db",
-        frame_canvas="64x48",
+        frame_canvas="640x480",  # fallback only; the frame's reported size wins
     )
     harness = ApiHarness(settings)
     try:
@@ -178,6 +180,17 @@ def test_resync_skips_after_upload(client: ApiHarness, frame: EmulatedFrame) -> 
     # A second identical sync must skip (the record was written after the upload succeeded).
     second = client.post(f"{F}/sync", json={"album_id": "a1"}).json()
     assert second["uploaded"] == 0 and second["skipped"] == 1
+
+
+def test_prepare_uses_frame_reported_canvas(client: ApiHarness, frame: EmulatedFrame) -> None:
+    # Prepared image matches the frame's *reported* resolution, not the FRAME_CANVAS default.
+    frame.state.config["Width"], frame.state.config["Height"] = 80, 60
+    result = client.post(
+        f"{F}/upload", files={"files": ("snap.png", _png_bytes(), "image/png")}
+    ).json()
+    dest = result["items"][0]["dest_name"]
+    with Image.open(io.BytesIO(frame.state.photos[dest])) as prepared:
+        assert prepared.size == (80, 60)
 
 
 def test_direct_upload_and_thumbnail(client: ApiHarness, frame: EmulatedFrame) -> None:

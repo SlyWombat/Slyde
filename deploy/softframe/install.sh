@@ -13,7 +13,8 @@ apt-get install -y python3 python3-venv git \
     libsdl2-2.0-0 libsdl2-image-2.0-0 libdrm2 libgbm1
 
 id memento &>/dev/null || useradd --system --create-home --groups video,render,input memento
-install -d -o memento -g memento "$APP" "$DATA"
+# $DATA/app holds OTA-staged bundles (on PYTHONPATH); empty at first → runs the venv-installed code.
+install -d -o memento -g memento "$APP" "$DATA" "$DATA/app"
 
 # Build a venv and install core + emulator with the 'display' extra (pulls pygame/SDL).
 tmp="$(mktemp -d)"

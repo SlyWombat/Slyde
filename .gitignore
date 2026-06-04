@@ -37,3 +37,6 @@ Thumbs.db
 
 # local Claude Code session state
 .claude/
+
+# soft-frame OTA build output
+/dist/

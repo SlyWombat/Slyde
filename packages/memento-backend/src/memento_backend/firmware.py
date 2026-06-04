@@ -9,6 +9,7 @@ configured GitHub repo's latest release.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -53,7 +54,9 @@ class FirmwareService:
     async def check(self) -> list[FirmwareTrack]:
         """Refresh the registry from the configured repo's latest GitHub release."""
         release = await self._latest_release()
-        version = str(release.get("tag_name") or release.get("name") or "").lstrip("vV")
+        raw = str(release.get("tag_name") or release.get("name") or "")
+        match = re.search(r"\d+(?:\.\d+)*", raw)  # e.g. "softframe-v1.2.3" -> "1.2.3"
+        version = match.group(0) if match else raw
         assets = {str(a["name"]): str(a["browser_download_url"]) for a in release.get("assets", [])}
         track = self._settings.firmware_track
         zip_name = next((n for n in assets if n.startswith(track) and n.endswith(".zip")), None)

@@ -6,6 +6,7 @@ import argparse
 import os
 import socket
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from memento_core.protocol import DEFAULT_PORTS
@@ -25,6 +26,26 @@ def _detect_ip() -> str:
         return "127.0.0.1"
     finally:
         sock.close()
+
+
+def _bundle_version(app_dir: Path | None) -> str | None:
+    """Version of the staged OTA bundle (the VERSION file the bundle ships), if any."""
+    if app_dir is not None and (version_file := app_dir / "VERSION").is_file():
+        return version_file.read_text().strip() or None
+    return None
+
+
+def _make_on_update(app_dir: Path | None) -> Callable[[str, str], object] | None:
+    """Self-update handler for a real device: stage the bundle into ``app_dir`` then exit so the
+    service manager relaunches it (``app_dir`` is first on PYTHONPATH). None when not set."""
+    if app_dir is None:
+        return None
+    from .updater import apply_update
+
+    def on_update(url: str, md5: str) -> None:
+        apply_update(url, md5, target_dir=app_dir, restart=lambda: os._exit(0))
+
+    return on_update
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,8 +74,13 @@ def main(argv: list[str] | None = None) -> int:
 
     advertise_ip = args.advertise_ip or _detect_ip()
     data_dir = Path(args.data_dir) if args.data_dir else None
+    app_dir = Path(os.environ["MEMENTO_APP_DIR"]) if os.environ.get("MEMENTO_APP_DIR") else None
     state = FrameState(name=args.name, ip=advertise_ip, data_dir=data_dir)
-    frame = EmulatedFrame(state, host=args.host, ports=DEFAULT_PORTS).start()
+    if (version := _bundle_version(app_dir)) is not None:
+        state.update_config({"SoftwareVersion": version})  # report the running bundle's version
+    frame = EmulatedFrame(
+        state, host=args.host, ports=DEFAULT_PORTS, on_update=_make_on_update(app_dir)
+    ).start()
     print(
         f"Emulated frame '{args.name}' at {advertise_ip} "
         f"(udp {DEFAULT_PORTS.broadcast}/{DEFAULT_PORTS.broadcast_response}, "

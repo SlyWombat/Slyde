@@ -15,6 +15,9 @@ SupplementaryGroups=video render input
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=MEMENTO_MODE=display
 Environment=MEMENTO_EMULATOR_DATA=/var/lib/memento-frame
+# OTA: staged app bundles land here and take import precedence; the service relaunches into them.
+Environment=MEMENTO_APP_DIR=/var/lib/memento-frame/app
+Environment=PYTHONPATH=/var/lib/memento-frame/app
 # Runs on the first virtual terminal so SDL/KMS can own the display.
 TTYPath=/dev/tty1
 StandardInput=tty

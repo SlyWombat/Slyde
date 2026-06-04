@@ -1,0 +1,50 @@
+name: Release soft-frame bundle
+
+# Publishes the OTA bundle (memento-softframe.zip + .zip.md5) to a GitHub release.
+# Trigger by pushing a tag like `softframe-v1.2.3`, or run manually with a version.
+on:
+  push:
+    tags: ["softframe-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 1.2.3"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve version + tag
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+            tag="softframe-v${version}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#softframe-v}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Build bundle
+        run: python scripts/build_softframe_bundle.py "${{ steps.ver.outputs.version }}" dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Soft Frame ${{ steps.ver.outputs.version }}
+          body: "Memento soft-frame OTA bundle. The Manager picks this up via Check for Updates."
+          files: |
+            dist/memento-softframe.zip
+            dist/memento-softframe.zip.md5

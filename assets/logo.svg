@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Memento">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243b6b"/>
+      <stop offset="0.5" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#ffb27a"/>
+    </linearGradient>
+    <clipPath id="screen"><rect x="44" y="60" width="168" height="136" rx="9"/></clipPath>
+  </defs>
+
+  <!-- device bezel (a landscape picture frame) -->
+  <rect x="22" y="42" width="212" height="172" rx="22" fill="#141925" stroke="#222a3a" stroke-width="6"/>
+
+  <!-- the photo on screen: a sunset landscape, cycling like a slideshow -->
+  <g clip-path="url(#screen)">
+    <rect x="44" y="60" width="168" height="136" fill="url(#sky)"/>
+    <circle cx="98" cy="118" r="25" fill="#ffe1a3"/>
+    <path d="M44 172 L92 134 L132 164 L172 126 L212 158 L212 196 L44 196 Z" fill="#1b2740"/>
+    <path d="M44 196 L84 170 L124 190 L164 168 L212 192 L212 196 Z" fill="#0b0e14"/>
+  </g>
+  <rect x="44" y="60" width="168" height="136" rx="9" fill="none" stroke="#0b0e14" stroke-width="2"/>
+
+  <!-- slideshow indicator (current photo highlighted) -->
+  <g>
+    <circle cx="110" cy="228" r="4.5" fill="#5b8cff"/>
+    <circle cx="128" cy="228" r="4" fill="#2f3b57"/>
+    <circle cx="146" cy="228" r="4" fill="#2f3b57"/>
+  </g>
+</svg>

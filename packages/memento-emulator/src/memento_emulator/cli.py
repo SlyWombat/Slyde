@@ -43,6 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("MEMENTO_EMULATOR_DATA", ""),
         help="Persist config/photos/albums here so they survive a restart (default: in-memory)",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["emulator", "display"],
+        default=os.environ.get("MEMENTO_MODE", "emulator"),
+        help="emulator: headless protocol + web UI. display: also render fullscreen (e.g. a Pi).",
+    )
     args = parser.parse_args(argv)
 
     advertise_ip = args.advertise_ip or _detect_ip()
@@ -63,9 +69,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Web UI: http://{advertise_ip}:{web.port}/  (Ctrl-C to stop)")
 
     try:
-        while True:
-            time.sleep(1)
+        if args.mode == "display":
+            from .renderer import Renderer  # lazy: needs pygame (the 'display' extra)
+
+            print("Display: fullscreen renderer (Esc or Ctrl-C to stop).")
+            Renderer(state).run()  # blocks on the main thread until quit
+        else:
+            while True:
+                time.sleep(1)
     except KeyboardInterrupt:
+        pass
+    finally:
         if web:
             web.stop()
         frame.stop()

@@ -1,0 +1,31 @@
+# Memento Soft Frame — fullscreen display appliance (systemd).
+# Renders the slideshow on the attached screen via SDL/KMS-DRM (no desktop/X needed) and speaks
+# the Memento LAN protocol, so the Manager treats it like a real frame.
+# Install with deploy/softframe/install.sh, or copy this to /etc/systemd/system/ and adjust.
+[Unit]
+Description=Memento Soft Frame (fullscreen display)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=memento
+SupplementaryGroups=video render input
+# Fullscreen straight to the framebuffer — no X/Wayland.
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=MEMENTO_MODE=display
+Environment=MEMENTO_EMULATOR_DATA=/var/lib/memento-frame
+# Runs on the first virtual terminal so SDL/KMS can own the display.
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+ExecStartPre=/usr/bin/env sh -c 'command -v setterm >/dev/null && setterm --blank 0 --powerdown 0 >/dev/tty1 || true'
+ExecStart=/opt/memento-frame/venv/bin/memento-emulator \
+    --mode display \
+    --name "%H" \
+    --data-dir /var/lib/memento-frame
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

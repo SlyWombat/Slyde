@@ -14,6 +14,11 @@ dependencies = [
     "pillow>=10.4",
 ]
 
+# `display` mode (fullscreen rendering on a real screen, e.g. a Pi) needs SDL via pygame.
+# Headless emulator/CI does not require this.
+[project.optional-dependencies]
+display = ["pygame-ce>=2.5"]
+
 [project.scripts]
 memento-emulator = "memento_emulator.cli:main"
 

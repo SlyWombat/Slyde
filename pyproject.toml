@@ -53,6 +53,11 @@ files = [
     "packages/memento-backend/src",
 ]
 
+# pygame is an optional ('display' extra) native dep, not installed for type-checking/CI.
+[[tool.mypy.overrides]]
+module = "pygame.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

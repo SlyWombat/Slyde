@@ -18,6 +18,27 @@ class CurrentImage(BaseModel):
     image: str | None = None
 
 
+class FirmwareTrackInfo(BaseModel):
+    track: str
+    version: str
+    md5: str
+
+
+class FirmwareInfo(BaseModel):
+    repo: str
+    track: str
+    tracks: list[FirmwareTrackInfo] = Field(default_factory=list)
+
+
+class FrameUpdate(BaseModel):
+    """Result of asking a frame to self-update."""
+
+    sent: bool
+    track: str
+    version: str
+    url: str
+
+
 class Album(BaseModel):
     id: str
     name: str

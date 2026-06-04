@@ -11,10 +11,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
+from .firmware import FirmwareService
 from .frames import FrameService, FrameUnavailable
 from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
-from .routers import frames, health, immich
+from .routers import firmware, frames, health, immich
 from .scheduler import SyncScheduler
 from .store import Store
 from .sync import SyncService
@@ -41,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sync = sync_service
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()
+        app.state.firmware = FirmwareService(settings)
         scheduler.start()
         try:
             yield
@@ -75,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(frames.router, prefix="/api")
     app.include_router(immich.router, prefix="/api")
+    app.include_router(firmware.router, prefix="/api")
 
     if settings.static_dir and Path(settings.static_dir).is_dir():
         # Serve the built SPA (and let client-side routing handle unknown paths).

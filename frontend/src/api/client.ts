@@ -3,9 +3,11 @@ import type {
   Asset,
   ConfigPatch,
   CurrentImage,
+  FirmwareInfo,
   FrameAlbum,
   FrameInfo,
   FrameSummary,
+  FrameUpdate,
   Health,
   Subscription,
   SyncJobInfo,
@@ -96,6 +98,12 @@ export const api = {
     }),
   unsubscribe: (host: string, albumId: string) =>
     request<void>(`/frames/${enc(host)}/subscriptions/${enc(albumId)}`, { method: "DELETE" }),
+
+  // -- firmware / updates --------------------------------------------------
+  firmware: () => request<FirmwareInfo>("/firmware"),
+  checkFirmware: () => request<FirmwareInfo>("/firmware/check", { method: "POST" }),
+  updateFrame: (host: string) =>
+    request<FrameUpdate>(`/frames/${enc(host)}/update`, { method: "POST" }),
 
   // -- immich --------------------------------------------------------------
   immichAlbums: () => request<Album[]>("/immich/albums"),

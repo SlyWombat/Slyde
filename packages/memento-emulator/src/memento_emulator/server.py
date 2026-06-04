@@ -62,10 +62,15 @@ class EmulatedFrame:
         *,
         host: str = "127.0.0.1",
         ports: Ports = DEFAULT_PORTS,
+        on_update: Callable[[str, str], object] | None = None,
     ) -> None:
         self.state = state or FrameState(ip=host)
         self.host = host
         self.ports = ports
+        # Called with (url, md5) when the frame is told to self-update (display/device mode wires a
+        # real updater; the emulator/tests leave it None and just record the request).
+        self._on_update = on_update
+        self.last_update: tuple[str, str] | None = None
         self._threads: list[threading.Thread] = []
         self._stop = threading.Event()
         self._sockets: list[socket.socket] = []
@@ -299,6 +304,14 @@ class EmulatedFrame:
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         elif action == Flow.FactoryReset:
             self.state.factory_reset()
+            self._reply(conn, T_CONTROL_FLOW, action + 1)
+        elif action == Flow.TriggerUpdate:
+            payload = msg.json()
+            if isinstance(payload, dict) and payload.get("url"):
+                self.last_update = (str(payload["url"]), str(payload.get("md5", "")))
+                if self._on_update is not None:
+                    # Apply off the control thread (a real updater downloads + restarts).
+                    self._spawn(self._on_update, *self.last_update)
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         else:
             self._reply(conn, T_CONTROL_FLOW, action + 1)

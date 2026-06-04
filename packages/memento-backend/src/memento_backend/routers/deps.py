@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from ..config import Settings
+from ..firmware import FirmwareService
 from ..frames import FrameService
 from ..jobs import JobManager
 from ..scheduler import SyncScheduler
@@ -38,6 +39,10 @@ def get_jobs(request: Request) -> JobManager:
     return request.app.state.jobs  # type: ignore[no-any-return]
 
 
+def get_firmware(request: Request) -> FirmwareService:
+    return request.app.state.firmware  # type: ignore[no-any-return]
+
+
 def get_immich_factory(request: Request):  # type: ignore[no-untyped-def]
     return request.app.state.immich_factory
 
@@ -48,3 +53,4 @@ FrameDep = Annotated[FrameService, Depends(get_frame)]
 SyncDep = Annotated[SyncService, Depends(get_sync)]
 SchedulerDep = Annotated[SyncScheduler, Depends(get_scheduler)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
+FirmwareDep = Annotated[FirmwareService, Depends(get_firmware)]

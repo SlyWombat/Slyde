@@ -40,6 +40,17 @@ class Settings(BaseSettings):
         15, description="How often to re-mirror kept-in-sync albums (0 disables the scheduler)"
     )
 
+    # Firmware / app updates --------------------------------------------------
+    firmware_repo: str = Field(
+        "", description="GitHub owner/repo whose releases hold soft-frame update bundles"
+    )
+    firmware_track: str = Field(
+        "memento-softframe", description="Release asset prefix / device track to update"
+    )
+    manager_base_url: str = Field(
+        "", description="Frame-reachable base URL of this manager (for update serve URLs)"
+    )
+
     # Service -----------------------------------------------------------------
     database_url: str = Field("sqlite:///./memento.db", description="State store URL")
     bind_host: str = Field("0.0.0.0", description="API bind host")

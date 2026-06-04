@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
 from ..frames import FrameUnavailable
 from ..jobs import SyncJob
@@ -15,13 +15,14 @@ from ..schemas import (
     FrameAlbum,
     FrameInfo,
     FrameSummary,
+    FrameUpdate,
     SubscribeRequest,
     Subscription,
     SyncJobInfo,
     SyncRequest,
     SyncResult,
 )
-from .deps import FrameDep, JobsDep, SettingsDep, SyncDep
+from .deps import FirmwareDep, FrameDep, JobsDep, SettingsDep, SyncDep
 
 router = APIRouter(prefix="/frames", tags=["frames"])
 
@@ -206,6 +207,23 @@ async def upload(
 @router.delete("/{host}/photos/{filename}", status_code=204)
 async def delete_photo(host: str, filename: str, syncer: SyncDep) -> None:
     await syncer.remove(host, filename)
+
+
+@router.post("/{host}/update", response_model=FrameUpdate)
+async def update_frame(
+    host: str, request: Request, frame: FrameDep, firmware: FirmwareDep, settings: SettingsDep
+) -> FrameUpdate:
+    """Tell the frame to pull + apply the registry-pinned update bundle for its track."""
+    track = settings.firmware_track
+    entry = firmware.get(track)
+    if entry is None:
+        raise HTTPException(
+            status_code=409, detail="no firmware available; check for updates first"
+        )
+    base = settings.manager_base_url or str(request.base_url).rstrip("/")
+    url = f"{base}/api/firmware/serve/{track}"
+    await frame.update_firmware(host, url, entry.md5)
+    return FrameUpdate(sent=True, track=track, version=entry.version, url=url)
 
 
 # -- subscriptions (keep an Immich album mirrored 1:1 to a frame album) --------

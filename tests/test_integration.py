@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import time
+
 from conftest import HOST, PORTS
 from memento_core import FrameClient, Setup, discover
 from memento_core.albums import ALBUM_PHOTOS
-from memento_emulator import EmulatedFrame
+from memento_core.protocol import Ports
+from memento_emulator import EmulatedFrame, FrameState
 
 
 def _client() -> FrameClient:
@@ -132,6 +135,34 @@ def test_factory_reset_wipes_state(frame: EmulatedFrame) -> None:
         c.factory_reset()
     assert frame.state.photos == {}
     assert frame.state.config["DisplayTime"] == 60  # back to default
+
+
+def test_trigger_update_records_request(frame: EmulatedFrame) -> None:
+    with _client() as c:
+        c.trigger_update("http://mgr/api/firmware/serve/memento-softframe", "abc123")
+    assert frame.last_update == ("http://mgr/api/firmware/serve/memento-softframe", "abc123")
+
+
+def test_trigger_update_invokes_updater() -> None:
+    got: list[tuple[str, str]] = []
+    ports = Ports(broadcast=3015, broadcast_response=3016, control=3017, file=3018)
+    emu = EmulatedFrame(
+        FrameState(name="U", ip=HOST),
+        host=HOST,
+        ports=ports,
+        on_update=lambda url, md5: got.append((url, md5)),
+    ).start()
+    time.sleep(0.1)
+    try:
+        with FrameClient(HOST, ports=ports) as c:
+            c.trigger_update("http://mgr/serve/x", "deadbeef")
+        for _ in range(50):  # the updater runs on a spawned thread
+            if got:
+                break
+            time.sleep(0.02)
+        assert got == [("http://mgr/serve/x", "deadbeef")]
+    finally:
+        emu.stop()
 
 
 def test_discovery_over_loopback(frame: EmulatedFrame) -> None:

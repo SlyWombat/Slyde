@@ -67,6 +67,10 @@ class FrameService:
     async def get_current_image(self, host: str) -> str:
         return await self._with_client(host, lambda c: c.get_current_image_name())
 
+    async def update_firmware(self, host: str, url: str, md5: str) -> None:
+        """Tell the frame to download + apply an update bundle from ``url`` (md5-verified)."""
+        await self._with_client(host, lambda c: c.trigger_update(url, md5))
+
     async def next_image(self, host: str) -> None:
         await self._with_client(host, lambda c: c.next_image())
 

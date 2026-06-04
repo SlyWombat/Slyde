@@ -148,6 +148,9 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | `IMMICH_API_KEY` | _(required, secret)_ | Immich API key |
 | `IMMICH_ASSET_SIZE` | `preview` | Source fetched from Immich (`thumbnail`/`preview` or `original`) |
 | `SYNC_INTERVAL_MINUTES` | `15` | How often kept-in-sync albums re-mirror (`0` disables the scheduler) |
+| `FIRMWARE_REPO` | _(empty)_ | GitHub `owner/repo` whose releases hold soft-frame update bundles |
+| `FIRMWARE_TRACK` | `memento-softframe` | Release-asset prefix / device track to update |
+| `MANAGER_BASE_URL` | _(derived)_ | Frame-reachable base URL of the manager (for update serve URLs) |
 | `DATABASE_URL` | `sqlite:///./memento.db` | State store (`/data/memento.db` in the image) |
 | `BIND_HOST` / `BIND_PORT` | `0.0.0.0` / `8080` | API + SPA bind |
 | `STATIC_DIR` | _(empty)_ | Built SPA directory to serve (set in the image) |

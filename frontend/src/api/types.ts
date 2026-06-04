@@ -95,6 +95,25 @@ export interface CurrentImage {
   image: string | null;
 }
 
+export interface FirmwareTrackInfo {
+  track: string;
+  version: string;
+  md5: string;
+}
+
+export interface FirmwareInfo {
+  repo: string;
+  track: string;
+  tracks: FirmwareTrackInfo[];
+}
+
+export interface FrameUpdate {
+  sent: boolean;
+  track: string;
+  version: string;
+  url: string;
+}
+
 export interface ConfigPatch {
   DisplayOn?: boolean;
   ShuffleOn?: boolean;

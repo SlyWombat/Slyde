@@ -7,7 +7,9 @@ Starlette's TestClient, which on Starlette 1.x requires the separate ``httpx2`` 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
+import zipfile
 from collections.abc import Iterator
 from typing import ClassVar
 
@@ -18,6 +20,7 @@ from PIL import Image
 from conftest import HOST
 from memento_backend.app import create_app
 from memento_backend.config import Settings
+from memento_backend.firmware import FirmwareTrack
 from memento_backend.immich import ImmichAlbum, ImmichAsset
 from memento_emulator import EmulatedFrame
 
@@ -231,6 +234,35 @@ def test_sync_job_404_for_unknown_id(client: ApiHarness) -> None:
 def test_immich_albums(client: ApiHarness) -> None:
     albums = client.get("/api/immich/albums").json()
     assert albums == [{"id": "a1", "name": "Trips", "asset_count": 1}]
+
+
+def test_firmware_serve_verifies_and_404s(client: ApiHarness) -> None:
+    data = io.BytesIO()
+    with zipfile.ZipFile(data, "w") as z:
+        z.writestr("VERSION", "2.0.0")
+    blob = data.getvalue()
+    svc = client.app.state.firmware
+    svc._registry["memento-softframe"] = FirmwareTrack(
+        "memento-softframe", "2.0.0", "http://x/b.zip", hashlib.md5(blob).hexdigest()
+    )
+    svc._cache["memento-softframe"] = blob  # avoid a real network fetch
+    ok = client.get("/api/firmware/serve/memento-softframe")
+    assert ok.status_code == 200 and ok.content == blob
+    assert client.get("/api/firmware/serve/nope").status_code == 404
+
+
+def test_frame_update_sends_trigger(client: ApiHarness, frame: EmulatedFrame) -> None:
+    client.app.state.firmware._registry["memento-softframe"] = FirmwareTrack(
+        "memento-softframe", "2.0.0", "http://x/b.zip", "abc123"
+    )
+    res = client.post(f"{F}/update").json()
+    assert res["sent"] and res["track"] == "memento-softframe"
+    assert "/api/firmware/serve/memento-softframe" in res["url"]
+    assert frame.last_update is not None and frame.last_update[1] == "abc123"
+
+
+def test_frame_update_409_without_firmware(client: ApiHarness) -> None:
+    assert client.post(f"{F}/update").status_code == 409
 
 
 def test_spa_cache_headers(tmp_path) -> None:  # type: ignore[no-untyped-def]

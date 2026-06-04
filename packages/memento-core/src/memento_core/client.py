@@ -180,6 +180,12 @@ class FrameClient:
         """Wipe the frame back to factory defaults (photos, albums, and settings)."""
         self.control.request(T_CONTROL_FLOW, Flow.FactoryReset)
 
+    def trigger_update(self, url: str, md5: str) -> None:
+        """Tell the frame to download + apply a firmware/app update from ``url`` (md5-verified)."""
+        self.control.request(
+            T_CONTROL_FLOW, Flow.TriggerUpdate, data=json.dumps({"url": url, "md5": md5})
+        )
+
     # -- albums ---------------------------------------------------------------
     def get_album_data(self) -> AlbumData:
         """Download + AES-decrypt + parse the frame's album structure."""

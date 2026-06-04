@@ -18,6 +18,13 @@ export function FramePanel({ host }: { host: string }) {
   const next = useMutation({ mutationFn: () => api.next(host), onSettled: refreshCurrent });
   const prev = useMutation({ mutationFn: () => api.previous(host), onSettled: refreshCurrent });
 
+  const firmware = useQuery({ queryKey: ["firmware"], queryFn: api.firmware });
+  const checkFw = useMutation({
+    mutationFn: api.checkFirmware,
+    onSuccess: (info) => qc.setQueryData(["firmware"], info),
+  });
+  const updateFw = useMutation({ mutationFn: () => api.updateFrame(host) });
+
   if (isLoading) return <div className="card">Loading frame…</div>;
   if (error)
     return (
@@ -30,6 +37,8 @@ export function FramePanel({ host }: { host: string }) {
   const cfg = data!.config;
   const showing = current.data?.image ?? null;
   const moveError = (next.error ?? prev.error) as Error | undefined;
+  const fwAvail = firmware.data?.tracks.find((t) => t.track === firmware.data?.track);
+  const fwError = (checkFw.error ?? updateFw.error) as Error | undefined;
   return (
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
@@ -76,6 +85,34 @@ export function FramePanel({ host }: { host: string }) {
         </button>
         {moveError && <span className="text-xs text-red-300">{moveError.message}</span>}
       </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-edge pt-2 text-sm">
+        <span className="text-slate-400">Firmware</span>
+        <span className="text-slate-200">{cfg.SoftwareVersion != null ? String(cfg.SoftwareVersion) : "—"}</span>
+        {fwAvail && <span className="text-amber-300">→ v{fwAvail.version} available</span>}
+        <button
+          className="btn ml-auto px-2 py-0.5 text-xs"
+          disabled={checkFw.isPending}
+          onClick={() => checkFw.mutate()}
+        >
+          {checkFw.isPending ? "Checking…" : "Check for updates"}
+        </button>
+        {fwAvail && (
+          <button
+            className="btn-accent px-2 py-0.5 text-xs"
+            disabled={updateFw.isPending}
+            onClick={() => {
+              if (confirm(`Update this frame to v${fwAvail.version}?`)) updateFw.mutate();
+            }}
+          >
+            {updateFw.isPending ? "Sending…" : "Update"}
+          </button>
+        )}
+      </div>
+      {updateFw.isSuccess && (
+        <div className="text-xs text-emerald-300">Update sent — the frame will fetch and apply it.</div>
+      )}
+      {fwError && <div className="text-xs text-red-300">{fwError.message}</div>}
     </div>
   );
 }

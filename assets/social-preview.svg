@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="Slyde — revive a dead smart frame">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16203a"/>
+      <stop offset="0.55" stop-color="#0b0e14"/>
+      <stop offset="1" stop-color="#0b0e14"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243b6b"/>
+      <stop offset="0.5" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#ffb27a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5b8cff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#5b8cff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="screen"><rect x="44" y="60" width="168" height="136" rx="9"/></clipPath>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <circle cx="300" cy="170" r="420" fill="url(#glow)"/>
+
+  <!-- logo mark: a picture frame showing a sunset, cycling like a slideshow -->
+  <g transform="translate(150,196) scale(1.18)">
+    <rect x="22" y="42" width="212" height="172" rx="22" fill="#141925" stroke="#222a3a" stroke-width="6"/>
+    <g clip-path="url(#screen)">
+      <rect x="44" y="60" width="168" height="136" fill="url(#sky)"/>
+      <circle cx="98" cy="118" r="25" fill="#ffe1a3"/>
+      <path d="M44 172 L92 134 L132 164 L172 126 L212 158 L212 196 L44 196 Z" fill="#1b2740"/>
+      <path d="M44 196 L84 170 L124 190 L164 168 L212 192 L212 196 Z" fill="#0b0e14"/>
+    </g>
+    <rect x="44" y="60" width="168" height="136" rx="9" fill="none" stroke="#0b0e14" stroke-width="2"/>
+    <circle cx="110" cy="228" r="4.5" fill="#5b8cff"/>
+    <circle cx="128" cy="228" r="4" fill="#2f3b57"/>
+    <circle cx="146" cy="228" r="4" fill="#2f3b57"/>
+  </g>
+
+  <!-- wordmark + copy -->
+  <g font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
+    <text x="470" y="248" font-size="146" font-weight="800" fill="#f1f5f9" letter-spacing="-4">Sly<tspan fill="#5b8cff">de</tspan></text>
+    <text x="476" y="312" font-size="34" font-weight="600" fill="#e7ecf5">Revive a dead smart frame — no cloud.</text>
+    <text x="476" y="356" font-size="25" font-weight="500" fill="#94a3b8">Self-hosted photo-frame hub, sourced from Immich.</text>
+
+    <g font-size="21" font-weight="600">
+      <g transform="translate(476,400)">
+        <rect x="0" y="0" width="130" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">no cloud</text>
+      </g>
+      <g transform="translate(626,400)">
+        <rect x="0" y="0" width="200" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">Immich-sourced</text>
+      </g>
+      <g transform="translate(846,400)">
+        <rect x="0" y="0" width="355" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">reverse-engineered protocols</text>
+      </g>
+      <g transform="translate(476,452)">
+        <rect x="0" y="0" width="150" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">emulator</text>
+      </g>
+      <g transform="translate(646,452)">
+        <rect x="0" y="0" width="195" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">Pi soft-frame</text>
+      </g>
+      <g transform="translate(861,452)">
+        <rect x="0" y="0" width="100" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">OTA</text>
+      </g>
+      <g transform="translate(981,452)">
+        <rect x="0" y="0" width="100" height="40" rx="20" fill="#0c111b" stroke="#222a3a"/>
+        <text x="20" y="27" fill="#7aa2ff">MIT</text>
+      </g>
+    </g>
+
+    <text x="476" y="548" font-size="24" font-weight="600" fill="#64748b">github.com/SlyWombat/slyde</text>
+  </g>
+</svg>

@@ -209,6 +209,26 @@ def test_curation_endpoint_drives_delivery_then_frame_pulls(served: ServedHarnes
     assert img.content[:8] == b"\x89PNG\r\n\x1a\n"  # the e-paper-prepared PNG, downloaded
 
 
+def test_library_readback_and_detail(served: ServedHarness) -> None:
+    """#28: set a library by asset-id alone, read it back with delivery state, and get detail."""
+    code = "EF-LIB"
+    served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": code})  # register frame
+    put = served.request(
+        "PUT", f"/api/frames/{code}/library", json=[{"asset_id": "a1"}, {"asset_id": "a2"}]
+    )
+    assert put.status_code == 202
+
+    lib = served.request("GET", f"/api/frames/{code}/library").json()
+    assert [i["asset_id"] for i in lib["items"]] == ["a1", "a2"]
+    assert [i["dest_name"] for i in lib["items"]] == ["a1.jpg", "a2.jpg"]  # derived from asset id
+    assert all(i["state"] in {"pending", "delivered", "failed", "unknown"} for i in lib["items"])
+    assert "pending" in lib["deliveries"]
+
+    detail = served.request("GET", f"/api/frames/{code}/detail").json()
+    assert detail["interaction"] == "served" and detail["backend"] == "sungale-cloud"
+    assert detail["capabilities"]["color_model"] == "epaper"  # e-ink panel
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

@@ -7,20 +7,25 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
+from ..backends import get_backend
 from ..frames import FrameUnavailable
 from ..jobs import SyncJob
 from ..library import LibraryItem
 from ..schemas import (
+    CapabilitiesInfo,
     ConfigPatch,
     CreateAlbumRequest,
     CurrentImage,
     DeliverySummary,
     FrameAlbum,
+    FrameDetailInfo,
     FrameInfo,
     FrameStatus,
     FrameSummary,
     FrameUpdate,
     LibraryItemModel,
+    LibraryPhoto,
+    LibraryView,
     SubscribeRequest,
     Subscription,
     SyncJobInfo,
@@ -120,11 +125,42 @@ async def set_library(
     """
     library = request.app.state.library
     delivery = request.app.state.delivery_service
-    library.set_desired(frame_id, [LibraryItem(i.asset_id, i.dest_name) for i in items])
+    desired = [LibraryItem(i.asset_id, i.dest_name or f"{i.asset_id}.jpg") for i in items]
+    library.set_desired(frame_id, desired)
     now = datetime.now(UTC)
     queued = delivery.enqueue_desired(frame_id, now=now)
     counts = await delivery.reconcile(now=now)
     return {"queued": queued, **counts}
+
+
+@router.get("/{frame_id}/library", response_model=LibraryView)
+async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
+    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames."""
+    states = {d.key: d.state for d in store.list_deliveries(frame_id)}
+    items = [
+        LibraryPhoto(asset_id=aid, dest_name=dest, state=states.get(dest, "unknown"))
+        for aid, dest in store.list_library(frame_id)
+    ]
+    return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
+
+
+@router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
+async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
+    """Registry detail + backend capabilities for a frame by id (#28)."""
+    f = store.get_frame(frame_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    caps = get_backend(f.backend).capabilities
+    return FrameDetailInfo(
+        id=f.id,
+        backend=f.backend,
+        interaction=f.interaction,
+        name=f.name,
+        address=f.address,
+        frame_code=f.frame_code,
+        last_seen=f.last_seen,
+        capabilities=CapabilitiesInfo(**vars(caps)),
+    )
 
 
 @router.get("/{host}", response_model=FrameInfo)

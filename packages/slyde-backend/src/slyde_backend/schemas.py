@@ -70,10 +70,11 @@ class FrameSummary(BaseModel):
 
 
 class LibraryItemModel(BaseModel):
-    """One curated photo for a frame: which Immich asset, under what on-frame name."""
+    """One curated photo for a frame. ``dest_name`` is derived from the asset id if omitted, so the
+    UI can curate by asset id alone."""
 
     asset_id: str
-    dest_name: str
+    dest_name: str | None = None
 
 
 class DeliverySummary(BaseModel):
@@ -82,6 +83,46 @@ class DeliverySummary(BaseModel):
     pending: int = 0
     delivered: int = 0
     failed: int = 0
+
+
+class LibraryPhoto(BaseModel):
+    """A curated photo on a frame + its delivery state (#28 read-back)."""
+
+    asset_id: str
+    dest_name: str
+    state: str  # "delivered" | "pending" | "failed" | "unknown"
+
+
+class LibraryView(BaseModel):
+    """A frame's desired set (curation) with per-photo delivery state."""
+
+    items: list[LibraryPhoto]
+    deliveries: DeliverySummary
+
+
+class CapabilitiesInfo(BaseModel):
+    interaction: str
+    transport: str
+    color_model: str
+    discovery: bool
+    albums: bool
+    thumbnails: bool
+    upload: bool
+    delete: bool
+    ota: bool
+
+
+class FrameDetailInfo(BaseModel):
+    """Registry detail for a frame by id (any backend) + its backend capabilities (#28)."""
+
+    id: str
+    backend: str
+    interaction: str
+    name: str = ""
+    address: str = ""
+    frame_code: str = ""
+    last_seen: str | None = None
+    capabilities: CapabilitiesInfo
 
 
 class FrameStatus(BaseModel):

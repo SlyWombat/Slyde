@@ -11,6 +11,7 @@ from pathlib import Path
 
 from memento_core.protocol import DEFAULT_PORTS
 
+from . import __version__
 from .server import EmulatedFrame
 from .state import FrameState
 from .web import EmulatorWeb
@@ -76,8 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = Path(args.data_dir) if args.data_dir else None
     app_dir = Path(os.environ["MEMENTO_APP_DIR"]) if os.environ.get("MEMENTO_APP_DIR") else None
     state = FrameState(name=args.name, ip=advertise_ip, data_dir=data_dir)
-    if (version := _bundle_version(app_dir)) is not None:
-        state.update_config({"SoftwareVersion": version})  # report the running bundle's version
+    # Report this soft-frame's own firmware version: the staged OTA bundle's VERSION if running
+    # from one, otherwise our package version. (This is what the manager's OTA check compares.)
+    state.update_config({"SoftwareVersion": _bundle_version(app_dir) or __version__})
     frame = EmulatedFrame(
         state, host=args.host, ports=DEFAULT_PORTS, on_update=_make_on_update(app_dir)
     ).start()

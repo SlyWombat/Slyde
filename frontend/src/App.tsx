@@ -3,6 +3,7 @@ import { FrameView } from "./components/FrameView";
 import { useFrames } from "./lib/frames";
 import { ComingSoon } from "./pages/ComingSoon";
 import { FleetDashboard } from "./pages/FleetDashboard";
+import { FrameDetail } from "./pages/FrameDetail";
 
 const NAV = [
   { to: "/", label: "Picture Frames", icon: "▦", end: true },
@@ -96,6 +97,7 @@ export default function App() {
             path="/frames"
             element={<ComingSoon title="Frames" issue={35} note="Searchable frame list + onboarding (LAN scan / cloud frame)." />}
           />
+          <Route path="/frames/:id" element={<FrameDetail />} />
           <Route
             path="/curate"
             element={<ComingSoon title="Curate" issue={38} note="Immich-first curation to one or more frames." />}

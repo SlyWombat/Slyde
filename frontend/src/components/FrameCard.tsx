@@ -71,15 +71,9 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
         </div>
 
         <div className="flex gap-2">
-          {conn ? (
-            <Link to={`/legacy/${encodeURIComponent(frame.id)}`} className="flex-1">
-              <Button className="w-full">Open</Button>
-            </Link>
-          ) : (
-            <Button className="flex-1" disabled title="Frame detail view — coming in #36">
-              Open
-            </Button>
-          )}
+          <Link to={`/frames/${encodeURIComponent(frame.id)}`} className="flex-1">
+            <Button className="w-full">Open</Button>
+          </Link>
           <Link to="/curate" className="flex-1">
             <Button variant="accent" className="w-full">
               Curate +

@@ -7,7 +7,7 @@ import io
 import pytest
 from PIL import Image
 
-from memento_backend.imaging import prepare_for_frame
+from slyde_backend.imaging import prepare_for_frame
 
 RED = (200, 50, 50)
 

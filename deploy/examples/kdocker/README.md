@@ -1,28 +1,28 @@
 # Example deployment: kdocker (Dockge, arm64)
 
-This is **one example** of deploying Memento Manager — on a NanoPi M5 (`arm64`) running
+This is **one example** of deploying Slyde — on a NanoPi M5 (`arm64`) running
 [Dockge](https://github.com/louislam/dockge) as a Docker-Compose stack manager, with Immich
 already running on the same host. None of this is required by the app; it's just a worked example.
 
 ## 1. Build the image (on the host, native arm64)
 ```bash
-git clone <your fork> memento-manager && cd memento-manager
-docker build -t memento-manager:latest .
+git clone <your fork> slyde && cd slyde
+docker build -t slyde:latest .
 ```
 
 ## 2. Create the stack
 ```bash
-sudo install -d -o "$USER" -g "$USER" /data/stacks/memento-manager
+sudo install -d -o "$USER" -g "$USER" /data/stacks/slyde
 # The container runs as uid 1000 (the image's "app" user); a bind-mounted data dir must be
 # writable by that uid (a named volume would inherit it automatically).
 sudo install -d -o 1000 -g 1000 /data/memento/data
-cp deploy/examples/kdocker/compose.yaml /data/stacks/memento-manager/compose.yaml
-cp deploy/examples/kdocker/.env.example  /data/stacks/memento-manager/.env
-# edit /data/stacks/memento-manager/.env — set IMMICH_API_KEY and confirm FRAME_HOST
+cp deploy/examples/kdocker/compose.yaml /data/stacks/slyde/compose.yaml
+cp deploy/examples/kdocker/.env.example  /data/stacks/slyde/.env
+# edit /data/stacks/slyde/.env — set IMMICH_API_KEY and confirm FRAME_HOST
 ```
 Dockge picks the stack up automatically; start it from the UI or:
 ```bash
-cd /data/stacks/memento-manager && docker compose up -d
+cd /data/stacks/slyde && docker compose up -d
 ```
 
 ## 3. Verify

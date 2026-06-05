@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="Memento Manager">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="Slyde">
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#243b6b"/>
@@ -27,8 +27,8 @@
 
   <!-- wordmark -->
   <g font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif">
-    <text x="318" y="136" font-size="74" font-weight="800" fill="#f1f5f9">Memento<tspan fill="#5b8cff"> Manager</tspan></text>
-    <text x="322" y="184" font-size="24" font-weight="500" fill="#94a3b8">Revive the discontinued Memento Smart Frame — local, no cloud.</text>
-    <text x="322" y="222" font-size="19" font-weight="500" fill="#64748b">Reverse-engineered LAN protocol · Immich sync · emulator &amp; Pi soft-frame · OTA</text>
+    <text x="318" y="128" font-size="96" font-weight="800" fill="#f1f5f9" letter-spacing="-2">Sly<tspan fill="#5b8cff">de</tspan></text>
+    <text x="322" y="174" font-size="24" font-weight="500" fill="#94a3b8">Self-hosted photo-frame hub — revive any frame, no cloud.</text>
+    <text x="322" y="210" font-size="19" font-weight="500" fill="#64748b">Immich-sourced · reverse-engineered frame protocols · emulator &amp; Pi soft-frame · OTA</text>
   </g>
 </svg>

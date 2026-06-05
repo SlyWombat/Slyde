@@ -9,9 +9,9 @@ import io
 import zipfile
 from pathlib import Path
 
-from memento_backend.config import Settings
-from memento_backend.firmware import FirmwareService
 from memento_emulator.updater import stage_bundle
+from slyde_backend.config import Settings
+from slyde_backend.firmware import FirmwareService
 
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(

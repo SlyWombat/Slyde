@@ -1,6 +1,6 @@
 # memento-frontend
 
-Modern web UI (React + TypeScript + Vite + Tailwind) for the Memento Manager. Talks only to the
+Modern web UI (React + TypeScript + Vite + Tailwind) for the Slyde. Talks only to the
 backend REST API under `/api`.
 
 ```bash

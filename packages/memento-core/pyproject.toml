@@ -9,7 +9,7 @@ description = "Local-network client library for the Memento Smart Frame (reverse
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-authors = [{ name = "Memento Manager contributors" }]
+authors = [{ name = "Slyde contributors" }]
 keywords = ["memento", "smartframe", "digital-frame", "reverse-engineering"]
 dependencies = [
     "cryptography>=41",

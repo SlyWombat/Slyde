@@ -3,7 +3,7 @@
 Interoperability tooling to keep an **Aluratek 13.3" ePaper WiFi frame you own**
 (model `AEINK13F`, FCC ID `RDUAEINK13F`, app `com.xiaowooya.aluratek_eframe`)
 working if Aluratek's cloud is discontinued — feeding it one-way, read-only from
-your own Immich library, the same principle as Memento Manager.
+your own Immich library, the same principle as Slyde.
 
 > **This is recon, not a finished revival.** The frame is a sleep-most-of-the-time
 > MCU (pre-certified WiFi module — almost certainly ESP32-class) that polls a
@@ -72,7 +72,7 @@ uv run uvicorn fake_cloud:app --host 0.0.0.0 --port 443 \
   wins. Build out the REPLACE stage and we're done.
 - **Frame pins / validates against a fixed CA** → MITM impossible without touching
   the device → firmware-reflash route (dump via UART/SWD; if it's an unencrypted
-  ESP32, `esptool.py` + custom firmware that fetches from Memento Manager).
+  ESP32, `esptool.py` + custom firmware that fetches from Slyde).
 
 The recon tells us which — don't build the replacement until capture confirms
 no validation.

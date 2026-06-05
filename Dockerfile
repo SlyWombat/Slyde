@@ -18,11 +18,11 @@ ENV PYTHONUNBUFFERED=1 \
     BIND_PORT=8080
 WORKDIR /app
 
-# Install the local packages. memento-core first so memento-backend's dependency on it
+# Install the local packages. memento-core first so slyde-backend's dependency on it
 # resolves to the local build (not PyPI); its other deps come from PyPI.
 COPY packages/memento-core ./packages/memento-core
-COPY packages/memento-backend ./packages/memento-backend
-RUN pip install ./packages/memento-core ./packages/memento-backend
+COPY packages/slyde-backend ./packages/slyde-backend
+RUN pip install ./packages/memento-core ./packages/slyde-backend
 
 COPY --from=web /web/dist ./static
 
@@ -34,4 +34,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health').status==200 else 1)"
 
-CMD ["memento-backend"]
+CMD ["slyde"]

@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from conftest import HOST, PORTS
-from memento_backend.backends import (
+from memento_emulator import EmulatedFrame
+from slyde_backend.backends import (
     ConnectedFrameBackend,
     MementoLanBackend,
     ServedFrameBackend,
@@ -13,7 +14,6 @@ from memento_backend.backends import (
     available_backends,
     get_backend,
 )
-from memento_emulator import EmulatedFrame
 
 
 def test_registry_resolves_known_backends() -> None:

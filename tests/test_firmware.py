@@ -9,8 +9,8 @@ import zipfile
 
 import pytest
 
-from memento_backend.config import Settings
-from memento_backend.firmware import FirmwareError, FirmwareService
+from slyde_backend.config import Settings
+from slyde_backend.firmware import FirmwareError, FirmwareService
 
 TRACK = "memento-softframe"
 

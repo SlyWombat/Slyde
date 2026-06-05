@@ -68,4 +68,4 @@ AdGuard query log will show the wake; the rest we already know.
    request bodies → fill in real response shapes for those endpoints.
 3. Implement `image_library/list` to return Immich image URLs (served by us),
    and `frame/ping` / `setting/detail` / `schedule/list` to keep it happy.
-4. Read-only, one-way from Immich — same contract as Memento Manager.
+4. Read-only, one-way from Immich — same contract as Slyde.

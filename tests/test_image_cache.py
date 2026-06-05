@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from memento_backend.frame import Frame
-from memento_backend.imagecache import ImageCache
-from memento_backend.serving import CachedImageDelivery, PlaceholderDelivery
+from slyde_backend.frame import Frame
+from slyde_backend.imagecache import ImageCache
+from slyde_backend.serving import CachedImageDelivery, PlaceholderDelivery
 
 
 def test_image_cache_put_get_keys_clear(tmp_path: Path) -> None:

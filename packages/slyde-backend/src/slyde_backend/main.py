@@ -1,4 +1,4 @@
-"""Uvicorn entry point: ``memento-backend`` (or ``python -m memento_backend.main``)."""
+"""Uvicorn entry point: ``slyde`` (or ``python -m slyde_backend.main``)."""
 
 from __future__ import annotations
 

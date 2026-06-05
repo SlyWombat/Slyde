@@ -18,11 +18,11 @@ import pytest
 from PIL import Image
 
 from conftest import HOST
-from memento_backend.app import create_app
-from memento_backend.config import Settings
-from memento_backend.firmware import FirmwareTrack
-from memento_backend.immich import ImmichAlbum, ImmichAsset
 from memento_emulator import EmulatedFrame
+from slyde_backend.app import create_app
+from slyde_backend.config import Settings
+from slyde_backend.firmware import FirmwareTrack
+from slyde_backend.immich import ImmichAlbum, ImmichAsset
 
 
 def _png_bytes() -> bytes:

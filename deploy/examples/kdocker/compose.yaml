@@ -1,10 +1,10 @@
 # Example Dockge stack for "kdocker" (a NanoPi M5 / arm64 running Dockge).
 # This is ONE example deployment — adjust the values in .env for your environment.
-# Build the image first on the host:  docker build -t memento-manager:latest <repo>
+# Build the image first on the host:  docker build -t slyde:latest <repo>
 services:
-  memento-manager:
-    image: memento-manager:latest
-    container_name: memento-manager
+  slyde:
+    image: slyde:latest
+    container_name: slyde
     restart: unless-stopped
     env_file: .env
     ports:

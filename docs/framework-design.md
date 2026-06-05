@@ -1,6 +1,6 @@
 # Framework design — the multi-frame hub
 
-This document designs the framework that lets Memento Manager grow from "one LAN frame" into the
+This document designs the framework that lets Slyde grow from "one LAN frame" into the
 **central frame hub** of ADR-010 — cleanly, without regressing Memento (ADR-009). It is the
 groundwork the open issues build on. It is a *design*, decomposed into implementation issues below;
 nothing here changes Memento's behavior.
@@ -30,7 +30,7 @@ So the framework needs two **interaction models**, a frame **identity** that isn
 ## 2. Target architecture
 
 ```
-                         ┌──────────────────── Memento Manager (the hub) ────────────────────┐
+                         ┌──────────────────── Slyde (the hub) ────────────────────┐
    Immich (read-only) ─► │  ImageSource ─► FrameLibrary (desired set / frame) ─► Processing   │
                          │                      │                profile (/frame)             │
                          │                      ▼                                              │

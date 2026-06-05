@@ -8,9 +8,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from memento_backend.imagecache import ImageCache
-from memento_backend.library import FrameLibrary, LibraryItem
-from memento_backend.store import Store
+from slyde_backend.imagecache import ImageCache
+from slyde_backend.library import FrameLibrary, LibraryItem
+from slyde_backend.store import Store
 
 
 class FakeImmich:

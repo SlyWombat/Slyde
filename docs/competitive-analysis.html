@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memento Manager — Competitive Analysis</title>
+<title>Slyde — Competitive Analysis</title>
 <style>
   :root{
     --ink:#0b0e14; --panel:#141925; --panel2:#10141e; --edge:#222a3a;
@@ -112,7 +112,7 @@
 
 <header class="hero">
   <div class="kicker">Competitive Analysis · June 2026</div>
-  <h1>Where <b>Memento Manager</b> sits in the open-source photo-frame landscape</h1>
+  <h1>Where <b>Slyde</b> sits in the open-source photo-frame landscape</h1>
   <div class="sub">A fact-checked map of free / self-hostable digital photo-frame software — and the one niche almost nobody else occupies: reviving discontinued <em>commercial</em> frame hardware over a reverse-engineered LAN protocol, fed read-only from your own Immich library.</div>
   <div class="meta-row">
     <span class="chip">🔎 <b>5</b> search angles</span>
@@ -126,7 +126,7 @@
 <!-- TL;DR -->
 <div class="card tldr">
   <h3 style="margin-top:0">The one-paragraph verdict</h3>
-  <p>As of 2026 the open-source frame space is <b>crowded</b> on “render a slideshow on a Pi, browser, or general-purpose display,” and <b>Immich-sourcing is now table stakes</b> (ImmichFrame, immich-kiosk, espframe, syno-photo-frame, Magic Frame all do it). It is <b>nearly empty</b> on Memento Manager’s actual turf:</p>
+  <p>As of 2026 the open-source frame space is <b>crowded</b> on “render a slideshow on a Pi, browser, or general-purpose display,” and <b>Immich-sourcing is now table stakes</b> (ImmichFrame, immich-kiosk, espframe, syno-photo-frame, Magic Frame all do it). It is <b>nearly empty</b> on Slyde’s actual turf:</p>
   <ul>
     <li><b>Reviving closed, non-Android frame hardware</b> via a reverse-engineered LAN protocol. The only hardware-control peers target <b>Frameo</b> frames — which run Android and expose <b>official ADB</b>, so they aren’t reverse-engineering anything, and have near-zero adoption.</li>
     <li><b>An emulator and a real OTA firmware/app pipeline</b> — no surveyed competitor ships either.</li>
@@ -148,7 +148,7 @@
 </thead>
 <tbody>
 <tr class="us">
-  <td class="name">Memento Manager<small>this project</small></td>
+  <td class="name">Slyde<small>this project</small></td>
   <td><span class="tag">MIT</span></td>
   <td>Self-hosted <b>Immich</b> (read-only, 1-way)</td>
   <td>Frame HW + Pi soft-frame + emulator</td>
@@ -273,7 +273,7 @@
   <div class="q" style="right:12%;bottom:18%;text-align:right">crowded: Immich renderers</div>
 
   <!-- top-right: us, alone -->
-  <div class="dot us" style="left:78%;top:24%">Memento Manager ★</div>
+  <div class="dot us" style="left:78%;top:24%">Slyde ★</div>
 
   <!-- top-left: Frameo control (commercial HW, no self-host source) -->
   <div class="dot" style="left:22%;top:30%">phito/frameo-api</div>
@@ -294,7 +294,7 @@
   <div class="dot" style="left:42%;top:62%">PhotoPrism</div>
 </div>
 <div class="legend">
-  <span><b style="color:var(--us)">★ Memento Manager</b> sits alone in the top-right.</span>
+  <span><b style="color:var(--us)">★ Slyde</b> sits alone in the top-right.</span>
   <span>The bottom-right (Immich on your own screen) is the dogfight.</span>
   <span>The top-right (your library → a real frame you revived) is empty.</span>
 </div>
@@ -317,14 +317,14 @@
 <h3>🟥 Legacy, art, and WebDAV — adjacent but not substitutes</h3>
 <div class="card">
   <p><b>mrworf/photoframe</b> (GPL-3.0) was the canonical Pi frame, but its primary source — <b>Google Photos — is now broken</b> by API changes; only Pexels + USB remain, no Immich. <b>OpenFrame</b> (GPL-3.0, Node.js) is an elegant idea — push <i>digital art</i> (images/video/web/GLSL shaders) to Pi frames from a web app — but it’s <b>art-focused, cloud-coordinated, and effectively abandoned</b>: the controller’s last commit was <b>Jan 2021</b> and its self-host API server hasn’t been touched since <b>2017</b>. <b>OpenPhotoFrame</b> and <b>photOS</b> serve the Nextcloud/WebDAV crowd; neither speaks Immich.</p>
-  <p style="margin-bottom:0"><b>OpenFrame is also the cautionary tale:</b> a cloud-coordinated frame platform whose own coordination server is dead is <i>one DNS lapse from</i> the exact fate that bricked Memento frames — which is precisely the failure mode Memento Manager is built to cure (local-only, no cloud dependency).</p>
+  <p style="margin-bottom:0"><b>OpenFrame is also the cautionary tale:</b> a cloud-coordinated frame platform whose own coordination server is dead is <i>one DNS lapse from</i> the exact fate that bricked Memento frames — which is precisely the failure mode Slyde is built to cure (local-only, no cloud dependency).</p>
 </div>
 
 <!-- WIN / LOSE -->
 <h2><span class="n">4</span> Where Memento wins · where rivals win</h2>
 <div class="cols">
   <div class="card win">
-    <h3>✅ Memento Manager is differentiated on</h3>
+    <h3>✅ Slyde is differentiated on</h3>
     <ul class="tight">
       <li><b>Reviving closed/non-Android frame HW</b> via a reverse-engineered LAN protocol — no verified open-source equivalent.</li>
       <li><b>OTA firmware/app pipeline</b> (md5-verified bundles, GitHub-release driven) — <b>no surveyed competitor ships OTA</b>.</li>
@@ -463,7 +463,7 @@
 </div>
 
 <footer>
-  Generated from a deep-research workflow (5 angles → 19 sources → 83 claims → 25 verified, 3-vote adversarial). OpenFrame added via targeted follow-up (GitHub API, last-activity verified). Confidence labels reflect verification vote margins, not editorial opinion. · Memento Manager competitive analysis · June 5 2026.
+  Generated from a deep-research workflow (5 angles → 19 sources → 83 claims → 25 verified, 3-vote adversarial). OpenFrame added via targeted follow-up (GitHub API, last-activity verified). Confidence labels reflect verification vote margins, not editorial opinion. · Slyde competitive analysis · June 5 2026.
 </footer>
 
 </div>

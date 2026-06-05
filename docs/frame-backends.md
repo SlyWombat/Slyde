@@ -1,6 +1,6 @@
 # Frame backends — adding a new frame
 
-Memento Manager drives frames through a **`FrameBackend`** abstraction, so it isn't tied to one
+Slyde drives frames through a **`FrameBackend`** abstraction, so it isn't tied to one
 device or one transport. The manager, web UI, and sync engine only depend on the interface — they
 treat every backend (and the emulator) the same way.
 
@@ -24,7 +24,7 @@ abandoned or cloud-locked frame can be added as a backend without forking.
 
 ## The interface
 
-Two pieces (`packages/memento-backend/src/memento_backend/backends/base.py`):
+Two pieces (`packages/slyde-backend/src/slyde_backend/backends/base.py`):
 
 - **`FrameConnection`** — a `Protocol` of the per-session operations the manager performs on a
   connected frame: `get_config` / `change_setup`, `next_image` / `previous_image`,

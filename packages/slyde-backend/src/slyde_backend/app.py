@@ -61,7 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await scheduler.stop()
 
-    app = FastAPI(title="Memento Manager", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Slyde", version="0.1.0", lifespan=lifespan)
 
     @app.exception_handler(FrameUnavailable)
     async def _frame_unavailable(_request: Request, exc: FrameUnavailable) -> JSONResponse:

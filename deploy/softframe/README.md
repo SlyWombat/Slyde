@@ -13,7 +13,7 @@ as the test emulator — just `--mode display` (which adds the SDL renderer).
 ## Install
 ```sh
 sudo ./install.sh                 # uses the public repo
-# or: sudo ./install.sh https://github.com/SlyWombat/memento-manager.git
+# or: sudo ./install.sh https://github.com/SlyWombat/slyde.git
 ```
 This creates a `memento` service user, a venv at `/opt/memento-frame`, installs
 `memento-emulator[display]` (pulls pygame/SDL), persists state under `/var/lib/memento-frame`, and

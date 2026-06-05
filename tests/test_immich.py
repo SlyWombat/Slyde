@@ -7,7 +7,7 @@ import contextlib
 
 import httpx
 
-from memento_backend.immich import ImmichClient, ImmichError
+from slyde_backend.immich import ImmichClient, ImmichError
 
 
 def _handler(request: httpx.Request) -> httpx.Response:

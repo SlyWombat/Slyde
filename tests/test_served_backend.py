@@ -12,11 +12,11 @@ from collections.abc import Iterator
 import httpx
 import pytest
 
-from memento_backend.app import create_app
-from memento_backend.config import Settings
-from memento_backend.frame import Frame
-from memento_backend.serving import resolve_or_register_served_frame
-from memento_backend.store import Store
+from slyde_backend.app import create_app
+from slyde_backend.config import Settings
+from slyde_backend.frame import Frame
+from slyde_backend.serving import resolve_or_register_served_frame
+from slyde_backend.store import Store
 
 
 class ServedHarness:
@@ -98,7 +98,7 @@ def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness)
 
     from PIL import Image
 
-    from memento_backend.library import LibraryItem
+    from slyde_backend.library import LibraryItem
 
     class FakeImmich:
         async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:

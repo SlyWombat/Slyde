@@ -1,4 +1,4 @@
-# Memento Manager — Architecture
+# Slyde — Architecture
 
 A self-hosted, **generic** service to manage the photos shown on a Memento Smart Frame, sourcing
 images from an **Immich** library, with a modern web UI. Containerized; runs on any Docker host.
@@ -32,7 +32,7 @@ images from an **Immich** library, with a modern web UI. Containerized; runs on 
 - No cloud dependency (the original service is dead; we are LAN-only).
 - No re-flashing/firmware mods of the frame. We speak its existing protocol.
 - No multi-frame fleet management in v1 (design keeps it possible: frames are addressable by IP/GUID).
-- **No writes to Immich, ever.** Memento Manager never creates, updates, or deletes anything in the
+- **No writes to Immich, ever.** Slyde never creates, updates, or deletes anything in the
   Immich library — it is a read-only consumer.
 
 **Read-only contract (Immich).** `ImmichClient` issues only HTTP GET (everything routes through
@@ -48,7 +48,7 @@ memento/
 ├── packages/
 │   ├── memento-core/        # Python: protocol client lib (crypto, discovery, control, file)
 │   ├── memento-emulator/    # Python: faithful frame server for tests & local dev
-│   └── memento-backend/     # Python/FastAPI: REST API, Immich integration, orchestration
+│   └── slyde-backend/     # Python/FastAPI: REST API, Immich integration, orchestration
 ├── frontend/                # React + TS + Vite + Tailwind SPA
 ├── deploy/                  # Dockerfiles, compose stack for kdocker (Dockge), CI
 ├── docs/                    # protocol.md, architecture.md, ADRs
@@ -59,7 +59,7 @@ memento/
 - **memento-emulator** — implements the frame's *server* side of the protocol so the backend
   and core are tested end-to-end (incl. uploads) with zero production risk. Also a dev "virtual
   frame" the real Windows app could even talk to.
-- **memento-backend** — FastAPI. Talks to Immich (REST) and to the frame through a pluggable
+- **slyde-backend** — FastAPI. Talks to Immich (REST) and to the frame through a pluggable
   **`FrameBackend`** (selected by `FRAME_BACKEND`: `memento-lan` LAN protocol, `sungale-cloud` cloud
   impersonation, …), so the app isn't tied to one device/transport — see `frame-backends.md`.
   Persists curation/sync state (SQLite). Serves the built SPA as static files (single container).
@@ -69,7 +69,7 @@ memento/
 ```
                  Any Docker host on the frame's LAN
   ┌──────────────────────────────────────────────────────┐
-  │  memento-backend container (FastAPI + static SPA)      │
+  │  slyde-backend container (FastAPI + static SPA)      │
   │     ├── Immich REST  ──► $IMMICH_BASE_URL (configured) │
   │     └── memento-core ──► (LAN) ──► frame (discovered    │
   │                                    or $FRAME_HOST)      │

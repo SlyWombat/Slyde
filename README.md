@@ -1,23 +1,23 @@
 <p align="center">
-  <img src="assets/banner.svg" width="820" alt="Memento Manager">
+  <img src="assets/banner.svg" width="820" alt="Slyde">
 </p>
 
 <p align="center">
-  <a href="https://github.com/SlyWombat/memento-manager/actions/workflows/ci.yml"><img src="https://github.com/SlyWombat/memento-manager/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/SlyWombat/slyde/actions/workflows/ci.yml"><img src="https://github.com/SlyWombat/slyde/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8cff.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-3776ab.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/ui-React%20%2B%20TypeScript-5b8cff.svg" alt="React + TypeScript">
 </p>
 
-**Revive a dead smart frame — no cloud, no account, no e-waste.** Memento Manager brings the discontinued **[Memento Smart Frame](https://www.kickstarter.com/projects/electricobjects/memento-the-4k-smart-frame)** back to life after its cloud service was shut down. It drives the frame entirely over your LAN using a **reverse-engineered local protocol**, sourcing what it shows **one-way and read-only** from your own [Immich](https://immich.app) library, through a modern web UI.
+**Revive a dead smart frame — no cloud, no account, no e-waste.** Slyde brings the discontinued **[Memento Smart Frame](https://www.kickstarter.com/projects/electricobjects/memento-the-4k-smart-frame)** back to life after its cloud service was shut down. It drives the frame entirely over your LAN using a **reverse-engineered local protocol**, sourcing what it shows **one-way and read-only** from your own [Immich](https://immich.app) library, through a modern web UI.
 
 > **First public implementation of the Memento LAN protocol** — reverse-engineered from the discontinued official app and validated live against a firmware-6.02 device. The full wire format is documented in **[`docs/protocol.md`](docs/protocol.md)**. Not affiliated with or endorsed by the original maker.
 
 ### Why this exists
 
-When Memento's cloud was switched off, every frame people had paid for became a brick — it could no longer fetch a single photo. Memento Manager replaces that dead cloud with software **you** run: it speaks the frame's own protocol directly, so the hardware keeps working indefinitely, fed from a photo library you control. No subscription, no third party, nothing leaving your network.
+When Memento's cloud was switched off, every frame people had paid for became a brick — it could no longer fetch a single photo. Slyde replaces that dead cloud with software **you** run: it speaks the frame's own protocol directly, so the hardware keeps working indefinitely, fed from a photo library you control. No subscription, no third party, nothing leaving your network.
 
-> 🧭 **Where this sits:** most self-hosted "photo frame" projects render a slideshow on a Pi or a browser. Memento Manager is one of the very few that **revives dedicated commercial frame hardware** over a reverse-engineered protocol — see the [competitive analysis](docs/competitive-analysis.html).
+> 🧭 **Where this sits:** most self-hosted "photo frame" projects render a slideshow on a Pi or a browser. Slyde is one of the very few that **revives dedicated commercial frame hardware** over a reverse-engineered protocol — see the [competitive analysis](docs/competitive-analysis.html).
 
 ---
 
@@ -39,13 +39,13 @@ When Memento's cloud was switched off, every frame people had paid for became a 
 ## How it works
 
 ```
- Immich  ──►  Memento Manager (FastAPI + React)  ──►  Memento frame  (or emulator / Pi soft-frame)
+ Immich  ──►  Slyde (FastAPI + React)  ──►  Memento frame  (or emulator / Pi soft-frame)
   read-only        sync · image pipeline · OTA            LAN protocol (UDP discovery + TCP control/file)
 ```
 
 - **`packages/memento-core`** — the reverse-engineered protocol: UDP discovery, TCP control/file channels, the AES/DES crypto, and a sync `FrameClient`.
 - **`packages/memento-emulator`** — a faithful server-side emulator; also runs as a fullscreen **soft-frame** (`--mode display`).
-- **`packages/memento-backend`** — FastAPI service: Immich client, image pipeline, sync engine + scheduler, firmware/OTA, and the REST API.
+- **`packages/slyde-backend`** — FastAPI service: Immich client, image pipeline, sync engine + scheduler, firmware/OTA, and the REST API.
 - **`frontend/`** — React + TypeScript + Vite + Tailwind web UI (served by the backend).
 - **`deploy/`** — portable `compose.yaml`, the emulator stack, the Pi **soft-frame** install, and example deployments.
 
@@ -53,7 +53,7 @@ Design details: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`do
 
 ### Read-only & one-way — your library is never touched
 
-Memento Manager only ever **reads** from Immich: it lists albums, reads asset metadata, and downloads image bytes. It issues **no** create, update, or delete calls against your library — this is a designed-in contract, [audited and enforced by a test](packages/memento-backend/src/memento_backend/immich.py) (`tests/test_immich.py::test_immich_client_is_read_only`). Photos flow **one direction only — Immich → frame** — and nothing on the frame can propagate back. For defense in depth, give Memento Manager a **read-scoped Immich API key**; it never needs write access.
+Slyde only ever **reads** from Immich: it lists albums, reads asset metadata, and downloads image bytes. It issues **no** create, update, or delete calls against your library — this is a designed-in contract, [audited and enforced by a test](packages/slyde-backend/src/slyde_backend/immich.py) (`tests/test_immich.py::test_immich_client_is_read_only`). Photos flow **one direction only — Immich → frame** — and nothing on the frame can propagate back. For defense in depth, give Slyde a **read-scoped Immich API key**; it never needs write access.
 
 ## Quick start
 
@@ -104,11 +104,11 @@ The whole loop runs against the emulator — no frame required:
 
 ```bash
 # 1. Run a soft-frame from the *published* v0.1.0 bundle (so it reports an old version)
-curl -L -o /tmp/sf.zip https://github.com/SlyWombat/memento-manager/releases/download/softframe-v0.1.0/memento-softframe.zip
+curl -L -o /tmp/sf.zip https://github.com/SlyWombat/slyde/releases/download/softframe-v0.1.0/memento-softframe.zip
 mkdir -p /tmp/sf && (cd /tmp/sf && unzip -oq /tmp/sf.zip)
 MEMENTO_APP_DIR=/tmp/sf PYTHONPATH=/tmp/sf uv run memento-emulator --name "OTA Demo"   # reports v0.1.0
 
-# 2. Point a Manager at it (FRAME_HOSTS=<emulator-ip>, FIRMWARE_REPO=SlyWombat/memento-manager,
+# 2. Point a Manager at it (FRAME_HOSTS=<emulator-ip>, FIRMWARE_REPO=SlyWombat/slyde,
 #    MANAGER_BASE_URL=http://<manager-ip>:8090) and open the web UI.
 ```
 

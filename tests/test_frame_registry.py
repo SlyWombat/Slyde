@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import HOST, PORTS
-from memento_backend.config import Settings
-from memento_backend.frame import Frame
-from memento_backend.frames import FrameService
-from memento_backend.store import Store
 from memento_emulator import EmulatedFrame
+from slyde_backend.config import Settings
+from slyde_backend.frame import Frame
+from slyde_backend.frames import FrameService
+from slyde_backend.store import Store
 
 
 def test_frame_connected_identity_is_its_host() -> None:
@@ -75,7 +75,7 @@ def test_frame_service_served_backend_rejects_direct_ops() -> None:
     """A served backend (cloud frame) can't be driven by us connecting to it."""
     import asyncio
 
-    from memento_backend.frames import FrameUnavailable
+    from slyde_backend.frames import FrameUnavailable
 
     service = FrameService(Settings(frame_backend="sungale-cloud", frame_host="1.2.3.4"))
     try:

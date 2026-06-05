@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from memento_backend.config import Settings
+from slyde_backend.config import Settings
 
 
 def test_configured_hosts_merges_and_dedupes() -> None:

@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "memento-backend"
+name = "slyde-backend"
 version = "0.1.1"
-description = "FastAPI service to manage a Memento Smart Frame from an Immich library."
+description = "Slyde — self-hosted hub that drives digital photo frames from an Immich library."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,10 +21,10 @@ dependencies = [
 ]
 
 [project.scripts]
-memento-backend = "memento_backend.main:main"
+slyde = "slyde_backend.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/memento_backend"]
+packages = ["src/slyde_backend"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

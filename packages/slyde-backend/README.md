@@ -1,4 +1,4 @@
-# memento-backend
+# slyde-backend
 
 FastAPI service that manages a **Memento Smart Frame** using photos from an **Immich** library.
 
@@ -12,7 +12,7 @@ All configuration is via environment variables — see [`.env.example`](../../.e
 Nothing is hardcoded to a particular frame, Immich instance, or host.
 
 ```bash
-uv run memento-backend          # serves on $BIND_HOST:$BIND_PORT (default 0.0.0.0:8080)
+uv run slyde-backend          # serves on $BIND_HOST:$BIND_PORT (default 0.0.0.0:8080)
 # OpenAPI docs at /docs
 ```
 

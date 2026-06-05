@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS frame (
     frame_code  TEXT NOT NULL DEFAULT '',
     last_seen   TEXT
 );
+CREATE TABLE IF NOT EXISTS delivery (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    frame_id        TEXT NOT NULL,
+    key             TEXT NOT NULL,
+    payload         TEXT NOT NULL DEFAULT '',
+    state           TEXT NOT NULL DEFAULT 'pending',
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_error      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (frame_id, key)
+);
 CREATE TABLE IF NOT EXISTS library_item (
     frame_id  TEXT NOT NULL,
     asset_id  TEXT NOT NULL,
@@ -71,6 +83,18 @@ class Subscription:
     target_album: str
     last_synced_at: str | None = None
     last_result: str | None = None
+
+
+@dataclass
+class DeliveryRow:
+    id: int
+    frame_id: str
+    key: str
+    payload: str
+    state: str  # "pending" | "delivered" | "failed"
+    attempts: int
+    next_attempt_at: str
+    last_error: str | None = None
 
 
 class Store:
@@ -230,6 +254,66 @@ class Store:
         with self._conn() as conn:
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
 
+    # -- delivery queue (guaranteed delivery; see delivery.py) -----------------
+    def enqueue_delivery(
+        self, frame_id: str, key: str, payload: str, *, next_attempt_at: str
+    ) -> int:
+        """Queue (or re-queue) a delivery for ``(frame_id, key)``; resets it to pending, due then.
+
+        ``next_attempt_at`` is an ISO timestamp (the delivery layer owns time so it's testable)."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO delivery (frame_id, key, payload, next_attempt_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(frame_id, key) DO UPDATE SET payload=excluded.payload, "
+                "state='pending', attempts=0, next_attempt_at=excluded.next_attempt_at, "
+                "last_error=NULL",
+                (frame_id, key, payload, next_attempt_at),
+            )
+            row = conn.execute(
+                "SELECT id FROM delivery WHERE frame_id = ? AND key = ?", (frame_id, key)
+            ).fetchone()
+            return int(row["id"]) if row else int(cur.lastrowid or 0)
+
+    def due_deliveries(self, now_iso: str, limit: int = 100) -> list[DeliveryRow]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM delivery WHERE state='pending' AND next_attempt_at <= ? "
+                "ORDER BY next_attempt_at LIMIT ?",
+                (now_iso, limit),
+            ).fetchall()
+        return [_delivery(r) for r in rows]
+
+    def mark_delivered(self, delivery_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE delivery SET state='delivered' WHERE id = ?", (delivery_id,))
+
+    def reschedule_delivery(
+        self, delivery_id: int, next_attempt_at: str, attempts: int, error: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE delivery SET attempts=?, next_attempt_at=?, last_error=? WHERE id = ?",
+                (attempts, next_attempt_at, error[:500], delivery_id),
+            )
+
+    def fail_delivery(self, delivery_id: int, attempts: int, error: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE delivery SET state='failed', attempts=?, last_error=? WHERE id = ?",
+                (attempts, error[:500], delivery_id),
+            )
+
+    def list_deliveries(self, frame_id: str | None = None) -> list[DeliveryRow]:
+        with self._conn() as conn:
+            if frame_id is None:
+                rows = conn.execute("SELECT * FROM delivery").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM delivery WHERE frame_id = ?", (frame_id,)
+                ).fetchall()
+        return [_delivery(r) for r in rows]
+
 
 def _photo(row: sqlite3.Row) -> SyncedPhoto:
     return SyncedPhoto(
@@ -249,6 +333,19 @@ def _subscription(row: sqlite3.Row) -> Subscription:
         target_album=row["target_album"],
         last_synced_at=row["last_synced_at"],
         last_result=row["last_result"],
+    )
+
+
+def _delivery(row: sqlite3.Row) -> DeliveryRow:
+    return DeliveryRow(
+        id=row["id"],
+        frame_id=row["frame_id"],
+        key=row["key"],
+        payload=row["payload"],
+        state=row["state"],
+        attempts=row["attempts"],
+        next_attempt_at=row["next_attempt_at"],
+        last_error=row["last_error"],
     )
 
 

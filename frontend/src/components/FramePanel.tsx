@@ -43,7 +43,7 @@ export function FramePanel({ host }: { host: string }) {
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-lg font-semibold">{cfg.Name ?? "Memento Frame"}</div>
+          <div className="text-lg font-semibold">{cfg.Name ?? "Frame"}</div>
           <div className="text-xs text-slate-400">{data!.host}</div>
         </div>
         <span

@@ -5,8 +5,7 @@ import { ComingSoon } from "./pages/ComingSoon";
 import { FleetDashboard } from "./pages/FleetDashboard";
 
 const NAV = [
-  { to: "/", label: "Fleet", icon: "◈", end: true },
-  { to: "/frames", label: "Frames", icon: "▤", end: false },
+  { to: "/", label: "Picture Frames", icon: "▦", end: true },
   { to: "/curate", label: "Curate", icon: "✦", end: false },
   { to: "/activity", label: "Activity", icon: "↻", end: false },
   { to: "/settings", label: "Settings", icon: "⚙", end: false },
@@ -64,7 +63,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             to={n.to}
             end={n.end}
             className={({ isActive }) =>
-              `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+              `flex flex-1 flex-col items-center gap-0.5 py-2 text-center text-[11px] font-medium leading-tight ${
                 isActive ? "text-accent" : "text-slate-400"
               }`
             }

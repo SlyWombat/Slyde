@@ -3,7 +3,7 @@ import { FrameCard } from "../components/FrameCard";
 import { useFrames } from "../lib/frames";
 import { api } from "../api/client";
 import { useQuery } from "@tanstack/react-query";
-import { Banner, Button, Card, EmptyState, ErrorState, Skeleton } from "../ui";
+import { Banner, Button, EmptyState, ErrorState, Skeleton } from "../ui";
 
 /** Fleet dashboard (#34) — the app home: every frame as a card, from /api/frames/status. */
 export function FleetDashboard() {
@@ -17,7 +17,7 @@ export function FleetDashboard() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Fleet</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Picture Frames</h1>
           <p className="mt-1 text-sm text-slate-400">
             {frames.length} {frames.length === 1 ? "frame" : "frames"} · {healthy} healthy
             {attention.length > 0 && ` · ${attention.length} need${attention.length === 1 ? "s" : ""} attention`}
@@ -28,9 +28,13 @@ export function FleetDashboard() {
             <span className={`h-2 w-2 rounded-full ${immich.data?.immich_configured ? "bg-emerald-400" : "bg-slate-500"}`} />
             Immich {immich.data?.immich_configured ? "connected" : "not configured"}
           </span>
-          <Link to="/frames">
-            <Button variant="accent">+ Add frame</Button>
-          </Link>
+          {/* Single Add affordance per context: header primary only once frames exist; when empty,
+              the empty-state CTA below is the one hero action. */}
+          {frames.length > 0 && (
+            <Link to="/frames">
+              <Button variant="accent">+ Add frame</Button>
+            </Link>
+          )}
         </div>
       </header>
 
@@ -78,12 +82,6 @@ export function FleetDashboard() {
           {frames.map((f) => (
             <FrameCard key={f.id} frame={f} />
           ))}
-          <Link to="/frames" className="group">
-            <Card className="flex h-full min-h-[18rem] flex-col items-center justify-center gap-2 border-dashed text-slate-400 transition group-hover:border-accent group-hover:text-slate-200">
-              <div className="text-3xl">+</div>
-              <div className="text-sm font-medium">Add a frame</div>
-            </Card>
-          </Link>
         </div>
       )}
     </div>

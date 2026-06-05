@@ -6,6 +6,7 @@ import type {
   FirmwareInfo,
   FrameAlbum,
   FrameInfo,
+  FrameStatus,
   FrameSummary,
   FrameUpdate,
   Health,
@@ -41,6 +42,7 @@ export const api = {
 
   // -- frames --------------------------------------------------------------
   frames: () => request<FrameSummary[]>("/frames"),
+  framesStatus: () => request<FrameStatus[]>("/frames/status"),
   frame: (host: string) => request<FrameInfo>(`/frames/${enc(host)}`),
   updateConfig: (host: string, patch: ConfigPatch) =>
     request<FrameInfo>(`/frames/${enc(host)}/config`, {

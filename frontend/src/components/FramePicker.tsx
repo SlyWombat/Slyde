@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { StatusPanel } from "./StatusPanel";
 
 export function FramePicker({ onSelect }: { onSelect: (host: string) => void }) {
   const { data, isLoading, error, refetch, isFetching } = useQuery({
@@ -10,7 +11,7 @@ export function FramePicker({ onSelect }: { onSelect: (host: string) => void }) 
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="mb-1 text-2xl font-bold tracking-tight">
-        Memento <span className="text-accent">Manager</span>
+        Sly<span className="text-accent">de</span>
       </h1>
       <p className="mb-6 text-sm text-slate-400">Select a frame to manage.</p>
 
@@ -48,6 +49,8 @@ export function FramePicker({ onSelect }: { onSelect: (host: string) => void }) 
       <button className="btn mt-6" onClick={() => refetch()} disabled={isFetching}>
         {isFetching ? "Scanning…" : "Rescan"}
       </button>
+
+      <StatusPanel />
     </div>
   );
 }

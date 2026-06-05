@@ -122,3 +122,18 @@ export interface ConfigPatch {
   DisplayTime?: number;
   Name?: string;
 }
+
+export interface DeliverySummary {
+  pending: number;
+  delivered: number;
+  failed: number;
+}
+
+export interface FrameStatus {
+  id: string;
+  backend: string;
+  interaction: string;
+  name: string;
+  last_seen: string | null;
+  deliveries: DeliverySummary;
+}

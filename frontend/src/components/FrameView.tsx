@@ -15,7 +15,7 @@ export function FrameView({ host, onBack }: { host: string; onBack: () => void }
           ‹ Frames
         </button>
         <h1 className="text-xl font-bold tracking-tight">
-          Memento <span className="text-accent">Manager</span>
+          Sly<span className="text-accent">de</span>
         </h1>
       </header>
 

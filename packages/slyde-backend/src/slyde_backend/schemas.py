@@ -69,6 +69,13 @@ class FrameSummary(BaseModel):
     guid: str = ""
 
 
+class LibraryItemModel(BaseModel):
+    """One curated photo for a frame: which Immich asset, under what on-frame name."""
+
+    asset_id: str
+    dest_name: str
+
+
 class DeliverySummary(BaseModel):
     """Per-frame delivery-queue state (guaranteed delivery, #26)."""
 

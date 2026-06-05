@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
 from ..frames import FrameUnavailable
 from ..jobs import SyncJob
+from ..library import LibraryItem
 from ..schemas import (
     ConfigPatch,
     CreateAlbumRequest,
@@ -18,6 +20,7 @@ from ..schemas import (
     FrameStatus,
     FrameSummary,
     FrameUpdate,
+    LibraryItemModel,
     SubscribeRequest,
     Subscription,
     SyncJobInfo,
@@ -103,6 +106,25 @@ async def frames_status(store: StoreDep) -> list[FrameStatus]:
         )
         for f in store.list_frames()
     ]
+
+
+@router.put("/{frame_id}/library", status_code=202)
+async def set_library(
+    frame_id: str, items: list[LibraryItemModel], request: Request
+) -> dict[str, int]:
+    """Set a frame's curated photo set, queue guaranteed delivery, and reconcile now (#23/#25/#26).
+
+    The backend owns sync from here: it durably queues a delivery per photo and drains the queue
+    (served frames -> prepared image cached, ready to pull; connected frames -> pushed, retried if
+    offline). Returns how many were queued + the delivery outcome counts.
+    """
+    library = request.app.state.library
+    delivery = request.app.state.delivery_service
+    library.set_desired(frame_id, [LibraryItem(i.asset_id, i.dest_name) for i in items])
+    now = datetime.now(UTC)
+    queued = delivery.enqueue_desired(frame_id, now=now)
+    counts = await delivery.reconcile(now=now)
+    return {"queued": queued, **counts}
 
 
 @router.get("/{host}", response_model=FrameInfo)

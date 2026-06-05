@@ -143,6 +143,41 @@ def test_frames_status_is_frame_agnostic(served: ServedHarness) -> None:
     assert row["deliveries"] == {"pending": 1, "delivered": 1, "failed": 0}
 
 
+def test_curation_endpoint_drives_delivery_then_frame_pulls(served: ServedHarness) -> None:
+    """#25/#26 live wiring through the real app: PUT a frame's library -> the backend queues +
+    delivers (prepares + caches) -> the frame's poll returns its prepared image."""
+    import io
+
+    from PIL import Image
+
+    class FakeImmich:
+        async def __aenter__(self) -> FakeImmich:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:
+            buf = io.BytesIO()
+            Image.new("RGB", (200, 100), (40, 80, 160)).save(buf, format="JPEG")
+            return buf.getvalue()
+
+    served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": "EF-WIRE"})
+    served.app.state.delivery_service._immich_factory = FakeImmich  # no real Immich in tests
+
+    put = served.request(
+        "PUT",
+        "/api/frames/EF-WIRE/library",
+        json=[{"asset_id": "a1", "dest_name": "current"}],
+    )
+    assert put.status_code == 202
+    assert put.json()["delivered"] == 1  # the backend delivered it (no UI involvement)
+
+    poll = served.request("GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EF-WIRE"})
+    assert poll.status_code == 200
+    assert poll.content[:8] == b"\x89PNG\r\n\x1a\n"  # the e-paper-prepared PNG, ready on the cache
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

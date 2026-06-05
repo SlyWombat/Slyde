@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .backends import ServedFrameBackend, get_backend
 from .config import Settings, get_settings
+from .delivery_service import DeliveryService
 from .firmware import FirmwareService
 from .frames import FrameService, FrameUnavailable
 from .imagecache import ImageCache
@@ -37,7 +38,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return ImmichClient(settings.immich_base_url, settings.immich_api_key)
 
         sync_service = SyncService(settings, frame_service, store, immich_factory)
-        scheduler = SyncScheduler(sync_service, settings.sync_interval_minutes)
+        # Cache of prepared (edited) images, ready to serve/push (#25). Served frames are handed a
+        # cached image on poll; until the delivery service fills it, a placeholder is used.
+        image_cache = ImageCache(settings.cache_dir)
+        # The desired photo set per frame (curation), decoupled from delivery (#23).
+        library = FrameLibrary(store, image_cache)
+        # Live wiring (#25/#26): curation -> guaranteed-delivery queue -> prepare -> cache/push.
+        delivery_service = DeliveryService(
+            store, library, image_cache, frame_service, immich_factory, settings
+        )
+        scheduler = SyncScheduler(sync_service, settings.sync_interval_minutes, delivery_service)
 
         app.state.settings = settings
         app.state.store = store
@@ -47,14 +57,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()
         app.state.firmware = FirmwareService(settings)
-        # Cache of prepared (edited) images, ready to serve/push (#25). Served frames are handed a
-        # cached image on poll; until the sync/processing service fills it, a placeholder is used.
-        image_cache = ImageCache(settings.cache_dir)
         app.state.image_cache = image_cache
         app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
-        # The desired photo set per frame (curation), decoupled from delivery (#23). For served
-        # frames, publishing prepares + caches images ready to pull.
-        app.state.library = FrameLibrary(store, image_cache)
+        app.state.library = library
+        app.state.delivery_service = delivery_service
         scheduler.start()
         try:
             yield

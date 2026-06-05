@@ -10,7 +10,9 @@ import contextlib
 import logging
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
+from .delivery_service import DeliveryService
 from .sync import SyncService
 
 _log = logging.getLogger(__name__)
@@ -27,8 +29,14 @@ class SchedulerStatus:
 
 
 class SyncScheduler:
-    def __init__(self, sync: SyncService, interval_minutes: int) -> None:
+    def __init__(
+        self,
+        sync: SyncService,
+        interval_minutes: int,
+        delivery: DeliveryService | None = None,
+    ) -> None:
         self._sync = sync
+        self._delivery = delivery
         self._interval = max(0, interval_minutes) * 60
         self._task: asyncio.Task[None] | None = None
         self._started: float | None = None
@@ -48,10 +56,12 @@ class SyncScheduler:
             await asyncio.sleep(self._interval)
             try:
                 summary = await self._sync.run_due_subscriptions()
+                delivered = await self._run_delivery()
                 self._last_ok = True
                 self._last_message = (
                     f"{summary['subscriptions']} albums: +{summary['added']} added, "
-                    f"-{summary['removed']} removed, {summary['failed']} failed"
+                    f"-{summary['removed']} removed, {summary['failed']} failed; "
+                    f"delivery {delivered}"
                 )
             except Exception as exc:
                 self._last_ok = False
@@ -59,6 +69,12 @@ class SyncScheduler:
                 _log.exception("scheduled sync cycle failed")
             self._last_run = time.monotonic()
             self._last_run_iso = _utc_now_iso()
+
+    async def _run_delivery(self) -> dict[str, int]:
+        """Drain the guaranteed-delivery queue this cycle (curated photos -> frames)."""
+        if self._delivery is None:
+            return {}
+        return await self._delivery.reconcile(now=datetime.now(UTC))
 
     def status(self) -> SchedulerStatus:
         reference = self._last_run if self._last_run is not None else self._started

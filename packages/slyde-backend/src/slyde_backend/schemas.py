@@ -69,6 +69,25 @@ class FrameSummary(BaseModel):
     guid: str = ""
 
 
+class DeliverySummary(BaseModel):
+    """Per-frame delivery-queue state (guaranteed delivery, #26)."""
+
+    pending: int = 0
+    delivered: int = 0
+    failed: int = 0
+
+
+class FrameStatus(BaseModel):
+    """Frame-agnostic, read-only status of a known frame (any backend) — the UI state view (#24)."""
+
+    id: str
+    backend: str
+    interaction: str  # "connected" | "served"
+    name: str = ""
+    last_seen: str | None = None
+    deliveries: DeliverySummary
+
+
 class FrameAlbum(BaseModel):
     name: str
     display_name: str

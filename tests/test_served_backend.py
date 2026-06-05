@@ -120,6 +120,29 @@ def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness)
         assert img.size == (160, 96)  # served the image prepared to the frame's canvas
 
 
+def test_frames_status_is_frame_agnostic(served: ServedHarness) -> None:
+    """#24: read-only status from the registry + delivery queue, no connection to the frame."""
+    from datetime import datetime
+
+    from slyde_backend.delivery import enqueue
+
+    # a served frame registers itself by polling
+    served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": "EF-STAT"})
+    # and has some queued deliveries
+    store = served.app.state.store
+    enqueue(store, "EF-STAT", "a.jpg", now=datetime(2026, 1, 1))
+    store.mark_delivered(enqueue(store, "EF-STAT", "b.jpg", now=datetime(2026, 1, 1)))
+
+    resp = served.request("GET", "/api/frames/status")
+    assert resp.status_code == 200
+    rows = {r["id"]: r for r in resp.json()}
+    assert "EF-STAT" in rows
+    row = rows["EF-STAT"]
+    assert row["interaction"] == "served" and row["backend"] == "sungale-cloud"
+    assert row["last_seen"] is not None
+    assert row["deliveries"] == {"pending": 1, "delivered": 1, "failed": 0}
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

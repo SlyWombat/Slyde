@@ -304,6 +304,18 @@ class Store:
                 (attempts, error[:500], delivery_id),
             )
 
+    def delivery_summary(self, frame_id: str) -> dict[str, int]:
+        """Counts of a frame's deliveries by state (pending / delivered / failed)."""
+        summary = {"pending": 0, "delivered": 0, "failed": 0}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT state, COUNT(*) AS n FROM delivery WHERE frame_id = ? GROUP BY state",
+                (frame_id,),
+            ).fetchall()
+        for r in rows:
+            summary[r["state"]] = int(r["n"])
+        return summary
+
     def list_deliveries(self, frame_id: str | None = None) -> list[DeliveryRow]:
         with self._conn() as conn:
             if frame_id is None:

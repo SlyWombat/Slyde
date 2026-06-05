@@ -12,8 +12,10 @@ from ..schemas import (
     ConfigPatch,
     CreateAlbumRequest,
     CurrentImage,
+    DeliverySummary,
     FrameAlbum,
     FrameInfo,
+    FrameStatus,
     FrameSummary,
     FrameUpdate,
     SubscribeRequest,
@@ -22,7 +24,7 @@ from ..schemas import (
     SyncRequest,
     SyncResult,
 )
-from .deps import FirmwareDep, FrameDep, JobsDep, SettingsDep, SyncDep
+from .deps import FirmwareDep, FrameDep, JobsDep, SettingsDep, StoreDep, SyncDep
 
 router = APIRouter(prefix="/frames", tags=["frames"])
 
@@ -81,6 +83,26 @@ async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSumma
         )
         have.add(host)
     return summaries
+
+
+@router.get("/status", response_model=list[FrameStatus])
+async def frames_status(store: StoreDep) -> list[FrameStatus]:
+    """Frame-agnostic, read-only status of every known frame across backends (#24).
+
+    Built from the registry + delivery queue — no connection to the frame is made, so it works the
+    same for offline/served frames. This is the disconnected "current state" view the UI reads.
+    """
+    return [
+        FrameStatus(
+            id=f.id,
+            backend=f.backend,
+            interaction=f.interaction,
+            name=f.name,
+            last_seen=f.last_seen,
+            deliveries=DeliverySummary(**store.delivery_summary(f.id)),
+        )
+        for f in store.list_frames()
+    ]
 
 
 @router.get("/{host}", response_model=FrameInfo)

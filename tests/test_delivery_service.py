@@ -18,6 +18,7 @@ from slyde_backend.library import FrameLibrary, LibraryItem
 from slyde_backend.store import Store
 
 T0 = datetime(2026, 1, 1, 12, 0, 0)
+T1 = datetime(2026, 1, 1, 12, 5, 0)
 
 
 class FakeImmich:
@@ -69,6 +70,42 @@ def test_served_curation_publishes_to_cache_and_marks_delivered(tmp_path: Path) 
     with Image.open(io.BytesIO(cache.get("EF-1", "one"))) as img:
         assert img.format == "PNG" and img.size == (64, 48)  # e-paper PNG at the frame canvas
     assert {d.state for d in store.list_deliveries("EF-1")} == {"delivered"}
+
+
+def test_resaving_unchanged_library_does_not_requeue_or_redeliver(tmp_path: Path) -> None:
+    """#46: re-PUTting an unchanged set queues nothing and keeps delivered photos delivered — the
+    whole album must not re-deliver, and the counters must not move backwards."""
+    ds, store, _ = _service(tmp_path)
+    store.upsert_frame(Frame.served("EF-1", backend="sungale-cloud"))
+    ds._library.set_desired("EF-1", [LibraryItem("a1", "one"), LibraryItem("a2", "two")])
+    assert ds.enqueue_desired("EF-1", now=T0) == 2
+    asyncio.run(ds.reconcile(now=T0))
+    assert store.delivery_summary("EF-1") == {"pending": 0, "delivered": 2, "failed": 0}
+
+    # re-save the identical library -> nothing queued, nothing re-delivered, counts unchanged
+    assert ds.enqueue_desired("EF-1", now=T1) == 0
+    assert asyncio.run(ds.reconcile(now=T1)) == {"delivered": 0, "retried": 0, "failed": 0}
+    assert store.delivery_summary("EF-1") == {"pending": 0, "delivered": 2, "failed": 0}
+
+    # changing one slot (same dest, new asset) re-queues only that one photo
+    ds._library.set_desired("EF-1", [LibraryItem("a1", "one"), LibraryItem("a9", "two")])
+    assert ds.enqueue_desired("EF-1", now=T1) == 1
+    assert store.delivery_summary("EF-1") == {"pending": 1, "delivered": 1, "failed": 0}
+
+
+def test_drain_delivers_more_than_one_batch(tmp_path: Path) -> None:
+    """#47: a fresh large curation first-syncs in one drain, not one 100-item batch per cycle."""
+    ds, store, _ = _service(tmp_path)
+    store.upsert_frame(Frame.served("EF-BIG", backend="sungale-cloud"))
+    ds._library.set_desired("EF-BIG", [LibraryItem(f"a{i}", f"p{i}") for i in range(150)])
+    assert ds.enqueue_desired("EF-BIG", now=T0) == 150
+
+    one_batch = asyncio.run(ds.reconcile(now=T0))  # the old behaviour: capped at 100
+    assert one_batch["delivered"] == 100 and store.delivery_summary("EF-BIG")["pending"] == 50
+
+    drained = asyncio.run(ds.drain(now=T0))  # finishes the rest in this pass
+    assert drained["delivered"] == 50
+    assert store.delivery_summary("EF-BIG") == {"pending": 0, "delivered": 150, "failed": 0}
 
 
 def test_connected_delivery_reuses_cached_image_without_immich(tmp_path: Path) -> None:

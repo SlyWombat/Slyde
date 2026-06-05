@@ -37,6 +37,13 @@ export function Curate() {
       else next.add(id);
       return next;
     });
+  // Bulk add/remove for 'select all' and shift-click range select (#48).
+  const setMany = (ids: string[], on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+      return next;
+    });
 
   const qc = useQueryClient();
   const commit = useMutation({
@@ -79,7 +86,7 @@ export function Curate() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <ImmichBrowser selected={selected} onToggle={toggleAsset} />
+        <ImmichBrowser selected={selected} onToggle={toggleAsset} onBulk={setMany} />
 
         {/* Selection + targets + commit (sticky on desktop) */}
         <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
@@ -179,12 +186,15 @@ function TargetPicker({
 function ImmichBrowser({
   selected,
   onToggle,
+  onBulk,
 }: {
   selected: Set<string>;
   onToggle: (id: string) => void;
+  onBulk: (ids: string[], on: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const [album, setAlbum] = useState<Album | null>(null);
+  const [anchor, setAnchor] = useState<number | null>(null); // for shift-click range select
 
   const albums = useQuery({ queryKey: ["immich-albums"], queryFn: api.immichAlbums });
   const assets = useQuery({
@@ -199,6 +209,27 @@ function ImmichBrowser({
       .filter((a) => !q || a.name.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [albums.data, query]);
+
+  const images = useMemo(
+    () => (assets.data ?? []).filter((a) => a.type === "IMAGE"),
+    [assets.data],
+  );
+  const imageIds = images.map((a) => a.id);
+  const allSelected = imageIds.length > 0 && imageIds.every((id) => selected.has(id));
+
+  // Click: plain = toggle one + set the range anchor; shift = select from the anchor to here.
+  const onAssetClick = (e: React.MouseEvent, index: number, id: string) => {
+    if (e.shiftKey && anchor !== null) {
+      const [lo, hi] = anchor < index ? [anchor, index] : [index, anchor];
+      onBulk(
+        images.slice(lo, hi + 1).map((a) => a.id),
+        true,
+      );
+    } else {
+      onToggle(id);
+      setAnchor(index);
+    }
+  };
 
   if (albums.isLoading) return <Skeleton className="h-96 w-full" />;
   if (albums.error)
@@ -254,15 +285,25 @@ function ImmichBrowser({
         ) : assets.isLoading ? (
           <Skeleton className="h-80 w-full" />
         ) : (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-            {assets.data
-              ?.filter((a) => a.type === "IMAGE")
-              .map((a) => {
+          <div className="space-y-2">
+            {/* Album-level bulk controls: send a whole album without clicking each photo (#48). */}
+            <div className="flex items-center gap-2 text-sm">
+              <Button
+                className="px-2 py-1 text-xs"
+                disabled={imageIds.length === 0}
+                onClick={() => onBulk(imageIds, !allSelected)}
+              >
+                {allSelected ? "Deselect all" : `Select all (${imageIds.length})`}
+              </Button>
+              <span className="text-xs text-slate-500">Tip: shift-click to select a range.</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+              {images.map((a, i) => {
                 const on = selected.has(a.id);
                 return (
                   <button
                     key={a.id}
-                    onClick={() => onToggle(a.id)}
+                    onClick={(e) => onAssetClick(e, i, a.id)}
                     title={a.file_name}
                     className={`relative aspect-square overflow-hidden rounded-lg border-2 ${
                       on ? "border-accent" : "border-transparent"
@@ -272,7 +313,7 @@ function ImmichBrowser({
                       src={api.immichThumbUrl(a.id)}
                       alt={a.file_name}
                       loading="lazy"
-                      className="h-full w-full bg-ink object-cover"
+                      className="h-full w-full select-none bg-ink object-cover"
                     />
                     {on && (
                       <span className="absolute right-1 top-1 rounded-full bg-accent px-1.5 text-xs text-white">
@@ -282,6 +323,7 @@ function ImmichBrowser({
                   </button>
                 );
               })}
+            </div>
           </div>
         )}
       </div>

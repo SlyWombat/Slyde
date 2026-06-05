@@ -48,7 +48,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         delivery_service = DeliveryService(
             store, library, image_cache, frame_service, immich_factory, settings
         )
-        scheduler = SyncScheduler(sync_service, settings.sync_interval_minutes, delivery_service)
+        scheduler = SyncScheduler(
+            sync_service,
+            settings.sync_interval_minutes,
+            delivery_service,
+            settings.delivery_interval_seconds,
+        )
 
         app.state.settings = settings
         app.state.store = store

@@ -48,19 +48,46 @@ class DeliveryService:
         self._immich_factory = immich_factory
         self._settings = settings
         self._policy = RetryPolicy()
+        self._lock = asyncio.Lock()  # serialise reconcile passes (PUT, scheduler, delivery timer)
 
     def enqueue_desired(self, frame_id: str, *, now: datetime) -> int:
-        """Queue a delivery for every curated photo of ``frame_id``; returns the count."""
-        items = self._library.desired(frame_id)
-        for item in items:
+        """Queue a delivery for each curated photo that isn't already on the frame; returns how many
+        were queued. Photos already ``delivered`` with the same asset are skipped, so re-saving a
+        library (or adding one photo to a large album) delivers only the delta — not the whole set
+        (#46)."""
+        delivered = self._store.delivered_payloads(frame_id)
+        queued = 0
+        for item in self._library.desired(frame_id):
+            if delivered.get(item.dest_name) == item.asset_id:
+                continue  # already on the frame, unchanged — don't re-queue or re-deliver
             self._store.enqueue_delivery(
                 frame_id, item.dest_name, item.asset_id, next_attempt_at=now.isoformat()
             )
-        return len(items)
+            queued += 1
+        return queued
 
-    async def reconcile(self, *, now: datetime) -> dict[str, int]:
-        """Drain the due delivery queue once (called by the scheduler each cycle)."""
-        return await reconcile(self._store, self._deliver, now=now, policy=self._policy)
+    async def reconcile(self, *, now: datetime, limit: int = 100) -> dict[str, int]:
+        """Drain one batch of the due delivery queue (bounded by ``limit``)."""
+        async with self._lock:
+            return await reconcile(
+                self._store, self._deliver, now=now, policy=self._policy, limit=limit
+            )
+
+    async def drain(self, *, now: datetime, max_batches: int = 200) -> dict[str, int]:
+        """Reconcile repeatedly until the due queue is empty (or a safety cap), so a fresh large
+        curation first-syncs in one background pass instead of one 100-item batch per cycle (#47).
+
+        Retried (offline) items are rescheduled into the future, so they fall out of ``now``'s due
+        set and the loop terminates; they're picked up on a later tick.
+        """
+        totals = {"delivered": 0, "retried": 0, "failed": 0}
+        for _ in range(max_batches):
+            counts = await self.reconcile(now=now)
+            for key in totals:
+                totals[key] += counts[key]
+            if counts["delivered"] + counts["retried"] + counts["failed"] == 0:
+                break  # nothing left due
+        return totals
 
     async def _deliver(self, item: DeliveryRow) -> None:
         frame = self._store.get_frame(item.frame_id)

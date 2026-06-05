@@ -304,6 +304,16 @@ class Store:
                 (attempts, error[:500], delivery_id),
             )
 
+    def delivered_payloads(self, frame_id: str) -> dict[str, str]:
+        """``key -> payload`` for already-delivered rows, so a re-curation can skip re-queueing
+        photos already on the frame (#46)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT key, payload FROM delivery WHERE frame_id = ? AND state='delivered'",
+                (frame_id,),
+            ).fetchall()
+        return {r["key"]: r["payload"] for r in rows}
+
     def delivery_summary(self, frame_id: str) -> dict[str, int]:
         """Counts of a frame's deliveries by state (pending / delivered / failed)."""
         summary = {"pending": 0, "delivered": 0, "failed": 0}

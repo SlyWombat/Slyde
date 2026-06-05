@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     sync_interval_minutes: int = Field(
         15, description="How often to re-mirror kept-in-sync albums (0 disables the scheduler)"
     )
+    delivery_interval_seconds: int = Field(
+        20,
+        description="How often the backend drains the delivery queue to frames, decoupled from "
+        "album re-mirroring so a fresh curation syncs in seconds, not minutes (0 disables)",
+    )
 
     # Firmware / app updates --------------------------------------------------
     firmware_repo: str = Field(

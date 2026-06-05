@@ -34,11 +34,14 @@ class SyncScheduler:
         sync: SyncService,
         interval_minutes: int,
         delivery: DeliveryService | None = None,
+        delivery_interval_seconds: int = 0,
     ) -> None:
         self._sync = sync
         self._delivery = delivery
         self._interval = max(0, interval_minutes) * 60
+        self._delivery_interval = max(0, delivery_interval_seconds)
         self._task: asyncio.Task[None] | None = None
+        self._delivery_task: asyncio.Task[None] | None = None
         self._started: float | None = None
         self._last_run: float | None = None
         self._last_run_iso: str | None = None
@@ -50,6 +53,11 @@ class SyncScheduler:
             self._started = time.monotonic()
             self._task = asyncio.create_task(self._loop())
             _log.info("sync scheduler started (every %ss)", self._interval)
+        # Delivery drains on its own, tighter cadence so a fresh curation syncs in seconds (#47).
+        has_delivery = self._delivery is not None and self._delivery_interval > 0
+        if has_delivery and self._delivery_task is None:
+            self._delivery_task = asyncio.create_task(self._delivery_loop())
+            _log.info("delivery drain started (every %ss)", self._delivery_interval)
 
     async def _loop(self) -> None:
         while True:
@@ -70,8 +78,18 @@ class SyncScheduler:
             self._last_run = time.monotonic()
             self._last_run_iso = _utc_now_iso()
 
+    async def _delivery_loop(self) -> None:
+        """Drain the delivery queue on a tight timer, independent of album mirroring."""
+        assert self._delivery is not None
+        while True:
+            await asyncio.sleep(self._delivery_interval)
+            try:
+                await self._delivery.drain(now=datetime.now(UTC))
+            except Exception:
+                _log.exception("delivery drain failed")
+
     async def _run_delivery(self) -> dict[str, int]:
-        """Drain the guaranteed-delivery queue this cycle (curated photos -> frames)."""
+        """One delivery batch alongside album re-mirroring; the loop does the full drain."""
         if self._delivery is None:
             return {}
         return await self._delivery.reconcile(now=datetime.now(UTC))
@@ -89,11 +107,13 @@ class SyncScheduler:
         )
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+        for attr in ("_task", "_delivery_task"):
+            task = getattr(self, attr)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                setattr(self, attr, None)
 
 
 def _utc_now_iso() -> str:

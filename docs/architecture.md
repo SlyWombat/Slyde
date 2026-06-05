@@ -14,7 +14,8 @@ images from an **Immich** library, with a modern web UI. Containerized; runs on 
 
 ## 1. Goals & non-goals
 **Goals**
-- Browse the Immich library and curate which photos appear on the frame.
+- Browse the Immich library and curate which photos appear on the frame, sourcing photos
+  **one-way and read-only** from Immich (see *Read-only contract* below).
 - Push/remove photos and organize them into folders on the frame; adjust the display settings the
   protocol exposes today (on/off, shuffle, slide duration, night mode, orientation/portrait,
   rename) using the recovered local protocol. (Per-image reorder and the panel-calibration
@@ -28,6 +29,15 @@ images from an **Immich** library, with a modern web UI. Containerized; runs on 
 - No cloud dependency (the original service is dead; we are LAN-only).
 - No re-flashing/firmware mods of the frame. We speak its existing protocol.
 - No multi-frame fleet management in v1 (design keeps it possible: frames are addressable by IP/GUID).
+- **No writes to Immich, ever.** Memento Manager never creates, updates, or deletes anything in the
+  Immich library — it is a read-only consumer.
+
+**Read-only contract (Immich).** `ImmichClient` issues only HTTP GET (everything routes through
+`_get`); there are deliberately no create/update/delete methods. Photos flow one direction only —
+Immich → frame — and nothing on the frame can propagate back. This is enforced by
+`tests/test_immich.py::test_immich_client_is_read_only`, which exercises every public method and
+asserts no non-GET verb is ever issued. Operators are encouraged to use a **read-scoped Immich API
+key**; the integration never needs write access.
 
 ## 2. Components (monorepo)
 ```

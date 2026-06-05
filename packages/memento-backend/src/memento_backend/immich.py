@@ -2,6 +2,11 @@
 
 Targets the documented Immich API (auth via the ``x-api-key`` header). Endpoints are kept in one
 place so they are easy to adjust for a given Immich version; behaviour is covered by mocked tests.
+
+READ-ONLY CONTRACT: this client only ever reads from Immich. Every request goes through ``_get``
+(HTTP GET); there are deliberately no create/update/delete methods. Photos flow one way only —
+Immich -> frame. Enforced by ``tests/test_immich.py::test_immich_client_is_read_only``. Do not add
+mutating calls here; the frame integration never needs them.
 """
 
 from __future__ import annotations

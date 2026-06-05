@@ -9,16 +9,22 @@
   <img src="https://img.shields.io/badge/ui-React%20%2B%20TypeScript-5b8cff.svg" alt="React + TypeScript">
 </p>
 
-**Memento Manager** brings the discontinued **[Memento Smart Frame](https://www.kickstarter.com/projects/electricobjects/memento-the-4k-smart-frame)** back to life after its cloud service was shut down. It talks to the frame entirely over your LAN using a **reverse-engineered local protocol** — no cloud, no account — and manages what the frame shows from your own [Immich](https://immich.app) photo library through a modern web UI.
+**Revive a dead smart frame — no cloud, no account, no e-waste.** Memento Manager brings the discontinued **[Memento Smart Frame](https://www.kickstarter.com/projects/electricobjects/memento-the-4k-smart-frame)** back to life after its cloud service was shut down. It drives the frame entirely over your LAN using a **reverse-engineered local protocol**, sourcing what it shows **one-way and read-only** from your own [Immich](https://immich.app) library, through a modern web UI.
 
-> The frame's local protocol was reverse-engineered from the discontinued official app and validated live against a firmware-6.02 device. As far as we can tell, this is the first public implementation — see [`docs/protocol.md`](docs/protocol.md). Not affiliated with or endorsed by the original maker.
+> **First public implementation of the Memento LAN protocol** — reverse-engineered from the discontinued official app and validated live against a firmware-6.02 device. The full wire format is documented in **[`docs/protocol.md`](docs/protocol.md)**. Not affiliated with or endorsed by the original maker.
+
+### Why this exists
+
+When Memento's cloud was switched off, every frame people had paid for became a brick — it could no longer fetch a single photo. Memento Manager replaces that dead cloud with software **you** run: it speaks the frame's own protocol directly, so the hardware keeps working indefinitely, fed from a photo library you control. No subscription, no third party, nothing leaving your network.
+
+> 🧭 **Where this sits:** most self-hosted "photo frame" projects render a slideshow on a Pi or a browser. Memento Manager is one of the very few that **revives dedicated commercial frame hardware** over a reverse-engineered protocol — see the [competitive analysis](docs/competitive-analysis.html).
 
 ---
 
 ## Features
 
 - 🔎 **Zero-config discovery** — finds frames on the LAN (UDP broadcast), or target one by IP.
-- 🖼️ **Immich → frame sync** — browse albums, copy photos one-way to the frame (Immich is read-only). Big albums run as **background jobs with a live progress bar**, so the browser never times out.
+- 🖼️ **Immich → frame sync** — browse albums, copy photos one-way to the frame ([read-only — your library is never touched](#read-only--one-way--your-library-is-never-touched)). Big albums run as **background jobs with a live progress bar**, so the browser never times out.
 - 🔁 **Keep-in-sync subscriptions** — mirror an Immich album to a frame folder 1:1; new photos are pushed and removed ones dropped, on a schedule.
 - 🎯 **Smart image fit** — each photo is prepared to the frame's *own reported resolution* and aspect: crop near-matches, blur-fill the sides for portraits (configurable: `contain` / `cover` / `blur` / `smart`).
 - 🗂️ **Folder & photo management** — create/delete folders, remove photos, pick the upload destination.
@@ -44,6 +50,10 @@
 - **`deploy/`** — portable `compose.yaml`, the emulator stack, the Pi **soft-frame** install, and example deployments.
 
 Design details: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · Usage: [`docs/USAGE.md`](docs/USAGE.md).
+
+### Read-only & one-way — your library is never touched
+
+Memento Manager only ever **reads** from Immich: it lists albums, reads asset metadata, and downloads image bytes. It issues **no** create, update, or delete calls against your library — this is a designed-in contract, [audited and enforced by a test](packages/memento-backend/src/memento_backend/immich.py) (`tests/test_immich.py::test_immich_client_is_read_only`). Photos flow **one direction only — Immich → frame** — and nothing on the frame can propagate back. For defense in depth, give Memento Manager a **read-scoped Immich API key**; it never needs write access.
 
 ## Quick start
 

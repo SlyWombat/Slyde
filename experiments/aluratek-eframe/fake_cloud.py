@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +49,7 @@ app = FastAPI(title="aluratek-eframe fake-cloud", docs_url=None, redoc_url=None)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _log(record: dict[str, Any]) -> None:
@@ -85,9 +85,7 @@ async def _fetch_latest_immich_image() -> bytes | None:
         if not images:
             return None
         asset_id = images[-1]["id"] if IMMICH_ALBUM_ID else images[0]["id"]
-        img = await cx.get(
-            f"/api/assets/{asset_id}/thumbnail", params={"size": IMMICH_ASSET_SIZE}
-        )
+        img = await cx.get(f"/api/assets/{asset_id}/thumbnail", params={"size": IMMICH_ASSET_SIZE})
         return img.content if img.status_code == 200 else None
 
 

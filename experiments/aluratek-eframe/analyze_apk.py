@@ -16,6 +16,7 @@ strings (robust across androguard versions). Decompile with jadx for full logic.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import sys
 import zipfile
@@ -25,23 +26,41 @@ try:  # androguard logs at DEBUG via loguru — silence it so the report is read
     from loguru import logger as _loguru
 
     _loguru.remove()
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 URL_RE = re.compile(rb"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{4,}")
 HOST_RE = re.compile(rb"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b")
 PIN_HINTS = [
-    b"CertificatePinner", b"sha256/", b"setCertificatePinner", b"X509TrustManager",
-    b"TrustManagerFactory", b"checkServerTrusted", b"HostnameVerifier",
-    b"networkSecurityConfig", b"pinning", b"okhttp3",
+    b"CertificatePinner",
+    b"sha256/",
+    b"setCertificatePinner",
+    b"X509TrustManager",
+    b"TrustManagerFactory",
+    b"checkServerTrusted",
+    b"HostnameVerifier",
+    b"networkSecurityConfig",
+    b"pinning",
+    b"okhttp3",
 ]
 OTA_HINTS = [
-    b"firmware", b"/ota", b"ota/", b"upgrade", b"update", b".bin", b"checkVersion",
-    b"newVersion", b"firmwareUrl", b"mcu", b"flash",
+    b"firmware",
+    b"/ota",
+    b"ota/",
+    b"upgrade",
+    b"update",
+    b".bin",
+    b"checkVersion",
+    b"newVersion",
+    b"firmwareUrl",
+    b"mcu",
+    b"flash",
 ]
-NOISE = re.compile(rb"(schemas\.android\.com|w3\.org|apache\.org|googleapis\.com/"
-                   rb"|gstatic|crashlytics|google-analytics|fonts\.google|example\.com"
-                   rb"|android\.com|github\.com/square|bumptech|json-schema)")
+NOISE = re.compile(
+    rb"(schemas\.android\.com|w3\.org|apache\.org|googleapis\.com/"
+    rb"|gstatic|crashlytics|google-analytics|fonts\.google|example\.com"
+    rb"|android\.com|github\.com/square|bumptech|json-schema)"
+)
 
 
 def grep(blobs: dict[str, bytes], pattern: re.Pattern[bytes]) -> Counter[str]:
@@ -60,10 +79,8 @@ def main(path: str) -> int:
     with zipfile.ZipFile(path) as z:
         for n in z.namelist():
             if n.endswith((".dex", ".so")) or n.startswith(("assets/", "res/raw")):
-                try:
+                with contextlib.suppress(Exception):
                     blobs[n] = z.read(n)
-                except Exception:  # noqa: BLE001 - best-effort recon
-                    pass
 
     # --- manifest / permissions / NSC via androguard ---
     try:
@@ -73,8 +90,9 @@ def main(path: str) -> int:
         print(f"package : {a.get_package()}")
         print(f"version : {a.get_androidversion_name()} (code {a.get_androidversion_code()})")
         print(f"minSdk  : {a.get_min_sdk_version()}   targetSdk: {a.get_target_sdk_version()}")
-        net_perms = [p for p in a.get_permissions()
-                     if any(k in p for k in ("INTERNET", "NETWORK", "WIFI"))]
+        net_perms = [
+            p for p in a.get_permissions() if any(k in p for k in ("INTERNET", "NETWORK", "WIFI"))
+        ]
         print(f"net perms: {', '.join(net_perms) or '(none)'}")
         print(f"cleartextTraffic: {a.get_attribute_value('application', 'usesCleartextTraffic')}")
 
@@ -86,9 +104,9 @@ def main(path: str) -> int:
             try:
                 xml = AXMLPrinter(a.get_file(n)).get_xml().decode("utf-8", "replace")
                 print(f"\n--- {n} ---\n{xml.strip()}\n")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"(could not decode {n}: {e})")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"(androguard manifest parse failed: {e}; continuing with string recon)")
 
     # --- URLs ---
@@ -104,12 +122,12 @@ def main(path: str) -> int:
         m = re.match(r"https?://([^/:]+)", u)
         if m:
             hosts[m.group(1)] += interesting[u]
-    print(f"\n--- candidate cloud hosts ---")
+    print("\n--- candidate cloud hosts ---")
     for h, c in hosts.most_common(20):
         print(f"  [{c:>3}] {h}")
 
     # --- pinning posture ---
-    print(f"\n--- TLS pinning / trust indicators ---")
+    print("\n--- TLS pinning / trust indicators ---")
     any_pin = False
     for hint in PIN_HINTS:
         n = sum(d.count(hint) for d in blobs.values())
@@ -120,7 +138,7 @@ def main(path: str) -> int:
         print("  (none found — good sign for MITM, but verify with jadx)")
 
     # --- OTA / firmware leads ---
-    print(f"\n--- firmware / OTA strings ---")
+    print("\n--- firmware / OTA strings ---")
     for hint in OTA_HINTS:
         n = sum(d.lower().count(hint) for d in blobs.values())
         if n:

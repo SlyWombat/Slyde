@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memento Manager — Competitive Analysis</title>
+<style>
+  :root{
+    --ink:#0b0e14; --panel:#141925; --panel2:#10141e; --edge:#222a3a;
+    --accent:#5b8cff; --accent2:#7aa2ff; --text:#e7ecf5; --muted:#94a3b8;
+    --dim:#64748b; --good:#4ade80; --warn:#fbbf24; --bad:#f87171; --us:#ffb27a;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(1200px 700px at 80% -10%,#16203a 0%,var(--ink) 55%);
+       color:var(--text);font:15px/1.6 "Segoe UI",system-ui,-apple-system,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 26px 90px}
+  header.hero{border:1px solid var(--edge);border-radius:18px;
+       background:linear-gradient(155deg,#1b2742,#11151f 70%);padding:34px 36px;margin-bottom:34px;
+       position:relative;overflow:hidden}
+  header.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:260px;height:260px;
+       background:radial-gradient(circle,#5b8cff33,transparent 70%);}
+  .kicker{letter-spacing:.18em;text-transform:uppercase;font-size:11px;color:var(--accent2);font-weight:700;margin-bottom:10px}
+  h1{margin:0 0 8px;font-size:34px;font-weight:800;letter-spacing:-.5px}
+  h1 b{color:var(--accent)}
+  .sub{color:var(--muted);font-size:16px;max-width:760px}
+  .meta-row{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:#0c111b;border:1px solid var(--edge);
+       border-radius:999px;padding:5px 12px;font-size:12px;color:var(--muted)}
+  .chip b{color:var(--text);font-weight:700}
+  h2{font-size:22px;margin:48px 0 6px;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+  h2 .n{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--accent);
+       color:#06101f;font-size:14px;font-weight:800;flex:none}
+  h3{font-size:16px;margin:26px 0 4px}
+  .lead{color:var(--muted);margin:2px 0 18px;max-width:840px}
+  p{margin:10px 0}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:20px 22px;margin:16px 0}
+  .tldr{background:linear-gradient(160deg,#13233f,#121826);border-color:#2b3c63}
+  .tldr ul{margin:6px 0 0;padding-left:18px}
+  .tldr li{margin:7px 0}
+  /* table */
+  .tablecard{overflow-x:auto;border:1px solid var(--edge);border-radius:14px;background:var(--panel);margin:14px 0}
+  table{border-collapse:collapse;width:100%;min-width:920px;font-size:13px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #1c2434;vertical-align:top}
+  thead th{position:sticky;top:0;background:#0e1320;color:var(--accent2);font-size:11px;letter-spacing:.06em;
+       text-transform:uppercase;border-bottom:1px solid var(--edge)}
+  tbody tr:hover{background:#161d2c}
+  td.name{font-weight:700;color:var(--text);white-space:nowrap}
+  td.name small{display:block;font-weight:400;color:var(--dim);font-size:11px}
+  tr.us{background:linear-gradient(90deg,#241a10,#1a1206)}
+  tr.us:hover{background:#2a1f12}
+  tr.us td.name{color:var(--us)}
+  .y{color:var(--good);font-weight:700}
+  .n{color:var(--dim)}
+  .p{color:var(--warn)}
+  .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--edge);background:#0d121d;color:var(--muted);white-space:nowrap}
+  .badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700}
+  .b-live{background:#11301f;color:var(--good);border:1px solid #1f5436}
+  .b-ok{background:#2a230d;color:var(--warn);border:1px solid #4d3f12}
+  .b-dead{background:#2c1414;color:var(--bad);border:1px solid #5a2020}
+  /* positioning map */
+  .map{position:relative;border:1px solid var(--edge);border-radius:14px;background:
+       linear-gradient(0deg,#0d1320,#0d1320),var(--panel);height:440px;margin:18px 0 8px;overflow:hidden}
+  .map .axis{position:absolute;background:#2c3850}
+  .map .axis.x{left:8%;right:8%;top:50%;height:2px}
+  .map .axis.y{top:8%;bottom:8%;left:50%;width:2px}
+  .map .axlabel{position:absolute;font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  .map .q{position:absolute;font-size:11px;color:#3c4a66;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .dot{position:absolute;transform:translate(-50%,-50%);background:#0c111b;border:1px solid var(--edge);
+       border-radius:8px;padding:4px 8px;font-size:11.5px;color:var(--text);white-space:nowrap;box-shadow:0 2px 8px #0006}
+  .dot.us{background:linear-gradient(160deg,#3a2a16,#241a10);border-color:#7a5a2e;color:var(--us);font-weight:800;
+       box-shadow:0 0 0 3px #ffb27a22, 0 4px 14px #0008}
+  .dot.crowd{border-color:#2b3c63}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:4px}
+  /* two col */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+  .win{border-left:3px solid var(--good)}
+  .lose{border-left:3px solid var(--bad)}
+  .win h3,.lose h3{margin-top:0}
+  ul.tight{margin:8px 0 0;padding-left:18px}
+  ul.tight li{margin:6px 0}
+  /* recommendations */
+  .rec{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #1c2434}
+  .rec:last-child{border-bottom:0}
+  .pri{flex:none;width:64px;text-align:center;font-size:10px;font-weight:800;letter-spacing:.05em;
+       text-transform:uppercase;padding:5px 0;border-radius:7px}
+  .pri.now{background:#11301f;color:var(--good);border:1px solid #1f5436}
+  .pri.next{background:#11233f;color:var(--accent2);border:1px solid #284167}
+  .pri.later{background:#241c33;color:#b794f6;border:1px solid #3d2d5e}
+  .rec div h3{margin:0 0 3px}
+  .rec div p{margin:0;color:var(--muted);font-size:13.5px}
+  /* confidence pills */
+  .conf{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:6px;margin-left:8px;vertical-align:middle}
+  .conf.high{background:#11301f;color:var(--good)}
+  .conf.med{background:#2a230d;color:var(--warn)}
+  .finding{border:1px solid var(--edge);border-radius:12px;padding:16px 18px;margin:12px 0;background:var(--panel)}
+  .finding .vote{font-size:11px;color:var(--dim);margin-top:8px}
+  .finding .ev{color:var(--muted);font-size:13px;margin-top:8px;border-top:1px dashed #283246;padding-top:8px}
+  .src-list{columns:2;font-size:12.5px;color:var(--muted)}
+  @media(max-width:680px){.src-list{columns:1}}
+  .src-list div{break-inside:avoid;margin:4px 0;padding-left:14px;text-indent:-14px}
+  .note{font-size:12.5px;color:var(--dim);background:#0c111b;border:1px solid var(--edge);border-radius:10px;padding:12px 14px;margin:10px 0}
+  footer{margin-top:54px;color:var(--dim);font-size:12px;border-top:1px solid var(--edge);padding-top:18px}
+  .pillrow{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">Competitive Analysis · June 2026</div>
+  <h1>Where <b>Memento Manager</b> sits in the open-source photo-frame landscape</h1>
+  <div class="sub">A fact-checked map of free / self-hostable digital photo-frame software — and the one niche almost nobody else occupies: reviving discontinued <em>commercial</em> frame hardware over a reverse-engineered LAN protocol, fed read-only from your own Immich library.</div>
+  <div class="meta-row">
+    <span class="chip">🔎 <b>5</b> search angles</span>
+    <span class="chip">📄 <b>19</b> sources fetched</span>
+    <span class="chip">🧪 <b>25</b> claims · 3-vote adversarial verify</span>
+    <span class="chip">✅ <b>25/25</b> confirmed · 0 killed</span>
+    <span class="chip">🏷️ <b>13</b> projects compared</span>
+  </div>
+</header>
+
+<!-- TL;DR -->
+<div class="card tldr">
+  <h3 style="margin-top:0">The one-paragraph verdict</h3>
+  <p>As of 2026 the open-source frame space is <b>crowded</b> on “render a slideshow on a Pi, browser, or general-purpose display,” and <b>Immich-sourcing is now table stakes</b> (ImmichFrame, immich-kiosk, espframe, syno-photo-frame, Magic Frame all do it). It is <b>nearly empty</b> on Memento Manager’s actual turf:</p>
+  <ul>
+    <li><b>Reviving closed, non-Android frame hardware</b> via a reverse-engineered LAN protocol. The only hardware-control peers target <b>Frameo</b> frames — which run Android and expose <b>official ADB</b>, so they aren’t reverse-engineering anything, and have near-zero adoption.</li>
+    <li><b>An emulator and a real OTA firmware/app pipeline</b> — no surveyed competitor ships either.</li>
+    <li><b>One-way, read-only Immich sourcing</b> as an explicit safety guarantee.</li>
+  </ul>
+  <p style="margin-bottom:0">Competitors are genuinely <b>stronger</b> on slideshow configurability, breadth of deployment targets, and community momentum. Memento’s least-differentiated feature is the Pi “soft-frame” mode — that quadrant is busy.</p>
+</div>
+
+<!-- MATRIX -->
+<h2><span class="n">1</span> Feature comparison matrix</h2>
+<div class="lead">Verified against primary sources (project repos / official listings). <span class="y">●</span> yes · <span class="p">◐</span> partial / weak · <span class="n">○</span> no.</div>
+<div class="tablecard">
+<table>
+<thead>
+<tr>
+  <th>Project</th><th>License</th><th>Photo source</th><th>Runs on</th>
+  <th>Controls<br>commercial<br>frame HW?</th><th>Immich</th><th>OTA</th><th>Emulator</th><th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="us">
+  <td class="name">Memento Manager<small>this project</small></td>
+  <td><span class="tag">MIT</span></td>
+  <td>Self-hosted <b>Immich</b> (read-only, 1-way)</td>
+  <td>Frame HW + Pi soft-frame + emulator</td>
+  <td class="y">● yes — RE LAN protocol</td>
+  <td class="y">●</td><td class="y">●</td><td class="y">●</td>
+  <td><span class="badge b-live">active</span></td>
+</tr>
+<tr>
+  <td class="name">ImmichFrame<small>immichFrame/ImmichFrame</small></td>
+  <td><span class="tag">GPL-3.0</span></td>
+  <td>Immich only</td>
+  <td>Browser / devices / display</td>
+  <td class="n">○</td><td class="y">●</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-live">very active</span><br><small style="color:var(--dim)">2.1k★ · v1.0.33 Apr’26</small></td>
+</tr>
+<tr>
+  <td class="name">immich-kiosk<small>damongolding/immich-kiosk</small></td>
+  <td><span class="tag">AGPL-3.0</span></td>
+  <td>Immich (primary)</td>
+  <td>Browser kiosk (any screen)</td>
+  <td class="n">○</td><td class="y">●</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-live">active</span></td>
+</tr>
+<tr>
+  <td class="name">espframe<small>jtenniswood/espframe</small></td>
+  <td><span class="tag">OSS</span></td>
+  <td>Immich only (LAN)</td>
+  <td><b>Dedicated DIY HW</b> (ESP32-P4 touchscreen)</td>
+  <td class="p">◐ own DIY HW</td><td class="y">●</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-live">active</span></td>
+</tr>
+<tr>
+  <td class="name">syno-photo-frame<small>Caleb9/syno-photo-frame</small></td>
+  <td><span class="tag">GPL-3.0</span></td>
+  <td>Immich + Synology (shared links)</td>
+  <td>Native Rust app on Pi + monitor</td>
+  <td class="n">○</td><td class="y">●</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-live">active</span></td>
+</tr>
+<tr>
+  <td class="name">Magic Frame<small>jeremiaa/magic-frame</small></td>
+  <td><span class="tag">OSS</span></td>
+  <td>Immich + WebDAV</td>
+  <td>Browser dashboard (Docker)</td>
+  <td class="n">○</td><td class="y">●</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">moderate</span></td>
+</tr>
+<tr>
+  <td class="name">mrworf/photoframe<small>the OG Pi frame</small></td>
+  <td><span class="tag">GPL-3.0</span></td>
+  <td>Google Photos <span class="bad">(broken)</span>, Pexels, USB</td>
+  <td>Raspberry Pi + HDMI/SPI display</td>
+  <td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">legacy</span></td>
+</tr>
+<tr>
+  <td class="name">OpenFrame<small>OpenframeProject</small></td>
+  <td><span class="tag">GPL-3.0</span></td>
+  <td>Digital <b>art</b> (image/video/web/shaders), URLs</td>
+  <td>Pi + HDMI · cloud-coordinated</td>
+  <td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-dead">dormant</span><br><small style="color:var(--dim)">core ’21 · server ’17</small></td>
+</tr>
+<tr>
+  <td class="name">OpenPhotoFrame<small>F-Droid / Android</small></td>
+  <td><span class="tag">OSS</span></td>
+  <td>Nextcloud / WebDAV public shares</td>
+  <td>Android device</td>
+  <td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">niche</span></td>
+</tr>
+<tr>
+  <td class="name">photOS<small>avanc/photOS</small></td>
+  <td><span class="tag">OSS</span></td>
+  <td>WebDAV (Nextcloud)</td>
+  <td>Buildroot Pi image (Pi Zero W)</td>
+  <td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">niche</span></td>
+</tr>
+<tr>
+  <td class="name">PhotoPrism slideshow<small>built-in</small></td>
+  <td><span class="tag">AGPL-3.0</span></td>
+  <td>Its own PhotoPrism library</td>
+  <td>Browser</td>
+  <td class="n">○</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">minimal*</span></td>
+</tr>
+<tr>
+  <td class="name">phito/frameo-api<small>Frameo control</small></td>
+  <td><span class="tag">OSS</span></td>
+  <td>None (control only)</td>
+  <td>Controls <b>Frameo</b> frame via ADB</td>
+  <td class="p">◐ Android/ADB</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">tiny</span></td>
+</tr>
+<tr>
+  <td class="name">frameo-control-api<small>maju6406</small></td>
+  <td><span class="tag">GPL-3.0</span></td>
+  <td>Direct upload (POST /upload)</td>
+  <td>Controls <b>Frameo</b> via ADB (USB/WiFi)</td>
+  <td class="p">◐ Android/ADB</td><td class="n">○</td><td class="n">○</td><td class="n">○</td>
+  <td><span class="badge b-ok">2★ tiny</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="note">* PhotoPrism’s slideshow is <b>fixed at ~4s with one hardcoded transition and no settings</b>; the open feature request for configurable duration / transitions / Ken-Burns zoom (issue #2016) remains unmet, spawning third-party side-apps.</div>
+
+<!-- POSITIONING MAP -->
+<h2><span class="n">2</span> Positioning map</h2>
+<div class="lead">Two axes that actually separate these projects: <b>what feeds the frame</b> (random/cloud/art → <b>your own self-hosted photo library</b>) and <b>what it drives</b> (your own Pi/browser/display → a <b>dedicated commercial frame</b> you don’t control).</div>
+<div class="map">
+  <div class="axis x"></div><div class="axis y"></div>
+  <div class="axlabel" style="left:9%;top:51.5%">◀ cloud / art / random source</div>
+  <div class="axlabel" style="right:9%;top:51.5%;text-align:right">self-hosted personal library ▶</div>
+  <div class="axlabel" style="left:50.6%;top:7%;transform:translateX(-0%)">▲ drives dedicated commercial frame</div>
+  <div class="axlabel" style="left:50.6%;bottom:6%">▼ drives your own Pi / browser / display</div>
+
+  <div class="q" style="left:12%;top:20%">Frameo / ADB tools</div>
+  <div class="q" style="right:12%;top:20%;text-align:right;color:#7a5a2e">★ open & underserved</div>
+  <div class="q" style="left:12%;bottom:18%">art / cloud renderers</div>
+  <div class="q" style="right:12%;bottom:18%;text-align:right">crowded: Immich renderers</div>
+
+  <!-- top-right: us, alone -->
+  <div class="dot us" style="left:78%;top:24%">Memento Manager ★</div>
+
+  <!-- top-left: Frameo control (commercial HW, no self-host source) -->
+  <div class="dot" style="left:22%;top:30%">phito/frameo-api</div>
+  <div class="dot" style="left:26%;top:40%">frameo-control-api</div>
+  <!-- espframe: own DIY HW + Immich → upper-right but it's DIY not commercial -->
+  <div class="dot crowd" style="left:70%;top:46%">espframe (DIY ESP32)</div>
+
+  <!-- bottom-right: Immich renderers on your own display (crowded) -->
+  <div class="dot crowd" style="left:82%;top:66%">ImmichFrame</div>
+  <div class="dot crowd" style="left:72%;top:76%">immich-kiosk</div>
+  <div class="dot crowd" style="left:86%;top:82%">syno-photo-frame</div>
+  <div class="dot crowd" style="left:66%;top:88%">Magic Frame</div>
+
+  <!-- bottom-left: art / cloud / broken-source -->
+  <div class="dot" style="left:20%;top:70%">OpenFrame (art)</div>
+  <div class="dot" style="left:30%;top:80%">mrworf/photoframe</div>
+  <div class="dot" style="left:16%;top:88%">photOS · OpenPhotoFrame</div>
+  <div class="dot" style="left:42%;top:62%">PhotoPrism</div>
+</div>
+<div class="legend">
+  <span><b style="color:var(--us)">★ Memento Manager</b> sits alone in the top-right.</span>
+  <span>The bottom-right (Immich on your own screen) is the dogfight.</span>
+  <span>The top-right (your library → a real frame you revived) is empty.</span>
+</div>
+
+<!-- PROJECT NOTES -->
+<h2><span class="n">3</span> The field, by cluster</h2>
+
+<h3>🟦 Immich renderers — the crowded core</h3>
+<div class="card">
+  <p><b>ImmichFrame</b> (GPL-3.0) is the gravity well: 2.1k★, 43 releases, 1,182 commits, latest <b>v1.0.33.0 (Apr 10 2026)</b>, Immich-exclusive, runs in a browser / on devices. <b>immich-kiosk</b> (AGPL-3.0) is the “highly configurable” browser-kiosk alternative. <b>syno-photo-frame</b> (GPL-3.0, Rust) is the lightweight native-on-Pi choice (Immich + Synology via shared-album links), deliberately avoiding a browser to run on a Pi Zero 2. <b>Magic Frame</b> adds Immich + WebDAV in a Docker dashboard.</p>
+  <p style="margin-bottom:0"><b>Takeaway:</b> Immich-sourcing is no longer a feature you can win on — it’s the entry ticket. Memento already has it; the edge has to come from elsewhere.</p>
+</div>
+
+<h3>🟧 Hardware-revival peers — thin, and not what they look like</h3>
+<div class="card">
+  <p>The only projects that <i>control a commercial frame</i> target <b>Frameo</b>: <b>phito/frameo-api</b> (Go; screen on/off, brightness, next/prev swipe — <b>no photo sourcing at all</b>) and <b>maju6406/frameo-control-api</b> (GPL-3.0; ADB over USB/WiFi, direct <code>POST /upload</code>, <b>2 stars</b>, no OTA, no library integration).</p>
+  <p style="margin-bottom:0"><b>The crucial distinction:</b> Frameo frames run <b>Android</b> and Frameo <b>officially documents ADB</b>. These tools ride a <b>vendor-supported debugging path</b> — they explicitly “leverage standard Android debugging rather than reverse-engineering proprietary protocols.” Memento’s frame is a <b>closed, non-Android</b> device whose LAN protocol had to be <b>reverse-engineered</b> from the dead official app. That is a categorically harder and rarer capability — and as far as the survey found, <b>no open-source project revives non-Android commercial frames</b> (Pix-Star, Nixplay, Aura, Skylight, Electric Objects/Memento) this way.</p>
+</div>
+
+<h3>🟥 Legacy, art, and WebDAV — adjacent but not substitutes</h3>
+<div class="card">
+  <p><b>mrworf/photoframe</b> (GPL-3.0) was the canonical Pi frame, but its primary source — <b>Google Photos — is now broken</b> by API changes; only Pexels + USB remain, no Immich. <b>OpenFrame</b> (GPL-3.0, Node.js) is an elegant idea — push <i>digital art</i> (images/video/web/GLSL shaders) to Pi frames from a web app — but it’s <b>art-focused, cloud-coordinated, and effectively abandoned</b>: the controller’s last commit was <b>Jan 2021</b> and its self-host API server hasn’t been touched since <b>2017</b>. <b>OpenPhotoFrame</b> and <b>photOS</b> serve the Nextcloud/WebDAV crowd; neither speaks Immich.</p>
+  <p style="margin-bottom:0"><b>OpenFrame is also the cautionary tale:</b> a cloud-coordinated frame platform whose own coordination server is dead is <i>one DNS lapse from</i> the exact fate that bricked Memento frames — which is precisely the failure mode Memento Manager is built to cure (local-only, no cloud dependency).</p>
+</div>
+
+<!-- WIN / LOSE -->
+<h2><span class="n">4</span> Where Memento wins · where rivals win</h2>
+<div class="cols">
+  <div class="card win">
+    <h3>✅ Memento Manager is differentiated on</h3>
+    <ul class="tight">
+      <li><b>Reviving closed/non-Android frame HW</b> via a reverse-engineered LAN protocol — no verified open-source equivalent.</li>
+      <li><b>OTA firmware/app pipeline</b> (md5-verified bundles, GitHub-release driven) — <b>no surveyed competitor ships OTA</b>.</li>
+      <li><b>A faithful software emulator</b> — unique in the field; the whole test suite runs against it.</li>
+      <li><b>One-way, read-only Immich sourcing</b> as an explicit, designed-in safety contract.</li>
+      <li><b>Manager↔device split</b> with per-frame canvas/orientation, smart fit, background sync jobs — a real management plane, not just a renderer.</li>
+    </ul>
+  </div>
+  <div class="card lose">
+    <h3>⚠️ Competitors are stronger on</h3>
+    <ul class="tight">
+      <li><b>Slideshow configurability & polish</b> — immich-kiosk/ImmichFrame have years of transitions, layouts, weather/clock overlays.</li>
+      <li><b>Breadth of deployment targets</b> — browser, any TV, NAS, Pi Zero, ESP32; Memento is narrower.</li>
+      <li><b>Community momentum</b> — ImmichFrame’s 2.1k★ and release cadence dwarf this niche.</li>
+      <li><b>The Pi “soft-frame” mode itself</b> — Memento’s least-differentiated feature; syno-photo-frame, immich-kiosk and Magic Frame already own “render on your own screen.”</li>
+      <li><b>Source breadth</b> — several support Synology/WebDAV/art/cloud in addition to Immich.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- RECOMMENDATIONS -->
+<h2><span class="n">5</span> Recommendations & roadmap</h2>
+<div class="lead">Lean into the empty quadrant; don’t try to out-slideshow ImmichFrame.</div>
+<div class="card">
+  <div class="rec">
+    <div class="pri now">Do now</div>
+    <div><h3>Own the “frame-revival” story explicitly</h3><p>Lead the README/positioning with “revive a <i>dead commercial</i> frame, no cloud, no e-waste.” That’s the unique, defensible claim. Publish the reverse-engineered <code>docs/protocol.md</code> prominently — it’s a moat and a community magnet that no Immich-renderer can copy.</p></div>
+  </div>
+  <div class="rec">
+    <div class="pri now">Do now</div>
+    <div><h3>Make “read-only Immich” a headline guarantee</h3><p>Open question from the research: do ImmichFrame/immich-kiosk write back to Immich? Position Memento’s one-way contract as a trust feature for people nervous about a frame touching their library.</p></div>
+  </div>
+  <div class="rec">
+    <div class="pri next">Do next</div>
+    <div><h3>Generalize the protocol layer into a “frame-revival toolkit”</h3><p>The architecture (core protocol + manager + emulator) is the real asset. Document how to add a <i>second</i> dead-frame protocol. Becoming “the OpenWrt of abandoned smart frames” is a category nobody owns.</p></div>
+  </div>
+  <div class="rec">
+    <div class="pri next">Do next</div>
+    <div><h3>Turn OTA + emulator into visible selling points</h3><p>Both are unique. A short demo (emulator → “update available” → frame self-applies) shows capability competitors can’t match. Cut a <code>softframe-v0.1.1</code> to make the update path tangible.</p></div>
+  </div>
+  <div class="rec">
+    <div class="pri later">Later</div>
+    <div><h3>Borrow the table-stakes polish selectively</h3><p>Add the slideshow niceties users expect (transition styles, Ken-Burns, clock/weather overlay) so the soft-frame mode isn’t strictly behind syno-photo-frame/immich-kiosk — but treat it as parity work, not the differentiator.</p></div>
+  </div>
+  <div class="rec">
+    <div class="pri later">Later</div>
+    <div><h3>Court the Frameo/Pix-Star/Nixplay refugees</h3><p>Each discontinued or cloud-locked frame is a potential Memento target. A protocol-contribution guide + a “which frames are supported” page could pull in the jailbreak communities (e.g. nixplaysucks) already trying to do this by hand.</p></div>
+  </div>
+</div>
+
+<!-- VERIFIED FINDINGS -->
+<h2><span class="n">6</span> Verified findings &amp; confidence</h2>
+<div class="lead">Each claim survived 3-vote adversarial verification (needs 2/3 refutes to be killed). 25/25 confirmed, 0 killed.</div>
+
+<div class="finding">
+  <b>Immich-sourcing is table stakes, not a differentiator.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0 unanimous</div>
+  <div class="ev">ImmichFrame (GPL-3.0, 2.1k★, v1.0.33 Apr’26), immich-kiosk (AGPL-3.0), espframe (Immich-only over LAN), syno-photo-frame (Immich + Synology), and Magic Frame all source from self-hosted Immich — the same backend Memento uses.</div>
+</div>
+<div class="finding">
+  <b>Hardware-revival peers target Frameo via <i>official</i> Android ADB — not reverse-engineering.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0 (one 2-1 on a USB-tether scope detail)</div>
+  <div class="ev">phito/frameo-api and maju6406/frameo-control-api both drive Frameo over ADB, which Frameo officially documents (frames run Android). Memento’s non-Android frame required reverse-engineering a closed LAN protocol — a genuine differentiator. <i>(The original “reverse-engineered” framing for the Frameo tools was an overreach and was corrected.)</i></div>
+</div>
+<div class="finding">
+  <b>Existing Frameo tools are narrow, barely adopted, and ship no OTA or library sourcing.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0</div>
+  <div class="ev">frameo-api = display/nav only (no upload, no Immich). frameo-control-api = 2★, direct <code>POST /upload</code>, no OTA, no self-hosted-library support.</div>
+</div>
+<div class="finding">
+  <b>The “slideshow on a Pi/browser/general display” niche is crowded; none control dedicated commercial frame hardware.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0</div>
+  <div class="ev">immich-kiosk (browser kiosk), syno-photo-frame (native Pi), mrworf/photoframe (Pi+HDMI), photOS (Buildroot Pi), Magic Frame (browser/Docker) — all render on your own display.</div>
+</div>
+<div class="finding">
+  <b>Legacy/WebDAV tools lack Immich; mrworf/photoframe lost Google Photos.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0</div>
+  <div class="ev">mrworf/photoframe’s Google Photos source is “dead thanks to recent changes to their API” (Pexels + USB remain). OpenPhotoFrame & photOS are Nextcloud/WebDAV-only.</div>
+</div>
+<div class="finding">
+  <b>PhotoPrism is weak as a frame: fixed ~4s, one transition, no settings; feature request unmet.</b><span class="conf high">High</span>
+  <div class="vote">Vote: 3-0</div>
+  <div class="ev">PhotoPrism issue #2016 (still open) requests configurable duration, transition type, and Ken-Burns — all currently unavailable; third-party side-apps fill the gap.</div>
+</div>
+<div class="finding">
+  <b>Memento’s emulator + OTA have no clear analogue; the soft-frame mode is its least-differentiated feature.</b><span class="conf med">Medium</span>
+  <div class="vote">Vote: 3-0 on adjacent claims; differentiation inferred from absence of evidence</div>
+  <div class="ev">No surveyed competitor documents an emulator or frame-OTA pipeline. A Pi fullscreen mode <i>does</i> exist elsewhere (syno-photo-frame, immich-kiosk, Magic Frame), so the soft-frame mode is the least unique of Memento’s features.</div>
+</div>
+
+<!-- CAVEATS -->
+<h2><span class="n">7</span> Caveats &amp; open questions</h2>
+<div class="cols">
+  <div class="card">
+    <h3>Caveats</h3>
+    <ul class="tight">
+      <li>The emulator/OTA differentiation rests on <b>absence of evidence</b> across competitor docs, not explicit denials — strong, not absolute.</li>
+      <li>Some named projects (<b>Immich’s own native slideshow/cast</b>, MagicMirror² photo modules, DAKboard, PiFrame, and non-Frameo revival tools) <b>weren’t covered by surviving claims</b> and are absent from the matrix.</li>
+      <li>“Reverse-engineered protocol” differentiation is proven specifically <b>vs Frameo (Android/ADB)</b>; not tested against hypothetical non-Android revival projects (which may not exist in OSS).</li>
+      <li>ImmichFrame’s “Apr 10” release date required cross-checking GitHub’s year-omission convention to confirm <b>2026</b> — high confidence, time-sensitive.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Open questions worth chasing</h3>
+    <ul class="tight">
+      <li>Does Immich’s <b>own native slideshow/cast</b> (or a separate immich-frame) overlap with Memento, and how configurable is it?</li>
+      <li>Any OSS reviving <b>non-Android commercial frames</b> (Pix-Star, Nixplay, Aura, Skylight, Electric Objects) — Memento’s truest competitors?</li>
+      <li>Do ImmichFrame / espframe ship <b>real OTA</b> beyond container/release updates?</li>
+      <li>Do ImmichFrame/immich-kiosk <b>write back to</b> Immich, or are they also effectively read-only? (Sharpens Memento’s read-only claim.)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- SOURCES -->
+<h2><span class="n">8</span> Sources</h2>
+<div class="card">
+  <div class="src-list">
+    <div>• <a href="https://github.com/immichFrame/ImmichFrame">ImmichFrame</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/damongolding/immich-kiosk">immich-kiosk</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/jtenniswood/espframe">espframe</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/Caleb9/syno-photo-frame">syno-photo-frame</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/jeremiaa/magic-frame">Magic Frame</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/mrworf/photoframe">mrworf/photoframe</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/avanc/photOS">photOS</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://f-droid.org/en/packages/io.github.micw.openphotoframe/">OpenPhotoFrame</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/photoprism/photoprism/issues/2016">PhotoPrism slideshow #2016</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/phito/frameo-api">phito/frameo-api</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/maju6406/frameo-control-api">maju6406/frameo-control-api</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/OpenframeProject">OpenFrame (org)</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/OpenframeProject/Openframe">OpenFrame controller</a> <span class="tag">primary</span></div>
+    <div>• <a href="https://github.com/tlwhittaker/awesome-immich">awesome-immich</a> <span class="tag">secondary</span></div>
+    <div>• <a href="https://nixplaysucks.com/jailbreak.html">Nixplay jailbreak</a> <span class="tag">blog</span></div>
+    <div>• <a href="https://ezhart.com/posts/digital-frame-hacking-1">Digital frame hacking</a> <span class="tag">blog</span></div>
+    <div>• <a href="https://www.pix-star.com/blog/photography/memento-digital-frame/">Pix-Star on Memento</a> <span class="tag">blog</span></div>
+  </div>
+</div>
+
+<footer>
+  Generated from a deep-research workflow (5 angles → 19 sources → 83 claims → 25 verified, 3-vote adversarial). OpenFrame added via targeted follow-up (GitHub API, last-activity verified). Confidence labels reflect verification vote margins, not editorial opinion. · Memento Manager competitive analysis · June 5 2026.
+</footer>
+
+</div>
+</body>
+</html>

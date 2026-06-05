@@ -22,6 +22,9 @@ images from an **Immich** library, with a modern web UI. Containerized; runs on 
   settings — brightness, contrast, away schedule — are recognized by the protocol layer but not
   yet surfaced in the UI.)
 - Reflect live frame state (current image, config, albums, thumbnails).
+- **Support additional frames over time without ever regressing Memento** — each behind the
+  `FrameBackend` abstraction, with its capabilities and image-processing needs made explicit
+  (ADR-009), evolving toward one central "frame hub" between Immich and all frames (ADR-010).
 - Run as a lightweight container on kdocker (ARM64, tight RAM), managed as a Dockge stack.
 - Fully testable without the physical frame, via a faithful **frame emulator**.
 
@@ -110,6 +113,33 @@ filled-in instance of the generic config below.
   (Pydantic `BaseSettings`) with documented defaults; config is validated at startup. Frame
   target, Immich, DB path, bind address/port, canvas size, sync interval — all configurable.
   Shipped code contains no environment-specific constants. An `.env.example` documents every key.
+- **ADR-009 Multi-frame by design; the Memento frame is always supported (RULE).** Memento
+  Manager is a *frame-revival toolkit*, not a single-device app. Two standing rules:
+  1. **The Memento LAN protocol is a first-class, permanently-supported target.** Adding support
+     for other frames must never regress it. This is guarded by the emulator + integration suite
+     and the `memento-lan` backend conformance test (`tests/test_backends.py`,
+     `tests/test_integration.py`) — they run in CI on every change.
+  2. **Every new frame is added behind the `FrameBackend` abstraction** (see `frame-backends.md`),
+     never by special-casing the core. The architecture must let a contributor add a frame without
+     touching the manager, UI, or sync engine.
+
+  Each frame declares two kinds of frame-specific needs, made explicit (not implicit) so the
+  pipeline can adapt and so we *understand what each frame requires*:
+  - **Capabilities** — `FrameCapabilities` (transport, discovery, albums, thumbnails, upload,
+    delete, ota): what the frame *can do*.
+  - **Processing profile** — how images must be prepared for that panel. This grows out of the
+    existing per-frame canvas + `FRAME_FIT` work: the Memento LCD needs resolution/aspect fitting;
+    the **e-ink (Aluratek/Sungale Spectra-6) frame needs the same kind of reformatting plus palette
+    mapping + dithering** to its limited color set. Processing is a property *of the frame*, looked
+    up per target — never assumed global. (Tracked: the e-ink pipeline is issue #11.)
+- **ADR-010 (direction) A central "frame hub" between Immich and the frames.** As we support more
+  frames — especially cloud frames we impersonate (Sungale) and remote ones — the manager evolves
+  toward a **single smart server that sits between Immich (read-only source) and every frame**,
+  speaking each frame's backend on the far side and presenting one library/curation/scheduling/OTA
+  plane on the near side. Goal: a world-class hub — per-frame rendering, scheduling, health/OTA,
+  and a clean contributor path for new frames — so any frame, dead or alive, can be driven from one
+  place. This is the north star the `FrameBackend` abstraction is building toward. (Tracked as an
+  epic; the per-frame processing profile and the Sungale cloud backend are the first steps.)
 
 ## 5. Image pipeline (Immich → frame)
 The frame canvas is **3240×2160 landscape** (portrait variant exists). Immich originals must be

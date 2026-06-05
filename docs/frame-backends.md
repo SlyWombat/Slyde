@@ -7,6 +7,21 @@ treat every backend (and the emulator) the same way.
 This is what makes the project a *frame-revival toolkit* rather than a single-frame tool: each
 abandoned or cloud-locked frame can be added as a backend without forking.
 
+## Standing rules (ADR-009)
+
+1. **The Memento LAN frame is always supported.** It is the founding, first-class target; adding
+   any other frame must never regress it. CI guards this via the emulator + integration suite and
+   the `memento-lan` conformance test — keep them green.
+2. **Add frames behind this abstraction, never by special-casing the core.** The manager, web UI,
+   and sync engine stay transport-agnostic.
+3. **Make each frame's needs explicit — capabilities *and* processing.** A frame declares what it
+   can do (`FrameCapabilities`) *and* how images must be prepared for its panel (its processing
+   profile). The Memento LCD needs resolution/aspect fitting; the e-ink (Sungale Spectra-6) frame
+   needs that plus palette mapping + dithering. Processing is a property of the frame, looked up per
+   target — never assumed global.
+4. **North star:** these backends compose into one **central "frame hub"** between Immich
+   (read-only) and every frame (ADR-010). Build toward that, not toward per-frame forks.
+
 ## The interface
 
 Two pieces (`packages/memento-backend/src/memento_backend/backends/base.py`):

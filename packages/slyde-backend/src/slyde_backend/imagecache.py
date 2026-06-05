@@ -55,6 +55,14 @@ class ImageCache:
         keys = self.keys(frame_id)
         return self.get(frame_id, keys[0]) if keys else None
 
+    def delete(self, frame_id: str, key: str) -> bool:
+        """Evict one cached image (e.g. when it's no longer curated). True if it existed."""
+        p = self._path(frame_id, key)
+        if p.is_file():
+            p.unlink()
+            return True
+        return False
+
     def clear(self, frame_id: str) -> None:
         d = self._dir(frame_id)
         if d.is_dir():

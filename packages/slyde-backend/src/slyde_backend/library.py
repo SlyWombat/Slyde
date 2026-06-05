@@ -38,7 +38,13 @@ class FrameLibrary:
         self._cache = cache
 
     def set_desired(self, frame_id: str, items: list[LibraryItem]) -> None:
-        """Record (durably) the photos a frame should show. Replaces the previous set."""
+        """Record (durably) the photos a frame should show. Replaces the previous set, and evicts
+        any cached image / queued delivery for photos that are no longer desired (#25)."""
+        new_dests = {i.dest_name for i in items}
+        for old in self.desired(frame_id):
+            if old.dest_name not in new_dests:
+                self._cache.delete(frame_id, old.dest_name)
+                self._store.delete_delivery(frame_id, old.dest_name)
         self._store.set_library(frame_id, [(i.asset_id, i.dest_name) for i in items])
 
     def desired(self, frame_id: str) -> list[LibraryItem]:

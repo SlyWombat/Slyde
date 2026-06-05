@@ -71,6 +71,35 @@ def test_served_curation_publishes_to_cache_and_marks_delivered(tmp_path: Path) 
     assert {d.state for d in store.list_deliveries("EF-1")} == {"delivered"}
 
 
+def test_connected_delivery_reuses_cached_image_without_immich(tmp_path: Path) -> None:
+    """#25: if a prepared image is already cached, deliver it without re-fetching/re-processing."""
+
+    class NoImmich:
+        async def __aenter__(self) -> NoImmich:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def asset_bytes(self, *a: object, **k: object) -> bytes:
+            raise AssertionError("Immich must not be called when the image is cached")
+
+    frames = FakeFrames()
+    store = Store(str(tmp_path / "d.db"))
+    cache = ImageCache(str(tmp_path / "cache"))
+    library = FrameLibrary(store, cache)
+    ds = DeliveryService(store, library, cache, frames, NoImmich, Settings(frame_canvas="64x48"))
+
+    store.upsert_frame(Frame.connected("10.0.0.5", backend="memento-lan"))
+    library.set_desired("10.0.0.5", [LibraryItem("a1", "one.jpg")])
+    cache.put("10.0.0.5", "one.jpg", b"\xff\xd8\xffCACHED\xff\xd9")  # already prepared
+    ds.enqueue_desired("10.0.0.5", now=T0)
+
+    counts = asyncio.run(ds.reconcile(now=T0))  # NoImmich would raise if fetched
+    assert counts["delivered"] == 1
+    assert frames.pushed == [("10.0.0.5", "one.jpg")]
+
+
 def test_connected_offline_frame_is_retried_then_delivered(tmp_path: Path) -> None:
     frames = FakeFrames()
     frames.offline = True

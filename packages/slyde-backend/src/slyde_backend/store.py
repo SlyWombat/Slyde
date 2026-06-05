@@ -316,6 +316,10 @@ class Store:
             summary[r["state"]] = int(r["n"])
         return summary
 
+    def delete_delivery(self, frame_id: str, key: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM delivery WHERE frame_id = ? AND key = ?", (frame_id, key))
+
     def list_deliveries(self, frame_id: str | None = None) -> list[DeliveryRow]:
         with self._conn() as conn:
             if frame_id is None:

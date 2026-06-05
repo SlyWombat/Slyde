@@ -63,6 +63,20 @@ def test_publish_prepares_and_caches_each_desired_image(tmp_path: Path) -> None:
         assert img.size == (64, 48)
 
 
+def test_set_desired_evicts_dropped_photos_from_cache_and_queue(tmp_path: Path) -> None:
+    lib, cache, store = _lib(tmp_path)
+    lib.set_desired("EF", [LibraryItem("a1", "one"), LibraryItem("a2", "two")])
+    cache.put("EF", "one", b"X")
+    cache.put("EF", "two", b"Y")
+    store.enqueue_delivery("EF", "one", "a1", next_attempt_at="2026-01-01T00:00:00")
+    store.enqueue_delivery("EF", "two", "a2", next_attempt_at="2026-01-01T00:00:00")
+
+    lib.set_desired("EF", [LibraryItem("a1", "one")])  # drop "two"
+
+    assert cache.keys("EF") == ["one"]  # the dropped photo's cached image is evicted
+    assert [d.key for d in store.list_deliveries("EF")] == ["one"]  # and its queued delivery
+
+
 def test_publish_skips_failed_items_and_keeps_prior_cache(tmp_path: Path) -> None:
     lib, cache, _ = _lib(tmp_path)
     cache.put("EF-3", "keep.jpg", b"\xff\xd8\xffPRIOR\xff\xd9")  # an already-cached image

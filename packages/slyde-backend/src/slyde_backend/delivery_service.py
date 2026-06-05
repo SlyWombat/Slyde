@@ -66,17 +66,23 @@ class DeliveryService:
         frame = self._store.get_frame(item.frame_id)
         if frame is None:
             raise TransientDeliveryError(f"frame {item.frame_id} not yet registered")
-        profile = profile_for(frame, self._settings, canvas=self._settings.canvas)
-        try:
-            async with self._immich_factory() as client:
-                source = await client.asset_bytes(item.payload, self._settings.immich_asset_size)
-        except (ImmichError, OSError) as exc:  # Immich down/unreachable -> retry later
-            raise TransientDeliveryError(f"immich fetch failed: {exc}") from exc
-        prepared = await asyncio.to_thread(prepare, source, profile)
+        # Reuse the already-prepared image if cached — no re-fetch/re-process on retry (#25).
+        prepared = self._cache.get(frame.id, item.key)
+        if prepared is None:
+            profile = profile_for(frame, self._settings, canvas=self._settings.canvas)
+            try:
+                async with self._immich_factory() as client:
+                    source = await client.asset_bytes(
+                        item.payload, self._settings.immich_asset_size
+                    )
+            except (ImmichError, OSError) as exc:  # Immich down/unreachable -> retry later
+                raise TransientDeliveryError(f"immich fetch failed: {exc}") from exc
+            prepared = await asyncio.to_thread(prepare, source, profile)
+            self._cache.put(
+                frame.id, item.key, prepared
+            )  # cache for reuse (served serves from here)
         if frame.interaction == "served":
-            # The prepared image waits in the cache; the frame pulls it on wake (offline-tolerant).
-            self._cache.put(frame.id, item.key, prepared)
-            return
+            return  # the prepared image waits in the cache; the frame pulls it on wake
         try:  # connected: push over the LAN — an offline frame is a transient (retried) failure
             await self._frames.upload_images(frame.address, [(prepared, item.key)], album=None)
         except FrameUnavailable as exc:

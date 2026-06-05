@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         store = Store(settings.sqlite_path)
-        frame_service = FrameService(settings)
+        frame_service = FrameService(settings, store=store)
 
         def immich_factory() -> ImmichClient:
             return ImmichClient(settings.immich_base_url, settings.immich_api_key)

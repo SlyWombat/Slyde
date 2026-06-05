@@ -13,8 +13,10 @@ from typing import Any, TypeVar
 
 from memento_core import AlbumData, FrameInfo, Ports, Setup
 
-from .backends import FrameConnection, get_backend
+from .backends import ConnectedFrameBackend, FrameConnection, get_backend
 from .config import Settings
+from .frame import Frame
+from .store import Store
 
 T = TypeVar("T")
 
@@ -24,14 +26,29 @@ class FrameUnavailable(RuntimeError):
 
 
 class FrameService:
-    def __init__(self, settings: Settings, *, ports: Ports | None = None) -> None:
+    def __init__(
+        self, settings: Settings, *, ports: Ports | None = None, store: Store | None = None
+    ) -> None:
         self._settings = settings
         self._ports = ports or Ports()
         # Which kind of frame we drive (LAN, cloud, …) — selected by config, never hardcoded.
         self._backend = get_backend(settings.frame_backend)
+        # Optional registry of known frames (transport-independent). None disables registration.
+        self._store = store
 
     async def discover_frames(self, timeout: float = 4.0) -> list[FrameInfo]:
-        return await asyncio.to_thread(self._backend.discover, timeout=timeout, ports=self._ports)
+        frames = await asyncio.to_thread(self._backend.discover, timeout=timeout, ports=self._ports)
+        if self._store is not None:
+            for fi in frames:
+                self._store.upsert_frame(
+                    Frame.connected(fi.ip, backend=self._backend.name, name=fi.name)
+                )
+                self._store.touch_frame(fi.ip)
+        return frames
+
+    def list_known_frames(self) -> list[Frame]:
+        """Every frame the registry has seen (across backends). Empty if no registry is attached."""
+        return self._store.list_frames() if self._store is not None else []
 
     async def resolve_host(self, host: str | None = None) -> str:
         if host:
@@ -47,12 +64,24 @@ class FrameService:
 
     async def _with_client(self, host: str, fn: Callable[[FrameConnection], T]) -> T:
         resolved = await self.resolve_host(host)
+        backend = self._backend
+        if not isinstance(backend, ConnectedFrameBackend):
+            # Served backends (cloud frames) are driven by the frame polling us, not by us
+            # connecting to them — direct per-frame ops land in the served-mounting work (#22).
+            raise FrameUnavailable(
+                f"backend {backend.name!r} is served (the frame polls us); "
+                "direct frame operations aren't available for it"
+            )
 
         def run() -> T:
-            with self._backend.session(resolved, ports=self._ports) as conn:
+            with backend.session(resolved, ports=self._ports) as conn:
                 return fn(conn)
 
-        return await asyncio.to_thread(run)
+        result = await asyncio.to_thread(run)
+        if self._store is not None:  # we just reached this frame — record it as seen
+            self._store.upsert_frame(Frame.connected(resolved, backend=backend.name))
+            self._store.touch_frame(resolved)
+        return result
 
     # -- config / display -----------------------------------------------------
     async def get_config(self, host: str) -> dict[str, Any]:

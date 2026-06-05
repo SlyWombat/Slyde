@@ -12,12 +12,13 @@ from contextlib import contextmanager
 
 from memento_core import FrameClient, FrameInfo, Ports, discover
 
-from .base import FrameBackend, FrameCapabilities, FrameConnection
+from .base import ConnectedFrameBackend, FrameCapabilities, FrameConnection
 
 
-class MementoLanBackend(FrameBackend):
+class MementoLanBackend(ConnectedFrameBackend):
     name = "memento-lan"
     capabilities = FrameCapabilities(
+        interaction="connected",
         transport="lan",
         discovery=True,
         albums=True,

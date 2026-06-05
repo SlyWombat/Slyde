@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from .base import FrameBackend, FrameCapabilities, FrameConnection
+from .base import (
+    ConnectedFrameBackend,
+    FrameBackend,
+    FrameCapabilities,
+    FrameConnection,
+    ServedFrameBackend,
+)
 from .memento_lan import MementoLanBackend
 from .sungale_cloud import SungaleCloudBackend
 
@@ -27,10 +33,12 @@ def available_backends() -> list[str]:
 
 
 __all__ = [
+    "ConnectedFrameBackend",
     "FrameBackend",
     "FrameCapabilities",
     "FrameConnection",
     "MementoLanBackend",
+    "ServedFrameBackend",
     "SungaleCloudBackend",
     "available_backends",
     "get_backend",

@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from .frame import Frame
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS synced_photo (
     host         TEXT NOT NULL,
@@ -32,6 +34,15 @@ CREATE TABLE IF NOT EXISTS album_sync (
     last_result     TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (host, immich_album_id)
+);
+CREATE TABLE IF NOT EXISTS frame (
+    id          TEXT PRIMARY KEY,
+    backend     TEXT NOT NULL,
+    interaction TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    address     TEXT NOT NULL DEFAULT '',
+    frame_code  TEXT NOT NULL DEFAULT '',
+    last_seen   TEXT
 );
 """
 
@@ -147,6 +158,48 @@ class Store:
                 rows = conn.execute("SELECT * FROM album_sync WHERE host = ?", (host,)).fetchall()
         return [_subscription(r) for r in rows]
 
+    # -- frame registry (transport-independent; see frame.py) ------------------
+    def upsert_frame(self, frame: Frame) -> None:
+        """Record/refresh a known frame. Keeps existing ``last_seen`` unless a newer one is set."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame "
+                "(id, backend, interaction, name, address, frame_code, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET backend=excluded.backend, "
+                "interaction=excluded.interaction, name=excluded.name, address=excluded.address, "
+                "frame_code=excluded.frame_code, "
+                "last_seen=COALESCE(excluded.last_seen, frame.last_seen)",
+                (
+                    frame.id,
+                    frame.backend,
+                    frame.interaction,
+                    frame.name,
+                    frame.address,
+                    frame.frame_code,
+                    frame.last_seen,
+                ),
+            )
+
+    def touch_frame(self, frame_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE frame SET last_seen=datetime('now') WHERE id = ?", (frame_id,))
+
+    def get_frame(self, frame_id: str) -> Frame | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM frame WHERE id = ?", (frame_id,)).fetchone()
+        return _frame(row) if row else None
+
+    def list_frames(self) -> list[Frame]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM frame ORDER BY name").fetchall()
+        return [_frame(r) for r in rows]
+
+    def delete_frame(self, frame_id: str) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,))
+            return cur.rowcount > 0
+
 
 def _photo(row: sqlite3.Row) -> SyncedPhoto:
     return SyncedPhoto(
@@ -166,4 +219,16 @@ def _subscription(row: sqlite3.Row) -> Subscription:
         target_album=row["target_album"],
         last_synced_at=row["last_synced_at"],
         last_result=row["last_result"],
+    )
+
+
+def _frame(row: sqlite3.Row) -> Frame:
+    return Frame(
+        id=row["id"],
+        backend=row["backend"],
+        interaction=row["interaction"],
+        name=row["name"],
+        address=row["address"],
+        frame_code=row["frame_code"],
+        last_seen=row["last_seen"],
     )

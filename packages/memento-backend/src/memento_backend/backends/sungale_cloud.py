@@ -15,11 +15,16 @@ session, so it is registered and selectable but honestly incomplete.
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING
 
 from memento_core import FrameInfo, Ports
 
-from .base import FrameBackend, FrameCapabilities, FrameConnection
+from .base import FrameCapabilities, ServedFrameBackend
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter, Request, Response
+
+    from ..frame import Frame
 
 # Recovered cloud contract (see experiments/aluratek-eframe/FINDINGS.md).
 CLOUD_HOST = "us.xiaowooya.eframe.sungale.com.cn"
@@ -33,10 +38,16 @@ FRAME_ENDPOINTS = (
     "schedule/list",
 )
 
+_PENDING = (
+    "Sungale served backend not implemented yet — pending served-mounting (#22), curation/delivery "
+    "(#23), and the live capture/responder (#8, #9). See experiments/aluratek-eframe/."
+)
 
-class SungaleCloudBackend(FrameBackend):
+
+class SungaleCloudBackend(ServedFrameBackend):
     name = "sungale-cloud"
     capabilities = FrameCapabilities(
+        interaction="served",  # the frame polls a server we run; we never connect to it
         transport="cloud",
         discovery=False,  # cloud frames register by frame-code, not LAN broadcast
         albums=False,
@@ -50,10 +61,11 @@ class SungaleCloudBackend(FrameBackend):
         # Cloud frames are not discoverable on the LAN; they reach out to the cloud themselves.
         return []
 
-    def session(
-        self, host: str, *, ports: Ports | None = None
-    ) -> AbstractContextManager[FrameConnection]:
-        raise NotImplementedError(
-            "Sungale cloud backend is not implemented yet — pending the live frame capture and "
-            "responder build (see experiments/aluratek-eframe/ and GitHub issues #8, #9, #14)."
-        )
+    def router(self) -> APIRouter:
+        raise NotImplementedError(_PENDING)
+
+    def identify(self, request: Request) -> str | None:
+        raise NotImplementedError(_PENDING)
+
+    def respond(self, frame: Frame, request: Request) -> Response:
+        raise NotImplementedError(_PENDING)

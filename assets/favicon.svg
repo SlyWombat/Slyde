@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Slyde">
+  <defs>
+    <linearGradient id="fsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a4684"/>
+      <stop offset="0.5" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#ffb27a"/>
+    </linearGradient>
+    <clipPath id="ftile"><rect x="16" y="16" width="224" height="224" rx="50"/></clipPath>
+  </defs>
+  <!-- full-bleed sunset photo: bold + colourful so it reads at 16px (a tab icon) -->
+  <g clip-path="url(#ftile)">
+    <rect x="16" y="16" width="224" height="224" fill="url(#fsky)"/>
+    <circle cx="96" cy="104" r="40" fill="#ffe7b0"/>
+    <path d="M16 196 L86 132 L138 178 L196 120 L240 162 L240 240 L16 240 Z" fill="#16213d"/>
+    <path d="M16 240 L78 188 L140 224 L200 184 L240 218 L240 240 Z" fill="#0b0e14"/>
+  </g>
+  <rect x="16" y="16" width="224" height="224" rx="50" fill="none" stroke="#0b0e14" stroke-width="6"/>
+</svg>

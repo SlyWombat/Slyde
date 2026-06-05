@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .backends import ServedFrameBackend, get_backend
 from .config import Settings, get_settings
 from .delivery_service import DeliveryService
@@ -67,7 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await scheduler.stop()
 
-    app = FastAPI(title="Slyde", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Slyde", version=__version__, lifespan=lifespan)
 
     @app.exception_handler(FrameUnavailable)
     async def _frame_unavailable(_request: Request, exc: FrameUnavailable) -> JSONResponse:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response
 
+from .. import __version__
 from ..schemas import Health
 from .deps import SchedulerDep, SettingsDep, StoreDep
 
@@ -12,7 +13,10 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=Health)
 async def health(settings: SettingsDep) -> Health:
-    return Health(immich_configured=bool(settings.immich_base_url and settings.immich_api_key))
+    return Health(
+        version=__version__,
+        immich_configured=bool(settings.immich_base_url and settings.immich_api_key),
+    )
 
 
 @router.get("/health/sync", response_class=Response)

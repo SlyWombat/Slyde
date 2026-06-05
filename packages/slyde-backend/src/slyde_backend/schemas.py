@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class Health(BaseModel):
     status: str = "ok"
+    version: str = ""
     immich_configured: bool
 
 

@@ -46,12 +46,12 @@ def test_backends_classify_by_interaction_model() -> None:
     assert not isinstance(get_backend("sungale-cloud"), ConnectedFrameBackend)
 
 
-def test_sungale_served_backend_is_declared_but_not_yet_implemented() -> None:
+def test_sungale_served_backend_exposes_a_router() -> None:
     backend = SungaleCloudBackend()
     assert backend.discover() == []  # cloud frames don't answer LAN discovery
-    # The served surface (router/identify/respond) is declared but pending #22/#23.
-    with pytest.raises(NotImplementedError, match="pending"):
-        backend.router()
+    routes = {r.path for r in backend.router().routes}  # type: ignore[attr-defined]
+    assert "/xiaowooya/api/v1/frame/ping" in routes
+    assert "/xiaowooya/api/v1/image_library/list" in routes
 
 
 def test_memento_lan_backend_drives_the_emulator(frame: EmulatedFrame) -> None:

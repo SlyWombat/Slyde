@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .backends import ServedFrameBackend, get_backend
 from .config import Settings, get_settings
 from .firmware import FirmwareService
 from .frames import FrameService, FrameUnavailable
@@ -17,6 +18,7 @@ from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
 from .routers import firmware, frames, health, immich
 from .scheduler import SyncScheduler
+from .serving import PlaceholderDelivery, mount_served_backends
 from .store import Store
 from .sync import SyncService
 
@@ -43,6 +45,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()
         app.state.firmware = FirmwareService(settings)
+        # What a served (cloud) frame gets when it polls us. Placeholder until the Immich-backed
+        # curation + processing-profile delivery lands (#8/#19/#23).
+        app.state.frame_delivery = PlaceholderDelivery()
         scheduler.start()
         try:
             yield
@@ -78,6 +83,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(frames.router, prefix="/api")
     app.include_router(immich.router, prefix="/api")
     app.include_router(firmware.router, prefix="/api")
+
+    # Served (cloud) backends mount the endpoints their frames poll — at the cloud's own path (not
+    # under /api), before the SPA catch-all. Driven by FRAME_BACKEND; nothing hardcoded.
+    backend = get_backend(settings.frame_backend)
+    if isinstance(backend, ServedFrameBackend):
+        mount_served_backends(app, [backend])
 
     if settings.static_dir and Path(settings.static_dir).is_dir():
         # Serve the built SPA (and let client-side routing handle unknown paths).

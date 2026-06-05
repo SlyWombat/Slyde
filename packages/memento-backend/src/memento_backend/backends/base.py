@@ -116,8 +116,8 @@ class ServedFrameBackend(FrameBackend):
 
     @abstractmethod
     def identify(self, request: Request) -> str | None:
-        """Resolve which registered frame (its id) is making this request, or None if unknown."""
+        """Resolve which frame (its frame-code/id) is making this request, or None if unknown."""
 
     @abstractmethod
-    def respond(self, frame: Frame, request: Request) -> Response:
+    async def respond(self, frame: Frame, request: Request) -> Response:
         """Answer a frame's poll (e.g. its photo list / next image), prepared for that frame."""

@@ -94,7 +94,25 @@ The full table is in [`docs/architecture.md`](docs/architecture.md#9-configurati
 
 ## Updates (OTA)
 
+> **No competitor surveyed ships a frame-OTA pipeline or an emulator — both are unique here.** ([competitive analysis](docs/competitive-analysis.html))
+
 Push a tag `softframe-vX.Y.Z` (or run the *Release soft-frame bundle* workflow). CI builds `memento-softframe.zip` + `.zip.md5` and attaches them to a GitHub release. Set `FIRMWARE_REPO` on the Manager, click **Check for updates**, then **Update** — the Manager serves the md5-verified bundle and the frame downloads, verifies, and self-applies it. Details: [`deploy/softframe/README.md`](deploy/softframe/README.md).
+
+### See it end-to-end (emulator + OTA, no hardware)
+
+The whole loop runs against the emulator — no frame required:
+
+```bash
+# 1. Run a soft-frame from the *published* v0.1.0 bundle (so it reports an old version)
+curl -L -o /tmp/sf.zip https://github.com/SlyWombat/memento-manager/releases/download/softframe-v0.1.0/memento-softframe.zip
+mkdir -p /tmp/sf && (cd /tmp/sf && unzip -oq /tmp/sf.zip)
+MEMENTO_APP_DIR=/tmp/sf PYTHONPATH=/tmp/sf uv run memento-emulator --name "OTA Demo"   # reports v0.1.0
+
+# 2. Point a Manager at it (FRAME_HOSTS=<emulator-ip>, FIRMWARE_REPO=SlyWombat/memento-manager,
+#    MANAGER_BASE_URL=http://<manager-ip>:8090) and open the web UI.
+```
+
+In the UI the frame's firmware row shows **v0.1.1 available** (the latest release > the running v0.1.0). Click **Update**: the Manager fetches the release, **md5-verifies** it, serves it, and the frame **downloads, verifies, swaps its app dir, and restarts** — now reporting v0.1.1. That's the full self-update path, exercised on the emulator.
 
 ## Develop
 

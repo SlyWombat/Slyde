@@ -25,4 +25,4 @@ __all__ = [
     "parse_broadcast",
     "thumb_to_image",
 ]
-__version__ = "0.1.0"
+__version__ = "0.1.1"

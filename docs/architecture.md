@@ -139,7 +139,9 @@ filled-in instance of the generic config below.
   plane on the near side. Goal: a world-class hub — per-frame rendering, scheduling, health/OTA,
   and a clean contributor path for new frames — so any frame, dead or alive, can be driven from one
   place. This is the north star the `FrameBackend` abstraction is building toward. (Tracked as an
-  epic; the per-frame processing profile and the Sungale cloud backend are the first steps.)
+  epic; the per-frame processing profile and the Sungale cloud backend are the first steps.) The
+  framework design — including the **connected vs served** interaction split that cloud frames need
+  — is in `framework-design.md`.
 
 ## 5. Image pipeline (Immich → frame)
 The frame canvas is **3240×2160 landscape** (portrait variant exists). Immich originals must be

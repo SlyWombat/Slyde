@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
 
     # Frame -------------------------------------------------------------------
+    frame_backend: str = Field(
+        "memento-lan",
+        description="Which frame backend to drive: memento-lan (default) | sungale-cloud",
+    )
     frame_host: str = Field("", description="Explicit frame IP/host; empty enables discovery")
     frame_hosts: str = Field(
         "", description="Comma-separated extra frame hosts to always list (e.g. an emulator)"

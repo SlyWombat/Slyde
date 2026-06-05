@@ -56,7 +56,9 @@ memento/
 - **memento-emulator** — implements the frame's *server* side of the protocol so the backend
   and core are tested end-to-end (incl. uploads) with zero production risk. Also a dev "virtual
   frame" the real Windows app could even talk to.
-- **memento-backend** — FastAPI. Talks to Immich (REST) and to the frame (via memento-core).
+- **memento-backend** — FastAPI. Talks to Immich (REST) and to the frame through a pluggable
+  **`FrameBackend`** (selected by `FRAME_BACKEND`: `memento-lan` LAN protocol, `sungale-cloud` cloud
+  impersonation, …), so the app isn't tied to one device/transport — see `frame-backends.md`.
   Persists curation/sync state (SQLite). Serves the built SPA as static files (single container).
 - **frontend** — SPA. Talks only to the backend REST API.
 

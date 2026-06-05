@@ -11,8 +11,9 @@ import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from memento_core import AlbumData, FrameClient, FrameInfo, Ports, Setup, discover
+from memento_core import AlbumData, FrameInfo, Ports, Setup
 
+from .backends import FrameConnection, get_backend
 from .config import Settings
 
 T = TypeVar("T")
@@ -26,9 +27,11 @@ class FrameService:
     def __init__(self, settings: Settings, *, ports: Ports | None = None) -> None:
         self._settings = settings
         self._ports = ports or Ports()
+        # Which kind of frame we drive (LAN, cloud, …) — selected by config, never hardcoded.
+        self._backend = get_backend(settings.frame_backend)
 
     async def discover_frames(self, timeout: float = 4.0) -> list[FrameInfo]:
-        return await asyncio.to_thread(discover, timeout=timeout, ports=self._ports)
+        return await asyncio.to_thread(self._backend.discover, timeout=timeout, ports=self._ports)
 
     async def resolve_host(self, host: str | None = None) -> str:
         if host:
@@ -42,12 +45,12 @@ class FrameService:
             raise FrameUnavailable("no frame found via discovery")
         return frames[0].ip
 
-    async def _with_client(self, host: str, fn: Callable[[FrameClient], T]) -> T:
+    async def _with_client(self, host: str, fn: Callable[[FrameConnection], T]) -> T:
         resolved = await self.resolve_host(host)
 
         def run() -> T:
-            with FrameClient(resolved, ports=self._ports) as client:
-                return fn(client)
+            with self._backend.session(resolved, ports=self._ports) as conn:
+                return fn(conn)
 
         return await asyncio.to_thread(run)
 
@@ -56,7 +59,7 @@ class FrameService:
         return await self._with_client(host, lambda c: c.get_config())
 
     async def update_config(self, host: str, patch: dict[str, Any]) -> dict[str, Any]:
-        def run(client: FrameClient) -> dict[str, Any]:
+        def run(client: FrameConnection) -> dict[str, Any]:
             config = client.get_config()
             config.update(patch)
             client.change_setup(Setup.SendConfig, config)
@@ -88,7 +91,7 @@ class FrameService:
         return await self._with_client(host, lambda c: c.get_thumbnail(image_filename))
 
     async def create_album(self, host: str, name: str) -> AlbumData:
-        def run(client: FrameClient) -> AlbumData:
+        def run(client: FrameConnection) -> AlbumData:
             data = client.get_album_data()
             data.add_album(name)
             client.send_album_data(data)
@@ -99,7 +102,7 @@ class FrameService:
     async def delete_album(self, host: str, name: str) -> AlbumData:
         """Delete a (non-reserved) folder from the frame. Photos stay in the library."""
 
-        def run(client: FrameClient) -> AlbumData:
+        def run(client: FrameConnection) -> AlbumData:
             data = client.get_album_data()
             data.remove_album(name)
             client.send_album_data(data)
@@ -110,7 +113,7 @@ class FrameService:
     async def remove_from_album(self, host: str, album: str, filename: str) -> AlbumData:
         """Remove a file from a folder (without deleting the photo from the frame)."""
 
-        def run(client: FrameClient) -> AlbumData:
+        def run(client: FrameConnection) -> AlbumData:
             data = client.get_album_data()
             data.remove_image(album, filename)
             client.send_album_data(data)
@@ -129,7 +132,7 @@ class FrameService:
         """Upload new images, then set ``album_name`` to exactly ``keep_dests`` + uploaded — a
         1:1 mirror of the source. Returns the dests that uploaded successfully."""
 
-        def run(client: FrameClient) -> list[str]:
+        def run(client: FrameConnection) -> list[str]:
             uploaded: list[str] = []
             for data, dest in to_upload:
                 client.upload_image(data, dest)
@@ -161,7 +164,7 @@ class FrameService:
         record durable state only for photos that actually landed). Returns the uploaded dests.
         """
 
-        def run(client: FrameClient) -> list[str]:
+        def run(client: FrameConnection) -> list[str]:
             uploaded: list[str] = []
             for data, dest in items:
                 client.upload_image(data, dest)

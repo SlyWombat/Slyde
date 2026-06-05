@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS frame (
     frame_code  TEXT NOT NULL DEFAULT '',
     last_seen   TEXT
 );
+CREATE TABLE IF NOT EXISTS library_item (
+    frame_id  TEXT NOT NULL,
+    asset_id  TEXT NOT NULL,
+    dest_name TEXT NOT NULL,
+    position  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (frame_id, asset_id)
+);
 """
 
 
@@ -199,6 +206,29 @@ class Store:
         with self._conn() as conn:
             cur = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,))
             return cur.rowcount > 0
+
+    # -- frame library (the desired photo set per frame; see library.py) -------
+    def set_library(self, frame_id: str, items: list[tuple[str, str]]) -> None:
+        """Replace a frame's desired set with ``items`` (asset_id, dest_name), order preserved."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
+            conn.executemany(
+                "INSERT INTO library_item (frame_id, asset_id, dest_name, position) "
+                "VALUES (?, ?, ?, ?)",
+                [(frame_id, aid, dest, i) for i, (aid, dest) in enumerate(items)],
+            )
+
+    def list_library(self, frame_id: str) -> list[tuple[str, str]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT asset_id, dest_name FROM library_item WHERE frame_id = ? ORDER BY position",
+                (frame_id,),
+            ).fetchall()
+        return [(r["asset_id"], r["dest_name"]) for r in rows]
+
+    def clear_library(self, frame_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
 
 
 def _photo(row: sqlite3.Row) -> SyncedPhoto:

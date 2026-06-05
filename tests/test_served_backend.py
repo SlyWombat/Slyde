@@ -91,6 +91,32 @@ def test_served_poll_returns_the_cached_prepared_image(served: ServedHarness) ->
     assert resp.content == edited  # the cached edited image, not the placeholder
 
 
+def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness) -> None:
+    """#23 end-to-end: curate a desired set -> publish (prepare+cache) -> the frame's poll
+    returns its prepared image, all through the real app."""
+    import io
+
+    from PIL import Image
+
+    from memento_backend.library import LibraryItem
+
+    class FakeImmich:
+        async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:
+            buf = io.BytesIO()
+            Image.new("RGB", (200, 100), (40, 80, 160)).save(buf, format="JPEG")
+            return buf.getvalue()
+
+    code = "EFRAME-LOOP"
+    library = served.app.state.library
+    library.set_desired(code, [LibraryItem("asset-1", "current.jpg")])
+    served._loop.run_until_complete(library.publish(code, FakeImmich(), canvas=(160, 96)))
+
+    resp = served.request("GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": code})
+    assert resp.status_code == 200 and resp.headers["content-type"] == "image/jpeg"
+    with Image.open(io.BytesIO(resp.content)) as img:
+        assert img.size == (160, 96)  # served the image prepared to the frame's canvas
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

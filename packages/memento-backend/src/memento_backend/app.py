@@ -17,6 +17,7 @@ from .frames import FrameService, FrameUnavailable
 from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
+from .library import FrameLibrary
 from .routers import firmware, frames, health, immich
 from .scheduler import SyncScheduler
 from .serving import CachedImageDelivery, PlaceholderDelivery, mount_served_backends
@@ -51,6 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         image_cache = ImageCache(settings.cache_dir)
         app.state.image_cache = image_cache
         app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
+        # The desired photo set per frame (curation), decoupled from delivery (#23). For served
+        # frames, publishing prepares + caches images ready to pull.
+        app.state.library = FrameLibrary(store, image_cache)
         scheduler.start()
         try:
             yield

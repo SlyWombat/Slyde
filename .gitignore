@@ -40,3 +40,11 @@ Thumbs.db
 
 # soft-frame OTA build output
 /dist/
+
+# vendor app binaries — do not redistribute (recon inputs only)
+*.apk
+*.xapk
+*.apks
+
+# phone screen captures (may contain device IDs/serials)
+/Screenshot_*.png

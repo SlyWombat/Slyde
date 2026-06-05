@@ -49,7 +49,7 @@ When Memento's cloud was switched off, every frame people had paid for became a 
 - **`frontend/`** — React + TypeScript + Vite + Tailwind web UI (served by the backend).
 - **`deploy/`** — portable `compose.yaml`, the emulator stack, the Pi **soft-frame** install, and example deployments.
 
-Design details: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · Usage: [`docs/USAGE.md`](docs/USAGE.md).
+**[Supported frames](docs/supported-frames.md)** — which frames work today, and *is my frame revivable?* · Design: [`docs/architecture.md`](docs/architecture.md) · Protocol: [`docs/protocol.md`](docs/protocol.md) · Usage: [`docs/USAGE.md`](docs/USAGE.md).
 
 ### Read-only & one-way — your library is never touched
 

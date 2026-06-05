@@ -5,7 +5,7 @@ Slyde is a **frame-revival toolkit**: it drives digital photo frames from your o
 `FrameBackend` (see [`frame-backends.md`](frame-backends.md)), so support grows over time without
 forking. This page tracks which frames work today — and how to add yours.
 
-> **Got a dead or cloud-locked frame?** [Open an issue](https://github.com/SlyWombat/slyde/issues/new)
+> **Got a dead or cloud-locked frame?** [Open an issue](https://github.com/SlyWombat/Slyde/issues/new)
 > with the make/model and how it talks to its app. Even a teardown photo or a packet capture helps.
 
 ## Status

@@ -11,7 +11,7 @@ from your **Immich** library to the frame over your local network — no cloud, 
 
 ## Quick start (Docker)
 ```bash
-git clone https://github.com/SlyWombat/slyde.git
+git clone https://github.com/SlyWombat/Slyde.git
 cd slyde
 cp .env.example .env          # then edit .env (see below)
 docker compose up -d

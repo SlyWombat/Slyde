@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/SlyWombat/slyde/actions/workflows/ci.yml"><img src="https://github.com/SlyWombat/slyde/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/SlyWombat/Slyde/actions/workflows/ci.yml"><img src="https://github.com/SlyWombat/Slyde/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-5b8cff.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/python-3.11%2B-3776ab.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/ui-React%20%2B%20TypeScript-5b8cff.svg" alt="React + TypeScript">
@@ -108,11 +108,11 @@ The whole loop runs against the emulator — no frame required:
 
 ```bash
 # 1. Run a soft-frame from the *published* v0.1.0 bundle (so it reports an old version)
-curl -L -o /tmp/sf.zip https://github.com/SlyWombat/slyde/releases/download/softframe-v0.1.0/memento-softframe.zip
+curl -L -o /tmp/sf.zip https://github.com/SlyWombat/Slyde/releases/download/softframe-v0.1.0/memento-softframe.zip
 mkdir -p /tmp/sf && (cd /tmp/sf && unzip -oq /tmp/sf.zip)
 MEMENTO_APP_DIR=/tmp/sf PYTHONPATH=/tmp/sf uv run memento-emulator --name "OTA Demo"   # reports v0.1.0
 
-# 2. Point a Manager at it (FRAME_HOSTS=<emulator-ip>, FIRMWARE_REPO=SlyWombat/slyde,
+# 2. Point a Manager at it (FRAME_HOSTS=<emulator-ip>, FIRMWARE_REPO=SlyWombat/Slyde,
 #    MANAGER_BASE_URL=http://<manager-ip>:8090) and open the web UI.
 ```
 

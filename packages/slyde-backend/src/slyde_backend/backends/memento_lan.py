@@ -20,6 +20,7 @@ class MementoLanBackend(ConnectedFrameBackend):
     capabilities = FrameCapabilities(
         interaction="connected",
         transport="lan",
+        color_model="full",  # full-colour LCD panel
         discovery=True,
         albums=True,
         thumbnails=True,

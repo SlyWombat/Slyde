@@ -41,6 +41,7 @@ class SungaleCloudBackend(ServedFrameBackend):
     capabilities = FrameCapabilities(
         interaction="served",  # the frame polls a server we run; we never connect to it
         transport="cloud",
+        color_model="epaper",  # Spectra-6 e-ink: needs palette + dither (see processing.py)
         discovery=False,  # cloud frames register by frame-code, not LAN broadcast
         albums=False,
         thumbnails=False,

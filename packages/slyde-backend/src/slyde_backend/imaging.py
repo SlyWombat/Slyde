@@ -56,6 +56,28 @@ def _cover_loss(src: tuple[int, int], canvas: tuple[int, int]) -> float:
     return 1.0 - min(src_ar, canvas_ar) / max(src_ar, canvas_ar)
 
 
+def fit_to_canvas(
+    data: bytes,
+    canvas: tuple[int, int],
+    *,
+    fit: FitMode | str = FitMode.SMART,
+    crop_tolerance: float = 0.12,
+    fill: tuple[int, int, int] = (0, 0, 0),
+) -> Image.Image:
+    """Return an RGB ``Image`` sized exactly to ``canvas``, fitted per ``fit`` (see module doc)."""
+    mode = FitMode(fit)
+    with Image.open(io.BytesIO(data)) as src:
+        rgb = (ImageOps.exif_transpose(src) or src).convert("RGB")
+    if mode is FitMode.SMART:
+        small_loss = _cover_loss(rgb.size, canvas) <= crop_tolerance
+        mode = FitMode.COVER if small_loss else FitMode.BLUR
+    if mode is FitMode.COVER:
+        return _cover(rgb, canvas)
+    if mode is FitMode.BLUR:
+        return _blur_fill(rgb, canvas)
+    return _letterbox(rgb, canvas, fill)
+
+
 def prepare_for_frame(
     data: bytes,
     canvas: tuple[int, int],
@@ -66,19 +88,7 @@ def prepare_for_frame(
     quality: int = 90,
 ) -> bytes:
     """Return JPEG bytes sized exactly to ``canvas``, fitted per ``fit`` (see module docstring)."""
-    mode = FitMode(fit)
-    with Image.open(io.BytesIO(data)) as src:
-        oriented = ImageOps.exif_transpose(src) or src
-        rgb = oriented.convert("RGB")
-        if mode is FitMode.SMART:
-            small_loss = _cover_loss(rgb.size, canvas) <= crop_tolerance
-            mode = FitMode.COVER if small_loss else FitMode.BLUR
-        if mode is FitMode.COVER:
-            result = _cover(rgb, canvas)
-        elif mode is FitMode.BLUR:
-            result = _blur_fill(rgb, canvas)
-        else:
-            result = _letterbox(rgb, canvas, fill)
-        out = io.BytesIO()
-        result.save(out, format="JPEG", quality=quality)
-        return out.getvalue()
+    result = fit_to_canvas(data, canvas, fit=fit, crop_tolerance=crop_tolerance, fill=fill)
+    out = io.BytesIO()
+    result.save(out, format="JPEG", quality=quality)
+    return out.getvalue()

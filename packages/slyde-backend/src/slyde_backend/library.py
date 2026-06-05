@@ -19,8 +19,8 @@ import asyncio
 from dataclasses import dataclass
 
 from .imagecache import ImageCache
-from .imaging import prepare_for_frame
 from .immich import ImmichClient
+from .processing import ProcessingProfile, prepare
 from .store import Store
 
 
@@ -49,25 +49,22 @@ class FrameLibrary:
         frame_id: str,
         immich: ImmichClient,
         *,
-        canvas: tuple[int, int],
-        fit: str = "smart",
-        crop_tolerance: float = 0.12,
+        profile: ProcessingProfile,
         asset_size: str = "preview",
     ) -> list[str]:
         """Prepare every desired image for the frame and cache it, *ready to serve* (served frames).
 
-        Reads bytes from Immich (read-only), fits/edits them for the frame's canvas, and writes the
-        result into the ``ImageCache`` keyed by dest name. Returns the dests published. Items that
-        fail to fetch/prepare are skipped (the prior cached copy, if any, is left in place — a
-        fallback that keeps the frame showing something; durable retry is #26).
+        Reads bytes from Immich (read-only), prepares each per the frame's ``ProcessingProfile``
+        (fit + colour model — full-colour JPEG or e-ink palette/dither, #19), and writes the result
+        into the ``ImageCache`` keyed by dest name. Returns the dests published. Items that fail to
+        fetch/prepare are skipped (the prior cached copy, if any, is left in place — a fallback that
+        keeps the frame showing something; durable retry is #26).
         """
         published: list[str] = []
         for item in self.desired(frame_id):
             try:
                 source = await immich.asset_bytes(item.asset_id, asset_size)
-                prepared = await asyncio.to_thread(
-                    prepare_for_frame, source, canvas, fit=fit, crop_tolerance=crop_tolerance
-                )
+                prepared = await asyncio.to_thread(prepare, source, profile)
             except Exception:
                 continue
             self._cache.put(frame_id, item.dest_name, prepared)

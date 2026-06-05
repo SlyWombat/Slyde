@@ -10,6 +10,7 @@ from PIL import Image
 
 from slyde_backend.imagecache import ImageCache
 from slyde_backend.library import FrameLibrary, LibraryItem
+from slyde_backend.processing import ProcessingProfile
 from slyde_backend.store import Store
 
 
@@ -50,7 +51,7 @@ def test_publish_prepares_and_caches_each_desired_image(tmp_path: Path) -> None:
     lib.set_desired("EF-2", [LibraryItem("a1", "one.jpg"), LibraryItem("a2", "two.jpg")])
     immich = FakeImmich()
 
-    published = asyncio.run(lib.publish("EF-2", immich, canvas=(64, 48)))
+    published = asyncio.run(lib.publish("EF-2", immich, profile=ProcessingProfile(canvas=(64, 48))))
 
     assert published == ["one.jpg", "two.jpg"]
     assert immich.fetched == ["a1", "a2"]  # read from Immich
@@ -73,7 +74,9 @@ def test_publish_skips_failed_items_and_keeps_prior_cache(tmp_path: Path) -> Non
             return await super().asset_bytes(asset_id, size)
 
     lib.set_desired("EF-3", [LibraryItem("bad", "keep.jpg"), LibraryItem("ok", "new.jpg")])
-    published = asyncio.run(lib.publish("EF-3", Flaky(), canvas=(32, 32)))
+    published = asyncio.run(
+        lib.publish("EF-3", Flaky(), profile=ProcessingProfile(canvas=(32, 32)))
+    )
 
     assert published == ["new.jpg"]  # only the good one
     # the failed item left the prior cached image untouched (fallback: keep showing something)

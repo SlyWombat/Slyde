@@ -99,6 +99,7 @@ def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness)
     from PIL import Image
 
     from slyde_backend.library import LibraryItem
+    from slyde_backend.processing import ProcessingProfile
 
     class FakeImmich:
         async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:
@@ -109,7 +110,9 @@ def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness)
     code = "EFRAME-LOOP"
     library = served.app.state.library
     library.set_desired(code, [LibraryItem("asset-1", "current.jpg")])
-    served._loop.run_until_complete(library.publish(code, FakeImmich(), canvas=(160, 96)))
+    served._loop.run_until_complete(
+        library.publish(code, FakeImmich(), profile=ProcessingProfile(canvas=(160, 96)))
+    )
 
     resp = served.request("GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": code})
     assert resp.status_code == 200 and resp.headers["content-type"] == "image/jpeg"

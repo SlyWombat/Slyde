@@ -67,6 +67,7 @@ class FrameCapabilities:
 
     interaction: str  # "connected" (manager initiates) | "served" (frame polls a server we run)
     transport: str  # "lan" | "cloud"
+    color_model: str  # "full" (LCD, JPEG) | "epaper" (limited palette + dither) — drives processing
     discovery: bool  # can frames be found on the LAN?
     albums: bool  # supports folder/album structure
     thumbnails: bool  # can enumerate/serve on-frame thumbnails

@@ -14,11 +14,12 @@ from .backends import ServedFrameBackend, get_backend
 from .config import Settings, get_settings
 from .firmware import FirmwareService
 from .frames import FrameService, FrameUnavailable
+from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
 from .routers import firmware, frames, health, immich
 from .scheduler import SyncScheduler
-from .serving import PlaceholderDelivery, mount_served_backends
+from .serving import CachedImageDelivery, PlaceholderDelivery, mount_served_backends
 from .store import Store
 from .sync import SyncService
 
@@ -45,9 +46,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()
         app.state.firmware = FirmwareService(settings)
-        # What a served (cloud) frame gets when it polls us. Placeholder until the Immich-backed
-        # curation + processing-profile delivery lands (#8/#19/#23).
-        app.state.frame_delivery = PlaceholderDelivery()
+        # Cache of prepared (edited) images, ready to serve/push (#25). Served frames are handed a
+        # cached image on poll; until the sync/processing service fills it, a placeholder is used.
+        image_cache = ImageCache(settings.cache_dir)
+        app.state.image_cache = image_cache
+        app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
         scheduler.start()
         try:
             yield

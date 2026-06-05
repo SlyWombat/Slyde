@@ -44,6 +44,7 @@ def served(tmp_path) -> Iterator[ServedHarness]:  # type: ignore[no-untyped-def]
         frame_backend="sungale-cloud",
         frame_discovery=False,
         database_url=f"sqlite:///{tmp_path}/memento.db",
+        cache_dir=f"{tmp_path}/cache",
     )
     harness = ServedHarness(settings)
     try:
@@ -76,6 +77,18 @@ def test_served_image_poll_returns_an_image(served: ServedHarness) -> None:
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "image/jpeg"
     assert resp.content[:2] == b"\xff\xd8"  # JPEG magic — a real (placeholder) image was served
+
+
+def test_served_poll_returns_the_cached_prepared_image(served: ServedHarness) -> None:
+    # The hub has a prepared (edited) image cached for this frame, ready to send (#25).
+    edited = b"\xff\xd8\xffSMART-BLUR-EDITED\xff\xd9"
+    served.app.state.image_cache.put("EFRAME-CACHED", "current.jpg", edited)
+
+    resp = served.request(
+        "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EFRAME-CACHED"}
+    )
+    assert resp.status_code == 200
+    assert resp.content == edited  # the cached edited image, not the placeholder
 
 
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:

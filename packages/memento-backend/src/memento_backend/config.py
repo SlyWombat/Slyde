@@ -62,6 +62,10 @@ class Settings(BaseSettings):
 
     # Service -----------------------------------------------------------------
     database_url: str = Field("sqlite:///./memento.db", description="State store URL")
+    cache_dir: str = Field(
+        "./cache",
+        description="Where prepared (edited) frame images are cached, ready to serve/push",
+    )
     bind_host: str = Field("0.0.0.0", description="API bind host")
     bind_port: int = Field(8080, description="API bind port")
     static_dir: str = Field("", description="Built SPA directory to serve, if any")

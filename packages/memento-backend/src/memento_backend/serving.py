@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Protocol
 from PIL import Image
 
 from .frame import Frame
+from .imagecache import ImageCache
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -53,6 +54,25 @@ class PlaceholderDelivery:
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=80)
         return buf.getvalue()
+
+
+class CachedImageDelivery:
+    """Serve a frame the prepared image the hub already cached for it (issue #25).
+
+    Reads from the processed-image cache (already smart-blurred/fitted/dithered, ready to send).
+    When the frame has nothing cached yet, falls back to ``fallback`` (a placeholder) so the served
+    path still responds. The cache is filled by the autonomous sync/processing service (#23/#19/#8).
+    """
+
+    def __init__(self, cache: ImageCache, *, fallback: FrameDelivery | None = None) -> None:
+        self._cache = cache
+        self._fallback = fallback
+
+    async def image_for(self, frame: Frame) -> bytes | None:
+        data = self._cache.current(frame.id)
+        if data is not None:
+            return data
+        return await self._fallback.image_for(frame) if self._fallback is not None else None
 
 
 def resolve_or_register_served_frame(store: Store, backend_name: str, frame_code: str) -> Frame:

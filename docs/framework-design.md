@@ -72,10 +72,24 @@ Generalize `Store` + `SyncService` so that **what a frame should show** (curatio
 read-only from Immich) is decoupled from **how it gets there** (delivery):
 
 - **Connected** backends *reconcile by push* (today's sync/mirror) when the manager runs.
-- **Served** backends *expose the set for pull*; the frame fetches on wake; the manager prepares
-  the image lazily/on-demand via the profile.
+- **Served** backends *expose the set for pull*; the frame fetches on wake; the manager serves the
+  already-**prepared** image from the cache (§2.6).
 
 One curation model, two delivery strategies — chosen by the backend's interaction kind.
+
+### 2.6 Sync is a backend service; the hub caches prepared images; the UI is read-only  *(RULE, #25)*
+All sync activity (keeping an Immich album in sync with a frame folder) runs as an **autonomous
+backend service** — the scheduler reconciles subscriptions on its own; one-off "sync now" is just a
+backend job. **The UI never drives or blocks on sync**: it is a disconnected, read-only view of
+current state (last run, what's cached/queued, what's on the frame) and can be closed at any time
+without affecting anything.
+
+The hub keeps **copies of the prepared (edited) images** — smart-blur edges, fit, e-ink
+palette/dither already applied — in a per-frame **`ImageCache`**, *ready to send*. This decouples
+*processing* from *delivery*, which is essential for served frames that wake on their own schedule
+(they must be handed an already-prepared image — `CachedImageDelivery` reads from this cache), and
+lets connected frames avoid re-processing on every sync. The cache is filled by the sync/processing
+service and refreshed when curation or a frame's processing profile changes.
 
 ### 2.5 Frame-agnostic plane: scheduling · health · OTA  *(generalize)*
 Scheduler, `/health/sync`, and the OTA/firmware service become frame-agnostic (keyed by `Frame`,

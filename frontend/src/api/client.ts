@@ -5,11 +5,13 @@ import type {
   CurrentImage,
   FirmwareInfo,
   FrameAlbum,
+  FrameDetailInfo,
   FrameInfo,
   FrameStatus,
   FrameSummary,
   FrameUpdate,
   Health,
+  LibraryView,
   Subscription,
   SyncJobInfo,
   SyncResult,
@@ -39,11 +41,24 @@ const enc = encodeURIComponent;
 
 export const api = {
   health: () => request<Health>("/health"),
+  // Sync KPI as plain text ("OK …" / "FAIL …"), as served for Uptime Kuma. For the Activity view.
+  syncHealth: async (): Promise<string> => (await fetch(`${BASE}/health/sync`)).text(),
 
   // -- frames --------------------------------------------------------------
   frames: () => request<FrameSummary[]>("/frames"),
   framesStatus: () => request<FrameStatus[]>("/frames/status"),
   frame: (host: string) => request<FrameInfo>(`/frames/${enc(host)}`),
+
+  // -- per-frame library (transport-agnostic curation, #28/#37) -------------
+  // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).
+  frameLibrary: (id: string) => request<LibraryView>(`/frames/${enc(id)}/library`),
+  frameDetail: (id: string) => request<FrameDetailInfo>(`/frames/${enc(id)}/detail`),
+  // Curate by asset id alone (dest_name derived server-side). Non-blocking: queues + reconciles.
+  setLibrary: (id: string, items: { asset_id: string; dest_name?: string }[]) =>
+    request<Record<string, number>>(`/frames/${enc(id)}/library`, {
+      method: "PUT",
+      body: JSON.stringify(items),
+    }),
   updateConfig: (host: string, patch: ConfigPatch) =>
     request<FrameInfo>(`/frames/${enc(host)}/config`, {
       method: "PATCH",

@@ -1,7 +1,9 @@
 import { HashRouter, NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { FrameView } from "./components/FrameView";
 import { useFrames } from "./lib/frames";
+import { Activity } from "./pages/Activity";
 import { ComingSoon } from "./pages/ComingSoon";
+import { Curate } from "./pages/Curate";
 import { FleetDashboard } from "./pages/FleetDashboard";
 import { FrameDetail } from "./pages/FrameDetail";
 
@@ -98,14 +100,8 @@ export default function App() {
             element={<ComingSoon title="Frames" issue={35} note="Searchable frame list + onboarding (LAN scan / cloud frame)." />}
           />
           <Route path="/frames/:id" element={<FrameDetail />} />
-          <Route
-            path="/curate"
-            element={<ComingSoon title="Curate" issue={38} note="Immich-first curation to one or more frames." />}
-          />
-          <Route
-            path="/activity"
-            element={<ComingSoon title="Activity" issue={40} note="Delivery queue, subscriptions, and sync log." />}
-          />
+          <Route path="/curate" element={<Curate />} />
+          <Route path="/activity" element={<Activity />} />
           <Route
             path="/settings"
             element={<ComingSoon title="Settings" issue={44} note="Immich, scheduler, firmware, and app info." />}

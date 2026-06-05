@@ -88,6 +88,7 @@ export interface Subscription {
 
 export interface Health {
   status: string;
+  version: string;
   immich_configured: boolean;
 }
 
@@ -136,4 +137,41 @@ export interface FrameStatus {
   name: string;
   last_seen: string | null;
   deliveries: DeliverySummary;
+}
+
+/** One curated photo on a frame + its delivery state (#28 read-back). */
+export interface LibraryPhoto {
+  asset_id: string;
+  dest_name: string;
+  state: "delivered" | "pending" | "failed" | "unknown";
+}
+
+/** A frame's desired set (curation) joined with per-photo delivery state (#28). */
+export interface LibraryView {
+  items: LibraryPhoto[];
+  deliveries: DeliverySummary;
+}
+
+export interface CapabilitiesInfo {
+  interaction: string;
+  transport: string;
+  color_model: string;
+  discovery: boolean;
+  albums: boolean;
+  thumbnails: boolean;
+  upload: boolean;
+  delete: boolean;
+  ota: boolean;
+}
+
+/** Registry detail for a frame by id (any backend) + its backend capabilities (#28). */
+export interface FrameDetailInfo {
+  id: string;
+  backend: string;
+  interaction: string;
+  name: string;
+  address: string;
+  frame_code: string;
+  last_seen: string | null;
+  capabilities: CapabilitiesInfo;
 }

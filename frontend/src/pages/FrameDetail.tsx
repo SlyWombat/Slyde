@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { AddPhotos } from "../components/AddPhotos";
 import { FrameAlbums } from "../components/FrameAlbums";
+import { LibraryTab } from "../components/LibraryTab";
 import { SettingsPanel } from "../components/SettingsPanel";
 import { SyncedAlbums } from "../components/SyncedAlbums";
 import { frameHealth, isConnected, useFrame } from "../lib/frames";
@@ -103,16 +103,7 @@ export function FrameDetail() {
 
       <div className="mt-4">
         {active === "overview" && <OverviewTab frame={frame} />}
-        {active === "library" &&
-          (conn ? (
-            <AddPhotos host={frame.id} targetAlbum={null} />
-          ) : (
-            <EmptyState
-              icon="☁"
-              title="Cloud-frame library"
-              desc="The curated set for a cloud frame (delivered while it polls) gets its own UI in #37. For now, curate via the Curate tab."
-            />
-          ))}
+        {active === "library" && <LibraryTab frameId={frame.id} />}
         {active === "albums" && conn && <AlbumsTab host={frame.id} />}
         {active === "settings" && conn && (
           <div className="space-y-4">

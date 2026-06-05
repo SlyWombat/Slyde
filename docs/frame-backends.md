@@ -49,7 +49,7 @@ FRAME_BACKEND=sungale-cloud   # Aluratek/Sungale ePaper (cloud impersonation —
 | Backend | Transport | Status | Notes |
 |---|---|---|---|
 | `memento-lan` | LAN (UDP+TCP) | ✅ complete | The original Memento frame, emulator, and Pi soft-frame. |
-| `sungale-cloud` | Cloud (HTTP) | 🟡 WIP | Aluratek/Sungale ePaper. Declared + registered; session impl pending (see `experiments/aluratek-eframe/`). |
+| `sungale-cloud` | Cloud (HTTP) | 🟢 endpoints built | Aluratek/Sungale ePaper. Cloud-impersonation responder (login/ping/list→file download, serves e-ink PNG). Exact JSON field names pending the live capture (#9). |
 
 ## Adding your own
 

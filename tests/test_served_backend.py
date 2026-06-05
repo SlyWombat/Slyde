@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -62,7 +63,7 @@ def test_served_endpoints_are_mounted_and_identify_register_the_frame(
     # A frame poll with its frame-code is identified and the frame is auto-registered.
     resp = served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": "EFRAME-001"})
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "frame": "EFRAME-001"}
+    assert resp.json() == {"code": 0, "msg": "ok", "data": {"frame_id": "EFRAME-001"}}
 
     known = served.app.state.store.list_frames()
     assert [f.id for f in known] == ["EFRAME-001"]
@@ -70,30 +71,33 @@ def test_served_endpoints_are_mounted_and_identify_register_the_frame(
     assert known[0].last_seen is not None
 
 
-def test_served_image_poll_returns_an_image(served: ServedHarness) -> None:
+def test_image_library_list_returns_json_envelope(served: ServedHarness) -> None:
+    # No cached images -> empty list in the vendor envelope (#8 endpoint shape).
     resp = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EFRAME-002"}
     )
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
-    assert resp.content[:2] == b"\xff\xd8"  # JPEG magic — a real (placeholder) image was served
+    body = resp.json()
+    assert body["code"] == 0 and body["data"]["list"] == [] and body["data"]["total"] == 0
 
 
-def test_served_poll_returns_the_cached_prepared_image(served: ServedHarness) -> None:
-    # The hub has a prepared (edited) image cached for this frame, ready to send (#25).
+def test_image_list_then_file_download_returns_cached_image(served: ServedHarness) -> None:
+    # The frame lists its photos (URLs), then downloads each from the file endpoint (#8 flow).
     edited = b"\xff\xd8\xffSMART-BLUR-EDITED\xff\xd9"
     served.app.state.image_cache.put("EFRAME-CACHED", "current.jpg", edited)
 
-    resp = served.request(
+    listing = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EFRAME-CACHED"}
-    )
-    assert resp.status_code == 200
-    assert resp.content == edited  # the cached edited image, not the placeholder
+    ).json()
+    items = listing["data"]["list"]
+    assert [i["id"] for i in items] == ["current.jpg"]
+
+    img = served.request("GET", urlparse(items[0]["url"]).path)  # the frame downloads the URL
+    assert img.status_code == 200 and img.content == edited
 
 
-def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness) -> None:
-    """#23 end-to-end: curate a desired set -> publish (prepare+cache) -> the frame's poll
-    returns its prepared image, all through the real app."""
+def test_full_served_loop_curate_publish_then_frame_downloads(served: ServedHarness) -> None:
+    """#8/#23 end-to-end: curate -> publish (e-ink prepare + cache) -> list -> download."""
     import io
 
     from PIL import Image
@@ -114,10 +118,33 @@ def test_full_served_loop_curate_publish_then_frame_pulls(served: ServedHarness)
         library.publish(code, FakeImmich(), profile=ProcessingProfile(canvas=(160, 96)))
     )
 
-    resp = served.request("GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": code})
-    assert resp.status_code == 200 and resp.headers["content-type"] == "image/jpeg"
-    with Image.open(io.BytesIO(resp.content)) as img:
-        assert img.size == (160, 96)  # served the image prepared to the frame's canvas
+    listing = served.request(
+        "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": code}
+    ).json()
+    items = listing["data"]["list"]
+    assert len(items) == 1
+    img = served.request("GET", urlparse(items[0]["url"]).path)
+    assert img.status_code == 200
+    with Image.open(io.BytesIO(img.content)) as i:
+        assert i.size == (160, 96)  # the image prepared to the frame's canvas
+
+
+def test_login_registers_frame_and_issues_token(served: ServedHarness) -> None:
+    # #8: the frame logs in (with an identifier in the body) and gets a token == its frame-code.
+    resp = served.request("POST", f"{BASE}/user/login", json={"sn": "EF-LOGIN"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["code"] == 0 and body["data"]["token"] == "EF-LOGIN"
+    assert "EF-LOGIN" in [f.id for f in served.app.state.store.list_frames()]
+    # subsequent bearer auth with that token identifies the same frame
+    ping = served.request("GET", f"{BASE}/frame/ping", headers={"Authorization": "Bearer EF-LOGIN"})
+    assert ping.status_code == 200 and ping.json()["data"]["frame_id"] == "EF-LOGIN"
+
+
+def test_setting_schedule_frame_list_endpoints_respond(served: ServedHarness) -> None:
+    for ep in ("setting/detail", "schedule/list", "frame/list"):
+        r = served.request("GET", f"{BASE}/{ep}", headers={"X-Frame-Code": "EF-EP"})
+        assert r.status_code == 200 and r.json()["code"] == 0
 
 
 def test_frames_status_is_frame_agnostic(served: ServedHarness) -> None:
@@ -173,9 +200,13 @@ def test_curation_endpoint_drives_delivery_then_frame_pulls(served: ServedHarnes
     assert put.status_code == 202
     assert put.json()["delivered"] == 1  # the backend delivered it (no UI involvement)
 
-    poll = served.request("GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EF-WIRE"})
-    assert poll.status_code == 200
-    assert poll.content[:8] == b"\x89PNG\r\n\x1a\n"  # the e-paper-prepared PNG, ready on the cache
+    listing = served.request(
+        "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EF-WIRE"}
+    ).json()
+    assert len(listing["data"]["list"]) == 1
+    img = served.request("GET", urlparse(listing["data"]["list"][0]["url"]).path)
+    assert img.status_code == 200
+    assert img.content[:8] == b"\x89PNG\r\n\x1a\n"  # the e-paper-prepared PNG, downloaded
 
 
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:

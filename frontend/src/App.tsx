@@ -6,6 +6,7 @@ import { ComingSoon } from "./pages/ComingSoon";
 import { Curate } from "./pages/Curate";
 import { FleetDashboard } from "./pages/FleetDashboard";
 import { FrameDetail } from "./pages/FrameDetail";
+import { FramesList } from "./pages/FramesList";
 
 const NAV = [
   { to: "/", label: "Picture Frames", icon: "▦", end: true },
@@ -95,10 +96,7 @@ export default function App() {
       <Shell>
         <Routes>
           <Route path="/" element={<FleetDashboard />} />
-          <Route
-            path="/frames"
-            element={<ComingSoon title="Frames" issue={35} note="Searchable frame list + onboarding (LAN scan / cloud frame)." />}
-          />
+          <Route path="/frames" element={<FramesList />} />
           <Route path="/frames/:id" element={<FrameDetail />} />
           <Route path="/curate" element={<Curate />} />
           <Route path="/activity" element={<Activity />} />

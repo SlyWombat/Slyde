@@ -45,9 +45,12 @@ export const api = {
   syncHealth: async (): Promise<string> => (await fetch(`${BASE}/health/sync`)).text(),
 
   // -- frames --------------------------------------------------------------
-  frames: () => request<FrameSummary[]>("/frames"),
+  frames: () => request<FrameSummary[]>("/frames"), // LAN discovery (connected onboarding)
   framesStatus: () => request<FrameStatus[]>("/frames/status"),
   frame: (host: string) => request<FrameInfo>(`/frames/${enc(host)}`),
+  // Onboard a served/cloud frame by code so it appears in status before its first poll (#29/#35).
+  registerFrame: (body: { frame_code: string; name?: string; backend?: string }) =>
+    request<FrameStatus>("/frames/register", { method: "POST", body: JSON.stringify(body) }),
 
   // -- per-frame library (transport-agnostic curation, #28/#37) -------------
   // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).

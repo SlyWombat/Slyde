@@ -229,6 +229,25 @@ def test_library_readback_and_detail(served: ServedHarness) -> None:
     assert detail["capabilities"]["color_model"] == "epaper"  # e-ink panel
 
 
+def test_register_served_frame_before_first_poll(served: ServedHarness) -> None:
+    """#29: onboard a cloud frame by code -> it shows in status before it has ever polled."""
+    resp = served.request(
+        "POST", "/api/frames/register", json={"frame_code": "EF-NEW", "name": "Kitchen"}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["id"] == "EF-NEW" and body["name"] == "Kitchen" and body["interaction"] == "served"
+    assert body["backend"] == "sungale-cloud"  # the sole served backend, chosen by default
+
+    rows = {r["id"]: r for r in served.request("GET", "/api/frames/status").json()}
+    assert "EF-NEW" in rows and rows["EF-NEW"]["name"] == "Kitchen"  # visible without a poll
+
+    again = served.request("POST", "/api/frames/register", json={"frame_code": "EF-NEW"})
+    assert again.status_code == 201  # idempotent
+    ids = [f.id for f in served.app.state.store.list_frames()]
+    assert ids.count("EF-NEW") == 1 and again.json()["name"] == "Kitchen"  # name kept
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

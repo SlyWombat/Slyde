@@ -4,8 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { FrameAlbums } from "../components/FrameAlbums";
 import { LibraryTab } from "../components/LibraryTab";
-import { SettingsPanel } from "../components/SettingsPanel";
-import { SyncedAlbums } from "../components/SyncedAlbums";
+import { SettingsTab } from "../components/SettingsTab";
 import { frameHealth, isConnected, useFrame } from "../lib/frames";
 import type { FrameStatus } from "../api/types";
 import {
@@ -62,7 +61,7 @@ export function FrameDetail() {
     { key: "overview", label: "Overview", show: true },
     { key: "library", label: "Library", show: true },
     { key: "albums", label: "Albums", show: conn },
-    { key: "settings", label: "Settings", show: conn },
+    { key: "settings", label: "Settings", show: true },
     { key: "firmware", label: "Firmware", show: conn },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -105,12 +104,7 @@ export function FrameDetail() {
         {active === "overview" && <OverviewTab frame={frame} />}
         {active === "library" && <LibraryTab frameId={frame.id} />}
         {active === "albums" && conn && <AlbumsTab host={frame.id} />}
-        {active === "settings" && conn && (
-          <div className="space-y-4">
-            <SettingsPanel host={frame.id} />
-            <SyncedAlbums host={frame.id} />
-          </div>
-        )}
+        {active === "settings" && <SettingsTab frame={frame} />}
         {active === "firmware" && conn && <FirmwareTab host={frame.id} />}
       </div>
     </div>

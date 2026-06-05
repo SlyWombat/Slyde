@@ -126,6 +126,15 @@ class FrameDetailInfo(BaseModel):
     capabilities: CapabilitiesInfo
 
 
+class RegisterFrameRequest(BaseModel):
+    """Onboard a served/cloud frame by its frame-code before it has ever polled (#29). ``backend``
+    defaults to the sole served backend when omitted, so the UI can curate to it immediately."""
+
+    frame_code: str = Field(min_length=1, max_length=128)
+    name: str = ""
+    backend: str = ""
+
+
 class FrameStatus(BaseModel):
     """Frame-agnostic, read-only status of a known frame (any backend) — the UI state view (#24)."""
 

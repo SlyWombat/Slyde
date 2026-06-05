@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
-from ..backends import get_backend
+from ..backends import available_backends, get_backend
 from ..frames import FrameUnavailable
 from ..jobs import SyncJob
 from ..library import LibraryItem
@@ -26,12 +27,14 @@ from ..schemas import (
     LibraryItemModel,
     LibraryPhoto,
     LibraryView,
+    RegisterFrameRequest,
     SubscribeRequest,
     Subscription,
     SyncJobInfo,
     SyncRequest,
     SyncResult,
 )
+from ..serving import resolve_or_register_served_frame
 from .deps import FirmwareDep, FrameDep, JobsDep, SettingsDep, StoreDep, SyncDep
 
 router = APIRouter(prefix="/frames", tags=["frames"])
@@ -111,6 +114,39 @@ async def frames_status(store: StoreDep) -> list[FrameStatus]:
         )
         for f in store.list_frames()
     ]
+
+
+def _served_backends() -> list[str]:
+    """Names of backends whose frames poll us (served) — config-driven, never hardcoded."""
+    return [n for n in available_backends() if get_backend(n).capabilities.interaction == "served"]
+
+
+@router.post("/register", response_model=FrameStatus, status_code=201)
+async def register_frame(body: RegisterFrameRequest, store: StoreDep) -> FrameStatus:
+    """Onboard a served/cloud frame by its frame-code before it has ever polled (#29), so the UI can
+    show it in status and curate to it immediately. Idempotent — reuses the serving registration."""
+    served = _served_backends()
+    backend_name = body.backend or (served[0] if len(served) == 1 else "")
+    if not backend_name:
+        raise HTTPException(
+            status_code=422,
+            detail=f"backend required; served backends: {', '.join(served) or 'none'}",
+        )
+    if backend_name not in served:
+        raise HTTPException(status_code=422, detail=f"{backend_name!r} is not a served backend")
+
+    frame = resolve_or_register_served_frame(store, backend_name, body.frame_code)
+    if body.name and body.name != frame.name:  # apply a chosen display name
+        store.upsert_frame(replace(frame, name=body.name))
+        frame = store.get_frame(frame.id) or frame
+    return FrameStatus(
+        id=frame.id,
+        backend=frame.backend,
+        interaction=frame.interaction,
+        name=frame.name,
+        last_seen=frame.last_seen,
+        deliveries=DeliverySummary(**store.delivery_summary(frame.id)),
+    )
 
 
 @router.put("/{frame_id}/library", status_code=202)

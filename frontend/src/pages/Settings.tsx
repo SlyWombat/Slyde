@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { FleetFirmware } from "../components/FleetFirmware";
 import { useFrames } from "../lib/frames";
-import { Banner, Button, Card, Pill, Skeleton, StatusDot, usePoll } from "../ui";
+import { Banner, Card, Skeleton, StatusDot, usePoll } from "../ui";
 
 /**
  * App settings & status (#44). Config is env/12-factor, so this is read-mostly: it reflects the
@@ -27,7 +28,7 @@ export function Settings() {
       <div className="space-y-4">
         <ImmichSection configured={health.data?.immich_configured} loading={health.isLoading} />
         <SyncSection text={sync.data} loading={sync.isLoading} />
-        <FirmwareSection />
+        <FleetFirmware />
         <AppSection version={health.data?.version} frameCount={(frames.data ?? []).length} />
       </div>
     </div>
@@ -90,52 +91,6 @@ function SyncSection({ text, loading }: { text?: string; loading: boolean }) {
         Kept-in-sync albums re-mirror periodically and delivery drains continuously — both run in the
         backend. This is the KPI exposed at <code>/api/health/sync</code>.
       </p>
-    </Section>
-  );
-}
-
-function FirmwareSection() {
-  const qc = useQueryClient();
-  const fw = useQuery({ queryKey: ["firmware"], queryFn: api.firmware });
-  const check = useMutation({
-    mutationFn: api.checkFirmware,
-    onSuccess: (info) => qc.setQueryData(["firmware"], info),
-  });
-  const tracks = fw.data?.tracks ?? [];
-
-  return (
-    <Section title="Firmware / OTA">
-      {!fw.data?.repo ? (
-        <Banner tone="idle">
-          No firmware source configured. Set <code className="text-slate-200">FIRMWARE_REPO</code>{" "}
-          (owner/repo whose releases hold soft-frame update bundles) to enable OTA.
-        </Banner>
-      ) : (
-        <>
-          <Row label="Source">
-            <code className="text-slate-300">{fw.data.repo}</code>
-          </Row>
-          <Row label="Track">{fw.data.track}</Row>
-          {tracks.length > 0 ? (
-            tracks.map((t) => (
-              <Row key={t.track} label={`Latest (${t.track})`}>
-                <Pill tone="ok">v{t.version}</Pill>
-              </Row>
-            ))
-          ) : (
-            <p className="text-xs text-slate-500">
-              No versions known yet — check for updates to refresh the registry.
-            </p>
-          )}
-          {check.error && <Banner tone="fail">{(check.error as Error).message}</Banner>}
-        </>
-      )}
-      <div className="flex items-center gap-2">
-        <Button disabled={check.isPending || !fw.data?.repo} onClick={() => check.mutate()}>
-          {check.isPending ? "Checking…" : "Check for updates"}
-        </Button>
-        <span className="text-xs text-slate-500">Per-frame updates live on each frame's Firmware tab.</span>
-      </div>
     </Section>
   );
 }

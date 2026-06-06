@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { FrameCard } from "../components/FrameCard";
-import { useFrames } from "../lib/frames";
+import { useAvailableFirmware } from "../lib/firmware";
+import { isConnected, useFrames } from "../lib/frames";
 import { api } from "../api/client";
 import { useQuery } from "@tanstack/react-query";
 import { Banner, Button, EmptyState, ErrorState, Skeleton } from "../ui";
@@ -9,9 +10,11 @@ import { Banner, Button, EmptyState, ErrorState, Skeleton } from "../ui";
 export function FleetDashboard() {
   const { data, isLoading, error, refetch } = useFrames();
   const immich = useQuery({ queryKey: ["health"], queryFn: api.health });
+  const firmware = useAvailableFirmware();
   const frames = data ?? [];
   const attention = frames.filter((f) => f.deliveries.failed > 0);
   const healthy = frames.length - attention.length;
+  const otaCapable = frames.filter(isConnected).length; // connected frames accept OTA updates
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -39,6 +42,22 @@ export function FleetDashboard() {
       </header>
 
       {error && <div className="mb-4"><ErrorState message={(error as Error).message} onRetry={() => refetch()} /></div>}
+
+      {firmware.version && otaCapable > 0 && (
+        <div className="mb-4">
+          <Banner
+            tone="pending"
+            actions={
+              <Link to="/settings">
+                <Button>Update</Button>
+              </Link>
+            }
+          >
+            Firmware v{firmware.version} is available for {otaCapable}{" "}
+            {otaCapable === 1 ? "frame" : "frames"}.
+          </Banner>
+        </div>
+      )}
 
       {attention.length > 0 && (
         <div className="mb-4">

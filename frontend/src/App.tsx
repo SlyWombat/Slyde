@@ -17,8 +17,11 @@ const NAV = [
 
 function Brand() {
   return (
-    <div className="px-3 text-xl font-extrabold tracking-tight">
-      Sly<span className="text-accent">de</span>
+    <div className="flex items-center gap-2 px-3">
+      <img src="/favicon.svg" alt="" aria-hidden className="h-6 w-6" />
+      <span className="text-xl font-extrabold tracking-tight">
+        Sly<span className="text-accent">de</span>
+      </span>
     </div>
   );
 }

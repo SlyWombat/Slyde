@@ -21,6 +21,7 @@ export function Curate() {
   const [targets, setTargets] = useState<Set<string>>(
     () => new Set(preTarget ? [preTarget] : []),
   );
+  const [previewId, setPreviewId] = useState<string | null>(null); // asset shown in the panel preview
   const [done, setDone] = useState<{ photos: number; frames: number } | null>(null);
 
   const toggleAsset = (id: string) =>
@@ -75,6 +76,8 @@ export function Curate() {
   });
 
   const canCommit = selected.size > 0 && targets.size > 0 && !commit.isPending;
+  // Preview the picked photo on the first selected target frame (#39).
+  const previewTarget = (frames.data ?? []).find((f) => targets.has(f.id)) ?? null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
@@ -86,7 +89,12 @@ export function Curate() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <ImmichBrowser selected={selected} onToggle={toggleAsset} onBulk={setMany} />
+        <ImmichBrowser
+          selected={selected}
+          onToggle={toggleAsset}
+          onBulk={setMany}
+          onPick={setPreviewId}
+        />
 
         {/* Selection + targets + commit (sticky on desktop) */}
         <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
@@ -109,6 +117,10 @@ export function Curate() {
             <span className="font-semibold">Send to</span>
             <TargetPicker frames={frames.data} loading={frames.isLoading} selected={targets} onToggle={toggleTarget} />
           </Card>
+
+          {previewId && previewTarget && (
+            <PanelPreview assetId={previewId} target={previewTarget} />
+          )}
 
           <Button
             variant="accent"
@@ -182,15 +194,61 @@ function TargetPicker({
   );
 }
 
+/** Shows how the picked photo will actually render on the target frame's panel (#30/#39): the
+ *  server-side prepared image (e-ink palette+dither or LCD JPEG), toggleable against the original. */
+function PanelPreview({ assetId, target }: { assetId: string; target: FrameStatus }) {
+  const [mode, setMode] = useState<"panel" | "original">("panel");
+  const detail = useQuery({
+    queryKey: ["frame-detail", target.id],
+    queryFn: () => api.frameDetail(target.id),
+  });
+  const epaper = detail.data?.capabilities.color_model === "epaper";
+  const src =
+    mode === "panel" ? api.framePreviewUrl(target.id, assetId) : api.immichThumbUrl(assetId);
+
+  return (
+    <Card className="space-y-2 p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Preview</span>
+        <div className="flex gap-0.5 rounded-lg bg-ink p-0.5 text-xs">
+          {(["panel", "original"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`rounded px-2 py-0.5 ${
+                mode === m ? "bg-accent text-white" : "text-slate-300"
+              }`}
+            >
+              {m === "panel" ? "On panel" : "Original"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <img
+        key={src}
+        src={src}
+        alt="panel preview"
+        className="max-h-64 w-full rounded-lg bg-ink object-contain"
+      />
+      <p className="text-xs text-slate-500">
+        On <span className="text-slate-300">{target.name || target.id}</span> —{" "}
+        {epaper ? "e-ink Spectra-6 (6-colour + dither)" : "full-colour LCD"}.
+      </p>
+    </Card>
+  );
+}
+
 // ----- Immich browse: searchable album list -> asset grid, selection preserved ------------------
 function ImmichBrowser({
   selected,
   onToggle,
   onBulk,
+  onPick,
 }: {
   selected: Set<string>;
   onToggle: (id: string) => void;
   onBulk: (ids: string[], on: boolean) => void;
+  onPick: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [album, setAlbum] = useState<Album | null>(null);
@@ -218,7 +276,9 @@ function ImmichBrowser({
   const allSelected = imageIds.length > 0 && imageIds.every((id) => selected.has(id));
 
   // Click: plain = toggle one + set the range anchor; shift = select from the anchor to here.
+  // Either way the clicked photo becomes the one shown in the panel preview (#39).
   const onAssetClick = (e: React.MouseEvent, index: number, id: string) => {
+    onPick(id);
     if (e.shiftKey && anchor !== null) {
       const [lo, hi] = anchor < index ? [anchor, index] : [index, anchor];
       onBulk(

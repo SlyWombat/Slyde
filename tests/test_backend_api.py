@@ -144,6 +144,26 @@ def test_discovery_tolerates_non_float_software_version(
     assert me["softver"] == 0.0  # coerced safely instead of crashing the sweep
 
 
+def test_registry_captures_reported_name_over_ip(client: ApiHarness) -> None:
+    """#51: reading a connected frame's config captures its Name into the registry (not the IP),
+    and a later 'seen' touch must not clobber it back to the id."""
+    client.get(F)  # GET /frames/{host} -> get_config -> capture_name
+    rows = {r["id"]: r for r in client.get("/api/frames/status").json()}
+    assert rows[HOST]["name"] == "Test Frame"
+    client.post(f"{F}/next")  # another op re-touches the registry
+    rows = {r["id"]: r for r in client.get("/api/frames/status").json()}
+    assert rows[HOST]["name"] == "Test Frame"  # still the name, not the IP
+
+
+def test_user_rename_not_overridden_by_config_read(client: ApiHarness) -> None:
+    """#51: capture_name only fills the default — a user rename survives later config reads."""
+    client.get(F)  # capture "Test Frame"
+    client.request("PATCH", F, json={"name": "Living Room"})
+    client.get(F)  # a fresh config read must NOT override the user's name
+    rows = {r["id"]: r for r in client.get("/api/frames/status").json()}
+    assert rows[HOST]["name"] == "Living Room"
+
+
 def test_frame_info_strips_wifi(client: ApiHarness) -> None:
     info = client.get(F).json()
     assert info["host"] == HOST and info["config"]["Name"] == "Test Frame"

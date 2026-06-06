@@ -85,7 +85,14 @@ class FrameService:
 
     # -- config / display -----------------------------------------------------
     async def get_config(self, host: str) -> dict[str, Any]:
-        return await self._with_client(host, lambda c: c.get_config())
+        config = await self._with_client(host, lambda c: c.get_config())
+        # Capture the frame's reported Name into the registry so the fleet UI shows it, not the IP
+        # (#51). Guarded: only fills the default, never overrides a user rename.
+        if self._store is not None:
+            name = str(config.get("Name") or "").strip()
+            if name:
+                self._store.capture_name(await self.resolve_host(host), name)
+        return config
 
     async def update_config(self, host: str, patch: dict[str, Any]) -> dict[str, Any]:
         def run(client: FrameConnection) -> dict[str, Any]:

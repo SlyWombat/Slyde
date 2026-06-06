@@ -198,8 +198,12 @@ class Store:
                 "(id, backend, interaction, name, address, frame_code, last_seen) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET backend=excluded.backend, "
-                "interaction=excluded.interaction, name=excluded.name, address=excluded.address, "
+                "interaction=excluded.interaction, address=excluded.address, "
                 "frame_code=excluded.frame_code, "
+                # Never downgrade a known name back to the bare id: the "we reached it" touch in
+                # FrameService re-upserts with name==id, which used to clobber the real name (#51).
+                "name=CASE WHEN excluded.name != '' AND excluded.name != excluded.id "
+                "THEN excluded.name ELSE frame.name END, "
                 "last_seen=COALESCE(excluded.last_seen, frame.last_seen)",
                 (
                     frame.id,
@@ -230,6 +234,18 @@ class Store:
         with self._conn() as conn:
             cur = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,))
             return cur.rowcount > 0
+
+    def capture_name(self, frame_id: str, name: str) -> None:
+        """Record a frame's self-reported name, but only while none is known yet (registry name is
+        still the bare id) — so a device's Name fills the default without overriding a user rename
+        (#51)."""
+        if not name:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE frame SET name = ? WHERE id = ? AND (name = '' OR name = id)",
+                (name, frame_id),
+            )
 
     def rename_frame(self, frame_id: str, name: str) -> bool:
         """Set a frame's registry display name (any backend); returns whether the frame existed."""

@@ -250,6 +250,33 @@ def test_register_served_frame_before_first_poll(served: ServedHarness) -> None:
     assert ids.count("EF-NEW") == 1 and again.json()["name"] == "Kitchen"  # name kept
 
 
+def test_rename_frame_sets_registry_name(served: ServedHarness) -> None:
+    """#55: PATCH /frames/{id} renames any frame in the registry; 404 for unknown."""
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-REN", "name": "Old"})
+    res = served.request("PATCH", "/api/frames/EF-REN", json={"name": "Living Room"})
+    assert res.status_code == 200 and res.json()["name"] == "Living Room"
+    rows = {r["id"]: r for r in served.request("GET", "/api/frames/status").json()}
+    assert rows["EF-REN"]["name"] == "Living Room"
+    assert served.request("PATCH", "/api/frames/ghost", json={"name": "X"}).status_code == 404
+
+
+def test_metrics_rollup(served: ServedHarness) -> None:
+    """#55: /api/metrics returns frame + delivery rollups and firmware info."""
+    from datetime import datetime
+
+    from slyde_backend.delivery import enqueue
+
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-M1"})
+    store = served.app.state.store
+    enqueue(store, "EF-M1", "a.jpg", now=datetime(2026, 1, 1))
+    store.mark_delivered(enqueue(store, "EF-M1", "b.jpg", now=datetime(2026, 1, 1)))
+
+    m = served.request("GET", "/api/metrics").json()
+    assert m["frames"]["total"] >= 1 and m["frames"]["served"] >= 1
+    assert m["deliveries"]["pending"] >= 1 and m["deliveries"]["delivered"] >= 1
+    assert m["firmware_track"] == "memento-softframe" and "version" in m
+
+
 def test_library_404_for_unknown_frame(served: ServedHarness) -> None:
     """#53: the library GET 404s for an unknown/detached frame, mirroring DELETE (not 200-empty)."""
     assert served.request("GET", "/api/frames/ghost/library").status_code == 404

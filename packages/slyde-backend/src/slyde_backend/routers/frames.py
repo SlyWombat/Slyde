@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -43,6 +44,7 @@ from ..schemas import (
     LibraryPhoto,
     LibraryView,
     RegisterFrameRequest,
+    RenameFrameRequest,
     SubscribeRequest,
     Subscription,
     SyncJobInfo,
@@ -61,6 +63,8 @@ from .deps import (
 )
 
 router = APIRouter(prefix="/frames", tags=["frames"])
+
+_log = logging.getLogger(__name__)
 
 # An Immich client factory (async context manager) from app state, for read-only asset fetches.
 ImmichFactory = Annotated[Any, Depends(get_immich_factory)]
@@ -175,6 +179,7 @@ async def register_frame(body: RegisterFrameRequest, store: StoreDep) -> FrameSt
     if body.name and body.name != frame.name:  # apply a chosen display name
         store.upsert_frame(replace(frame, name=body.name))
         frame = store.get_frame(frame.id) or frame
+    _log.info("registered served frame %s (backend %s)", frame.id, backend_name)
     return FrameStatus(
         id=frame.id,
         backend=frame.backend,
@@ -213,6 +218,7 @@ async def set_library(
     library.set_desired(frame_id, desired)
     queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC))
     background.add_task(_drain_delivery, delivery)  # kick delivery without blocking the response
+    _log.info("frame %s library set: %d desired, %d newly queued", frame_id, len(desired), queued)
     return {"queued": queued}
 
 
@@ -276,6 +282,25 @@ async def frame_preview(
     return Response(content=prepared, media_type=media)
 
 
+@router.patch("/{frame_id}", response_model=FrameStatus)
+async def rename_frame(frame_id: str, body: RenameFrameRequest, store: StoreDep) -> FrameStatus:
+    """Set a frame's registry display name, for any backend (#55) — the clean rename path (served
+    frames previously had to re-register). 404 if the frame isn't registered."""
+    if not store.rename_frame(frame_id, body.name):
+        raise HTTPException(status_code=404, detail="frame not found")
+    f = store.get_frame(frame_id)
+    assert f is not None  # just renamed it
+    _log.info("renamed frame %s -> %r", frame_id, body.name)
+    return FrameStatus(
+        id=f.id,
+        backend=f.backend,
+        interaction=f.interaction,
+        name=f.name,
+        last_seen=f.last_seen,
+        deliveries=DeliverySummary(**store.delivery_summary(f.id)),
+    )
+
+
 @router.delete("/{frame_id}", status_code=204)
 async def deregister_frame(frame_id: str, request: Request, store: StoreDep) -> Response:
     """Deregister a frame: drop it from the registry and purge everything keyed to it — delivery
@@ -285,6 +310,7 @@ async def deregister_frame(frame_id: str, request: Request, store: StoreDep) -> 
     if not store.purge_frame(frame_id):
         raise HTTPException(status_code=404, detail="frame not found")
     request.app.state.image_cache.clear(frame_id)
+    _log.info("deregistered frame %s", frame_id)
     return Response(status_code=204)
 
 

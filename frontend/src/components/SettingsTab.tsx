@@ -86,8 +86,8 @@ function RenameCard({ frame }: { frame: FrameStatus }) {
 
   const rename = useMutation({
     mutationFn: async (n: string): Promise<void> => {
-      if (conn) await api.updateConfig(frame.id, { Name: n });
-      else await api.registerFrame({ frame_code: frame.id, name: n });
+      if (conn) await api.updateConfig(frame.id, { Name: n }); // push the name to the device too
+      await api.renameFrame(frame.id, n); // update the registry name shown across Slyde (#55)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["frames-status"] });

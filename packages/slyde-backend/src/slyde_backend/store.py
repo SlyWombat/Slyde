@@ -231,6 +231,12 @@ class Store:
             cur = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,))
             return cur.rowcount > 0
 
+    def rename_frame(self, frame_id: str, name: str) -> bool:
+        """Set a frame's registry display name (any backend); returns whether the frame existed."""
+        with self._conn() as conn:
+            cur = conn.execute("UPDATE frame SET name = ? WHERE id = ?", (name, frame_id))
+            return cur.rowcount > 0
+
     def purge_frame(self, frame_id: str) -> bool:
         """Remove a frame and every row keyed to it — registry, delivery queue, curated library, and
         (for connected frames, where ``host == id``) synced photos + album subscriptions. Used to
@@ -337,6 +343,17 @@ class Store:
         for r in rows:
             summary[r["state"]] = int(r["n"])
         return summary
+
+    def delivery_totals(self) -> dict[str, int]:
+        """Delivery counts by state across ALL frames (for /api/metrics)."""
+        totals = {"pending": 0, "delivered": 0, "failed": 0}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT state, COUNT(*) AS n FROM delivery GROUP BY state"
+            ).fetchall()
+        for r in rows:
+            totals[r["state"]] = int(r["n"])
+        return totals
 
     def delete_delivery(self, frame_id: str, key: str) -> None:
         with self._conn() as conn:

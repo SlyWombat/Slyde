@@ -126,6 +126,28 @@ class FrameDetailInfo(BaseModel):
     capabilities: CapabilitiesInfo
 
 
+class RenameFrameRequest(BaseModel):
+    """Set a frame's registry display name (any backend) — hub hardening (#55)."""
+
+    name: str = Field(min_length=1, max_length=64)
+
+
+class FrameCounts(BaseModel):
+    total: int = 0
+    connected: int = 0
+    served: int = 0
+
+
+class Metrics(BaseModel):
+    """Lightweight operational rollups for monitoring (#55)."""
+
+    version: str = ""
+    frames: FrameCounts
+    deliveries: DeliverySummary
+    firmware_track: str = ""
+    firmware_version: str = ""
+
+
 class RegisterFrameRequest(BaseModel):
     """Onboard a served/cloud frame by its frame-code before it has ever polled (#29). ``backend``
     defaults to the sole served backend when omitted, so the UI can curate to it immediately."""

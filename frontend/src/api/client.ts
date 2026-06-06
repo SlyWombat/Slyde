@@ -54,6 +54,9 @@ export const api = {
   // Deregister a frame: purge it from the registry + queue + library + cache. The device is untouched.
   deregisterFrame: (id: string) =>
     request<void>(`/frames/${enc(id)}`, { method: "DELETE" }),
+  // Set a frame's registry display name (any backend) (#55).
+  renameFrame: (id: string, name: string) =>
+    request<FrameStatus>(`/frames/${enc(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
 
   // -- per-frame library (transport-agnostic curation, #28/#37) -------------
   // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).

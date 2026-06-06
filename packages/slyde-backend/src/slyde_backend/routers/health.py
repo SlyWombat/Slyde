@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 
 from .. import __version__
-from ..schemas import Health
-from .deps import SchedulerDep, SettingsDep, StoreDep
+from ..schemas import DeliverySummary, FrameCounts, Health, Metrics
+from .deps import FirmwareDep, SchedulerDep, SettingsDep, StoreDep
 
 router = APIRouter(tags=["health"])
 
@@ -16,6 +16,26 @@ async def health(settings: SettingsDep) -> Health:
     return Health(
         version=__version__,
         immich_configured=bool(settings.immich_base_url and settings.immich_api_key),
+    )
+
+
+@router.get("/metrics", response_model=Metrics)
+async def metrics(store: StoreDep, firmware: FirmwareDep, settings: SettingsDep) -> Metrics:
+    """Lightweight operational rollups for monitoring (#55): frame + delivery counts, firmware."""
+    frames = store.list_frames()
+    counts = FrameCounts(
+        total=len(frames),
+        connected=sum(1 for f in frames if f.interaction == "connected"),
+        served=sum(1 for f in frames if f.interaction == "served"),
+    )
+    track = settings.firmware_track
+    entry = firmware.get(track)
+    return Metrics(
+        version=__version__,
+        frames=counts,
+        deliveries=DeliverySummary(**store.delivery_totals()),
+        firmware_track=track,
+        firmware_version=entry.version if entry else "",
     )
 
 

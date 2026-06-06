@@ -250,6 +250,11 @@ def test_register_served_frame_before_first_poll(served: ServedHarness) -> None:
     assert ids.count("EF-NEW") == 1 and again.json()["name"] == "Kitchen"  # name kept
 
 
+def test_library_404_for_unknown_frame(served: ServedHarness) -> None:
+    """#53: the library GET 404s for an unknown/detached frame, mirroring DELETE (not 200-empty)."""
+    assert served.request("GET", "/api/frames/ghost/library").status_code == 404
+
+
 def test_deregister_frame_purges_registry_queue_and_library(served: ServedHarness) -> None:
     """Deregister drops the frame + everything keyed to it; the device itself is untouched."""
     code = "EF-GONE"

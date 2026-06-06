@@ -209,6 +209,8 @@ async def set_library(
 @router.get("/{frame_id}/library", response_model=LibraryView)
 async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
     """A frame's curated set + each photo's delivery state (#28); also for offline/served frames."""
+    if store.get_frame(frame_id) is None:  # 404 for unknown/detached frames, mirroring DELETE (#53)
+        raise HTTPException(status_code=404, detail="frame not found")
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
     items = [
         LibraryPhoto(asset_id=aid, dest_name=dest, state=states.get(dest, "unknown"))

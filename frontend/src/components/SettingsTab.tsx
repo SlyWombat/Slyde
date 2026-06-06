@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { CapabilitiesInfo, FrameStatus } from "../api/types";
@@ -33,7 +34,45 @@ export function SettingsTab({ frame }: { frame: FrameStatus }) {
           photos from the Library tab; they deliver when it next checks in.
         </Banner>
       )}
+      <DetachCard frame={frame} />
     </div>
+  );
+}
+
+/** Detach (deregister) a frame: removes it from Slyde + clears its sync history; device untouched (#52). */
+function DetachCard({ frame }: { frame: FrameStatus }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const detach = useMutation({
+    mutationFn: () => api.deregisterFrame(frame.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["frames-status"] });
+      toast(`Removed ${frame.name || frame.id} from Slyde.`);
+      navigate("/frames");
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+  return (
+    <Card className="space-y-2 border-red-400/30 p-4">
+      <div className="font-semibold text-red-300">Detach frame</div>
+      <p className="text-xs text-slate-400">
+        Removes this frame from Slyde and clears its sync history (delivery queue, curated set, cached
+        images). The device itself is <strong>not</strong> wiped. A frame still on your network (or
+        pinned via <code className="text-slate-300">FRAME_HOSTS</code>) may reappear and can be
+        re-added.
+      </p>
+      <Button
+        className="bg-red-500/15 text-red-200 hover:bg-red-500/25"
+        disabled={detach.isPending}
+        onClick={() => {
+          if (confirm(`Detach "${frame.name || frame.id}" from Slyde? The device is not wiped.`))
+            detach.mutate();
+        }}
+      >
+        {detach.isPending ? "Detaching…" : "Detach frame"}
+      </Button>
+    </Card>
   );
 }
 

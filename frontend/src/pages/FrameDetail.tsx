@@ -82,14 +82,40 @@ export function FrameDetail() {
         </span>
       </header>
 
-      <div role="tablist" className="flex flex-wrap gap-1 border-b border-edge">
+      <div
+        role="tablist"
+        aria-label="Frame sections"
+        className="flex flex-wrap gap-1 border-b border-edge"
+        onKeyDown={(e) => {
+          // Arrow/Home/End move between tabs (WAI-ARIA tabs pattern) (#43).
+          const keys = visible.map((t) => t.key);
+          const i = keys.indexOf(active);
+          const to =
+            e.key === "ArrowRight"
+              ? (i + 1) % keys.length
+              : e.key === "ArrowLeft"
+                ? (i - 1 + keys.length) % keys.length
+                : e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? keys.length - 1
+                    : -1;
+          if (to < 0) return;
+          e.preventDefault();
+          setTab(keys[to]);
+          document.getElementById(`tab-${keys[to]}`)?.focus();
+        }}
+      >
         {visible.map((t) => (
           <button
             key={t.key}
+            id={`tab-${t.key}`}
             role="tab"
             aria-selected={active === t.key}
+            aria-controls="frame-tabpanel"
+            tabIndex={active === t.key ? 0 : -1}
             onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
               active === t.key
                 ? "border-accent text-accent"
                 : "border-transparent text-slate-400 hover:text-slate-200"
@@ -100,7 +126,7 @@ export function FrameDetail() {
         ))}
       </div>
 
-      <div className="mt-4">
+      <div id="frame-tabpanel" role="tabpanel" className="mt-4">
         {active === "overview" && <OverviewTab frame={frame} />}
         {active === "library" && <LibraryTab frameId={frame.id} />}
         {active === "albums" && conn && <AlbumsTab host={frame.id} />}

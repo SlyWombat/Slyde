@@ -5,7 +5,7 @@ import type { CapabilitiesInfo, FrameStatus } from "../api/types";
 import { isConnected } from "../lib/frames";
 import { SettingsPanel } from "./SettingsPanel";
 import { SyncedAlbums } from "./SyncedAlbums";
-import { Banner, Button, Card, Skeleton } from "../ui";
+import { Banner, Button, Card, Skeleton, useToast } from "../ui";
 
 /**
  * Per-frame Settings (#41), capability-gated. Connected frames get rename (writes the device's own
@@ -41,6 +41,7 @@ export function SettingsTab({ frame }: { frame: FrameStatus }) {
  *  (idempotent) to update the registry name. */
 function RenameCard({ frame }: { frame: FrameStatus }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const conn = isConnected(frame);
   const [name, setName] = useState(frame.name ?? "");
 
@@ -52,7 +53,9 @@ function RenameCard({ frame }: { frame: FrameStatus }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["frames-status"] });
       qc.invalidateQueries({ queryKey: ["frame", frame.id] });
+      toast("Frame name saved.");
     },
+    onError: (e) => toast((e as Error).message, "fail"),
   });
 
   const trimmed = name.trim();

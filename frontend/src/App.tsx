@@ -7,6 +7,7 @@ import { FleetDashboard } from "./pages/FleetDashboard";
 import { FrameDetail } from "./pages/FrameDetail";
 import { FramesList } from "./pages/FramesList";
 import { Settings } from "./pages/Settings";
+import { ToastProvider } from "./ui";
 
 const NAV = [
   { to: "/", label: "Picture Frames", icon: "▦", end: true },
@@ -92,8 +93,9 @@ function LegacyFrame() {
 
 export default function App() {
   return (
-    <HashRouter>
-      <Shell>
+    <ToastProvider>
+      <HashRouter>
+        <Shell>
         <Routes>
           <Route path="/" element={<FleetDashboard />} />
           <Route path="/frames" element={<FramesList />} />
@@ -103,8 +105,9 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/legacy/:host" element={<LegacyFrame />} />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Shell>
-    </HashRouter>
+          </Routes>
+        </Shell>
+      </HashRouter>
+    </ToastProvider>
   );
 }

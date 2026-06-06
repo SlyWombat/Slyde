@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { Album, FrameStatus } from "../api/types";
 import { useFrames } from "../lib/frames";
-import { Banner, Button, Card, EmptyState, FrameKindBadge, Skeleton } from "../ui";
+import { Banner, Button, Card, EmptyState, FrameKindBadge, Skeleton, useToast } from "../ui";
 
 /**
  * Immich-first, multi-target curation (#38). Browse Immich → build a selection (preserved across
@@ -22,7 +22,7 @@ export function Curate() {
     () => new Set(preTarget ? [preTarget] : []),
   );
   const [previewId, setPreviewId] = useState<string | null>(null); // asset shown in the panel preview
-  const [done, setDone] = useState<{ photos: number; frames: number } | null>(null);
+  const toast = useToast();
 
   const toggleAsset = (id: string) =>
     setSelected((prev) => {
@@ -66,13 +66,18 @@ export function Curate() {
       return { photos: ids.length, frames: list.length };
     },
     onSuccess: (res) => {
-      setDone(res);
+      toast(
+        `Added ${res.photos} ${res.photos === 1 ? "photo" : "photos"} to ${res.frames} ${
+          res.frames === 1 ? "frame" : "frames"
+        } — delivering now.`,
+      );
       setSelected(new Set());
       [...targets].forEach((fid) =>
         qc.invalidateQueries({ queryKey: ["frame-library", fid] }),
       );
       qc.invalidateQueries({ queryKey: ["frames-status"] });
     },
+    onError: (e) => toast((e as Error).message, "fail"),
   });
 
   const canCommit = selected.size > 0 && targets.size > 0 && !commit.isPending;
@@ -125,26 +130,13 @@ export function Curate() {
           <Button
             variant="accent"
             disabled={!canCommit}
-            onClick={() => {
-              setDone(null);
-              commit.mutate();
-            }}
+            onClick={() => commit.mutate()}
             className="w-full"
           >
             {commit.isPending
               ? "Adding…"
               : `Add ${selected.size || ""} ${selected.size === 1 ? "photo" : "photos"} to ${targets.size || ""} ${targets.size === 1 ? "frame" : "frames"}`}
           </Button>
-
-          {commit.error && (
-            <Banner tone="fail">{(commit.error as Error).message}</Banner>
-          )}
-          {done && (
-            <Banner tone="ok">
-              Added {done.photos} {done.photos === 1 ? "photo" : "photos"} to {done.frames}{" "}
-              {done.frames === 1 ? "frame" : "frames"} — delivering now.
-            </Banner>
-          )}
         </aside>
       </div>
     </div>
@@ -174,7 +166,8 @@ function TargetPicker({
           <button
             key={f.id}
             onClick={() => onToggle(f.id)}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+            aria-pressed={on}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
               on ? "border-accent bg-accent/10" : "border-edge hover:bg-edge"
             }`}
           >
@@ -365,7 +358,9 @@ function ImmichBrowser({
                     key={a.id}
                     onClick={(e) => onAssetClick(e, i, a.id)}
                     title={a.file_name}
-                    className={`relative aspect-square overflow-hidden rounded-lg border-2 ${
+                    aria-pressed={on}
+                    aria-label={`${on ? "Selected" : "Select"} ${a.file_name}`}
+                    className={`relative aspect-square overflow-hidden rounded-lg border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
                       on ? "border-accent" : "border-transparent"
                     }`}
                   >

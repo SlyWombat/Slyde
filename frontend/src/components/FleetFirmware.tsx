@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { FrameStatus } from "../api/types";
 import { isConnected, useFrames } from "../lib/frames";
-import { Banner, Button, Card, Pill, Skeleton } from "../ui";
+import { Banner, Button, Card, Pill, Skeleton, useToast } from "../ui";
 
 /**
  * Fleet firmware / OTA (#42): the registry's latest version per track, plus every OTA-capable frame
@@ -12,11 +12,16 @@ import { Banner, Button, Card, Pill, Skeleton } from "../ui";
  */
 export function FleetFirmware() {
   const qc = useQueryClient();
+  const toast = useToast();
   const frames = useFrames();
   const fw = useQuery({ queryKey: ["firmware"], queryFn: api.firmware });
   const check = useMutation({
     mutationFn: api.checkFirmware,
-    onSuccess: (info) => qc.setQueryData(["firmware"], info),
+    onSuccess: (info) => {
+      qc.setQueryData(["firmware"], info);
+      toast("Firmware registry refreshed.");
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
   });
 
   const track = fw.data?.track ?? "";
@@ -25,7 +30,10 @@ export function FleetFirmware() {
 
   const updateAll = useMutation({
     mutationFn: () => Promise.allSettled(connected.map((f) => api.updateFrame(f.id))).then(() => {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["frames-status"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["frames-status"] });
+      toast(`Update sent to ${connected.length} frames — they'll pull and apply it.`);
+    },
   });
 
   return (
@@ -90,6 +98,7 @@ export function FleetFirmware() {
 
 function FirmwareRow({ frame, available }: { frame: FrameStatus; available: string | null }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const detail = useQuery({
     queryKey: ["frame-detail", frame.id],
     queryFn: () => api.frameDetail(frame.id),
@@ -101,7 +110,11 @@ function FirmwareRow({ frame, available }: { frame: FrameStatus; available: stri
   });
   const update = useMutation({
     mutationFn: () => api.updateFrame(frame.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["frames-status"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["frames-status"] });
+      toast(`Update sent to ${frame.name || frame.id}.`);
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
   });
 
   if (detail.data && !detail.data.capabilities.ota) return null; // capability-gated to OTA frames

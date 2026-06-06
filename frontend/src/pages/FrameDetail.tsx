@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { FrameAlbums } from "../components/FrameAlbums";
+import { AlbumsTab } from "../components/albums/AlbumsTab";
 import { LibraryTab } from "../components/LibraryTab";
 import { SettingsTab } from "../components/SettingsTab";
 import { frameHealth, isConnected, useFrame } from "../lib/frames";
@@ -31,6 +31,12 @@ export function FrameDetail() {
   const frameId = decodeURIComponent(id);
   const { frame, isLoading } = useFrame(frameId);
   const [tab, setTab] = useState<TabKey>("overview");
+  // Capabilities for tab gating (#56); declared before any early return to keep hook order stable.
+  const detail = useQuery({
+    queryKey: ["frame-detail", frameId],
+    queryFn: () => api.frameDetail(frameId),
+    retry: 0,
+  });
 
   if (isLoading && !frame) {
     return (
@@ -57,12 +63,14 @@ export function FrameDetail() {
   }
 
   const conn = isConnected(frame);
+  // Capabilities drive tab gating more honestly than interaction alone (#56); fall back to `conn`.
+  const caps = detail.data?.capabilities;
   const tabs: { key: TabKey; label: string; show: boolean }[] = [
     { key: "overview", label: "Overview", show: true },
     { key: "library", label: "Library", show: true },
-    { key: "albums", label: "Albums", show: conn },
+    { key: "albums", label: "Albums", show: caps?.albums ?? conn },
     { key: "settings", label: "Settings", show: true },
-    { key: "firmware", label: "Firmware", show: conn },
+    { key: "firmware", label: "Firmware", show: caps?.ota ?? conn },
   ];
   const visible = tabs.filter((t) => t.show);
   const active = visible.some((t) => t.key === tab) ? tab : "overview";
@@ -129,7 +137,7 @@ export function FrameDetail() {
       <div id="frame-tabpanel" role="tabpanel" className="mt-4">
         {active === "overview" && <OverviewTab frame={frame} />}
         {active === "library" && <LibraryTab frameId={frame.id} />}
-        {active === "albums" && conn && <AlbumsTab host={frame.id} />}
+        {active === "albums" && <AlbumsTab host={frame.id} />}
         {active === "settings" && <SettingsTab frame={frame} />}
         {active === "firmware" && conn && <FirmwareTab host={frame.id} />}
       </div>
@@ -226,11 +234,6 @@ function OverviewTab({ frame }: { frame: FrameStatus }) {
       </Card>
     </div>
   );
-}
-
-function AlbumsTab({ host }: { host: string }) {
-  const [selected, setSelected] = useState<string | null>(null);
-  return <FrameAlbums host={host} selected={selected} onSelect={setSelected} />;
 }
 
 function FirmwareTab({ host }: { host: string }) {

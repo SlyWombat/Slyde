@@ -5,14 +5,13 @@ import { api } from "../api/client";
 import type { CapabilitiesInfo, FrameStatus } from "../api/types";
 import { isConnected } from "../lib/frames";
 import { SettingsPanel } from "./SettingsPanel";
-import { SyncedAlbums } from "./SyncedAlbums";
 import { Banner, Button, Card, Skeleton, useToast } from "../ui";
 
 /**
  * Per-frame Settings (#41), capability-gated. Connected frames get rename (writes the device's own
- * Name), the live display toggles + slide time, processing summary, and kept-in-sync albums. Served
- * (cloud) frames manage their own schedule, so they show only rename (registry) + how their images
- * are prepared — no Prev/Next or live toggles.
+ * Name), the live display toggles + slide time, and processing summary. Served (cloud) frames
+ * manage their own schedule, so they show only rename (registry) + how their images are prepared.
+ * Folder keep-in-sync is managed on the Albums tab (#56), not here.
  */
 export function SettingsTab({ frame }: { frame: FrameStatus }) {
   const conn = isConnected(frame);
@@ -26,9 +25,7 @@ export function SettingsTab({ frame }: { frame: FrameStatus }) {
       <RenameCard frame={frame} />
       {conn && <SettingsPanel host={frame.id} />}
       <ProcessingCard caps={detail.data?.capabilities} loading={detail.isLoading} />
-      {conn ? (
-        <SyncedAlbums host={frame.id} />
-      ) : (
+      {!conn && (
         <Banner tone="idle">
           This is a cloud frame — it manages its own display schedule on the device. Curate its
           photos from the Library tab; they deliver when it next checks in.

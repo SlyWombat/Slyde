@@ -1,5 +1,4 @@
-import { HashRouter, NavLink, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { FrameView } from "./components/FrameView";
+import { HashRouter, NavLink, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { useFrames } from "./lib/frames";
 import { Activity } from "./pages/Activity";
 import { Curate } from "./pages/Curate";
@@ -84,11 +83,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Legacy single-frame management (connected frames) — reachable until the new detail view (#36). */
-function LegacyFrame() {
+/** Redirect stale legacy links to the new frame detail (the legacy console was retired in #56). */
+function LegacyRedirect() {
   const { host = "" } = useParams();
-  const navigate = useNavigate();
-  return <FrameView host={decodeURIComponent(host)} onBack={() => navigate("/")} />;
+  return <Navigate to={`/frames/${encodeURIComponent(host)}`} replace />;
 }
 
 export default function App() {
@@ -103,7 +101,7 @@ export default function App() {
           <Route path="/curate" element={<Curate />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/legacy/:host" element={<LegacyFrame />} />
+          <Route path="/legacy/:host" element={<LegacyRedirect />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Shell>

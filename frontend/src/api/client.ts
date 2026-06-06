@@ -51,6 +51,9 @@ export const api = {
   // Onboard a served/cloud frame by code so it appears in status before its first poll (#29/#35).
   registerFrame: (body: { frame_code: string; name?: string; backend?: string }) =>
     request<FrameStatus>("/frames/register", { method: "POST", body: JSON.stringify(body) }),
+  // Deregister a frame: purge it from the registry + queue + library + cache. The device is untouched.
+  deregisterFrame: (id: string) =>
+    request<void>(`/frames/${enc(id)}`, { method: "DELETE" }),
 
   // -- per-frame library (transport-agnostic curation, #28/#37) -------------
   // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).

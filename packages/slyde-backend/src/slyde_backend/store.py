@@ -231,6 +231,18 @@ class Store:
             cur = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,))
             return cur.rowcount > 0
 
+    def purge_frame(self, frame_id: str) -> bool:
+        """Remove a frame and every row keyed to it — registry, delivery queue, curated library, and
+        (for connected frames, where ``host == id``) synced photos + album subscriptions. Used to
+        deregister a frame; returns whether the frame existed. The physical frame is untouched."""
+        with self._conn() as conn:
+            existed = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,)).rowcount > 0
+            conn.execute("DELETE FROM delivery WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM synced_photo WHERE host = ?", (frame_id,))
+            conn.execute("DELETE FROM album_sync WHERE host = ?", (frame_id,))
+        return existed
+
     # -- frame library (the desired photo set per frame; see library.py) -------
     def set_library(self, frame_id: str, items: list[tuple[str, str]]) -> None:
         """Replace a frame's desired set with ``items`` (asset_id, dest_name), order preserved."""

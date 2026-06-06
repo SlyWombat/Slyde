@@ -199,6 +199,18 @@ async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
     )
 
 
+@router.delete("/{frame_id}", status_code=204)
+async def deregister_frame(frame_id: str, request: Request, store: StoreDep) -> Response:
+    """Deregister a frame: drop it from the registry and purge everything keyed to it — delivery
+    queue, curated library, cached prepared images, and (for connected frames) synced photos +
+    album subscriptions. The physical frame is NOT touched; a connected frame still on the LAN can
+    be re-added from discovery. 404 if the frame isn't registered."""
+    if not store.purge_frame(frame_id):
+        raise HTTPException(status_code=404, detail="frame not found")
+    request.app.state.image_cache.clear(frame_id)
+    return Response(status_code=204)
+
+
 @router.get("/{host}", response_model=FrameInfo)
 async def frame_info(host: str, frame: FrameDep) -> FrameInfo:
     try:

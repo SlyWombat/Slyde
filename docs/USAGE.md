@@ -47,6 +47,11 @@ That's it — `FRAME_CANVAS` defaults to the 35″ frame's 3240×2160; change it
 
 Re-running an Immich sync is safe — unchanged photos are skipped (tracked by content hash).
 
+**Removing a frame.** Deregistering a frame (`DELETE /api/frames/{id}`) removes it from Slyde —
+registry, delivery queue, curated set, and cached images — **without touching the device**. A
+connected frame still on your network reappears in discovery and can be re-added; a cloud frame
+re-appears if it polls again.
+
 ## Running without Docker (development)
 ```bash
 uv sync

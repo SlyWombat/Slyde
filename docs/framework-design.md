@@ -48,6 +48,19 @@ Replace bare `host: str` with a **`Frame`** value: `id`, `backend`, `address` (c
 (extends `Store`) tracks known frames across backends. Existing host-keyed APIs keep working — a
 Memento frame's `id` is its host — so there is no Memento regression.
 
+**Registry lifecycle (HTTP).** Frames enter and leave the registry explicitly:
+
+| Method & path | Purpose |
+| --- | --- |
+| `POST /api/frames/register` | Onboard a **served/cloud** frame by `frame_code` *before* it has ever polled, so the UI can show it and curate to it immediately. Body: `{frame_code, name?, backend?}` (`backend` defaults to the sole served backend). Idempotent — reuses `resolve_or_register_served_frame`; re-registering with a new `name` renames it. (#29) |
+| `DELETE /api/frames/{id}` | **Deregister** a frame: drop the registry row and purge everything keyed to it — delivery queue, curated library, cached prepared images, and (for connected frames, where `host == id`) synced photos + album subscriptions, in one transaction (`Store.purge_frame` + `ImageCache.clear`). Returns `204`, or `404` if not registered. |
+
+Deregister is registry-only: **the physical frame is never touched**. Connected frames auto-register
+when first managed and a deregistered one still on the LAN reappears in discovery (`GET /api/frames`)
+and can be re-added; served frames also auto-register on their first poll, so a deregistered cloud
+frame re-appears if it polls again. To stop managing a frame permanently, deregister it **and** take
+it off the network (connected) or point it away from the local cloud (served).
+
 ### 2.2 Backend interaction models  *(new — the crux)*
 `FrameBackend` gains an `interaction` kind and splits into two sub-interfaces:
 

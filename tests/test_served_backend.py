@@ -248,6 +248,25 @@ def test_register_served_frame_before_first_poll(served: ServedHarness) -> None:
     assert ids.count("EF-NEW") == 1 and again.json()["name"] == "Kitchen"  # name kept
 
 
+def test_deregister_frame_purges_registry_queue_and_library(served: ServedHarness) -> None:
+    """Deregister drops the frame + everything keyed to it; the device itself is untouched."""
+    code = "EF-GONE"
+    served.request("POST", "/api/frames/register", json={"frame_code": code})
+    served.request(
+        "PUT", f"/api/frames/{code}/library", json=[{"asset_id": "a1"}]
+    )  # queue + library
+    store = served.app.state.store
+    assert store.list_library(code) and store.list_deliveries(code)  # there is state to purge
+
+    resp = served.request("DELETE", f"/api/frames/{code}")
+    assert resp.status_code == 204
+    assert code not in [f.id for f in store.list_frames()]  # gone from the registry/status
+    assert store.list_library(code) == []  # curated set purged
+    assert store.list_deliveries(code) == []  # delivery queue purged
+
+    assert served.request("DELETE", f"/api/frames/{code}").status_code == 404  # already gone
+
+
 def test_unidentified_frame_is_rejected(served: ServedHarness) -> None:
     resp = served.request("POST", f"{BASE}/frame/ping")  # no frame-code
     assert resp.status_code == 401

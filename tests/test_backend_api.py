@@ -205,6 +205,32 @@ def test_direct_upload_and_thumbnail(client: ApiHarness, frame: EmulatedFrame) -
     assert thumb.status_code == 200 and thumb.content.startswith(b"\x89PNG")
 
 
+def test_render_preview_full_colour_is_jpeg(client: ApiHarness) -> None:
+    """#30: preview runs an Immich asset through the frame's profile — an LCD frame -> JPEG."""
+    from slyde_backend.frame import Frame
+
+    client.app.state.store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
+    res = client.get(f"{F}/preview/x1")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/jpeg"
+    assert res.content[:3] == b"\xff\xd8\xff"  # JPEG magic
+
+
+def test_render_preview_epaper_is_palette_png(client: ApiHarness) -> None:
+    """#30: an e-ink frame's preview is the palette+dither PNG (same pipeline as delivery)."""
+    from slyde_backend.frame import Frame
+
+    client.app.state.store.upsert_frame(Frame.served("EF-PRV", backend="sungale-cloud"))
+    res = client.get("/api/frames/EF-PRV/preview/x1")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/png"
+    assert res.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_render_preview_unknown_frame_404(client: ApiHarness) -> None:
+    assert client.get("/api/frames/nope/preview/x1").status_code == 404
+
+
 def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
     client.post(f"{F}/sync", json={"album_id": "a1"})
     dest = next(iter(frame.state.photos))

@@ -59,6 +59,9 @@ export const api = {
   // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).
   frameLibrary: (id: string) => request<LibraryView>(`/frames/${enc(id)}/library`),
   frameDetail: (id: string) => request<FrameDetailInfo>(`/frames/${enc(id)}/detail`),
+  // How an Immich asset renders on this frame's panel (LCD JPEG vs e-ink palette PNG) (#30/#39).
+  framePreviewUrl: (id: string, assetId: string) =>
+    `${BASE}/frames/${enc(id)}/preview/${enc(assetId)}`,
   // Curate by asset id alone (dest_name derived server-side). Non-blocking: queues + reconciles.
   setLibrary: (id: string, items: { asset_id: string; dest_name?: string }[]) =>
     request<Record<string, number>>(`/frames/${enc(id)}/library`, {

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Depends,
     File,
     Form,
     HTTPException,
@@ -21,8 +23,10 @@ from fastapi import (
 from ..backends import available_backends, get_backend
 from ..delivery_service import DeliveryService
 from ..frames import FrameUnavailable
+from ..immich import ImmichError
 from ..jobs import SyncJob
 from ..library import LibraryItem
+from ..processing import prepare, profile_for
 from ..schemas import (
     CapabilitiesInfo,
     ConfigPatch,
@@ -46,9 +50,20 @@ from ..schemas import (
     SyncResult,
 )
 from ..serving import resolve_or_register_served_frame
-from .deps import FirmwareDep, FrameDep, JobsDep, SettingsDep, StoreDep, SyncDep
+from .deps import (
+    FirmwareDep,
+    FrameDep,
+    JobsDep,
+    SettingsDep,
+    StoreDep,
+    SyncDep,
+    get_immich_factory,
+)
 
 router = APIRouter(prefix="/frames", tags=["frames"])
+
+# An Immich client factory (async context manager) from app state, for read-only asset fetches.
+ImmichFactory = Annotated[Any, Depends(get_immich_factory)]
 
 _WIFI_KEYS = ("WiFiSSID", "WiFiPSWD")
 
@@ -219,6 +234,34 @@ async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
         last_seen=f.last_seen,
         capabilities=CapabilitiesInfo(**vars(caps)),
     )
+
+
+@router.get("/{frame_id}/preview/{asset_id}")
+async def frame_preview(
+    frame_id: str,
+    asset_id: str,
+    settings: SettingsDep,
+    store: StoreDep,
+    factory: ImmichFactory,
+) -> Response:
+    """Render how an Immich asset will look on this frame's panel (#30): the frame's processing
+    profile — full-colour LCD (JPEG) vs e-ink Spectra-6 palette + dither (PNG) — applied to the
+    asset, reusing the exact prepare() pipeline delivery uses. Powers the curation preview (#39).
+    """
+    frame = store.get_frame(frame_id)
+    if frame is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    if not (settings.immich_base_url and settings.immich_api_key):
+        raise HTTPException(status_code=503, detail="Immich is not configured")
+    profile = profile_for(frame, settings, canvas=settings.canvas)
+    try:
+        async with factory() as client:
+            source = await client.asset_bytes(asset_id, settings.immich_asset_size)
+    except ImmichError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    prepared = await asyncio.to_thread(prepare, source, profile)
+    media = "image/png" if profile.color_model == "epaper" else "image/jpeg"
+    return Response(content=prepared, media_type=media)
 
 
 @router.delete("/{frame_id}", status_code=204)

@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 
 from ..backends import available_backends, get_backend
+from ..delivery_service import DeliveryService
 from ..frames import FrameUnavailable
 from ..jobs import SyncJob
 from ..library import LibraryItem
@@ -149,24 +160,35 @@ async def register_frame(body: RegisterFrameRequest, store: StoreDep) -> FrameSt
     )
 
 
+async def _drain_delivery(delivery: DeliveryService) -> None:
+    """Drain the delivery queue off the request path (fire-and-forget); errors are swallowed and
+    surfaced via the queue's own retry/state — the request must never block on delivery (#50)."""
+    with contextlib.suppress(Exception):
+        await delivery.drain(now=datetime.now(UTC))
+
+
 @router.put("/{frame_id}/library", status_code=202)
 async def set_library(
-    frame_id: str, items: list[LibraryItemModel], request: Request
+    frame_id: str,
+    items: list[LibraryItemModel],
+    request: Request,
+    background: BackgroundTasks,
 ) -> dict[str, int]:
-    """Set a frame's curated photo set, queue guaranteed delivery, and reconcile now (#23/#25/#26).
+    """Set a frame's curated photo set and durably queue delivery of the delta, then return
+    immediately (#23/#25/#26/#50).
 
-    The backend owns sync from here: it durably queues a delivery per photo and drains the queue
-    (served frames -> prepared image cached, ready to pull; connected frames -> pushed, retried if
-    offline). Returns how many were queued + the delivery outcome counts.
+    The backend owns sync from here: it queues a delivery per *new/changed* photo (#46) and drains
+    the queue in the background — after the response and on the scheduler's tight timer (#47) — so a
+    large 'Set library' (e.g. a whole 1000-photo album, #48) never blocks the request. Live progress
+    shows in the Activity view, not in this call. Returns how many deliveries were queued.
     """
     library = request.app.state.library
     delivery = request.app.state.delivery_service
     desired = [LibraryItem(i.asset_id, i.dest_name or f"{i.asset_id}.jpg") for i in items]
     library.set_desired(frame_id, desired)
-    now = datetime.now(UTC)
-    queued = delivery.enqueue_desired(frame_id, now=now)
-    counts = await delivery.reconcile(now=now)
-    return {"queued": queued, **counts}
+    queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC))
+    background.add_task(_drain_delivery, delivery)  # kick delivery without blocking the response
+    return {"queued": queued}
 
 
 @router.get("/{frame_id}/library", response_model=LibraryView)

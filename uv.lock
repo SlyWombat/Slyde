@@ -548,7 +548,7 @@ requires-dist = [{ name = "cryptography", specifier = ">=41" }]
 
 [[package]]
 name = "memento-emulator"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/memento-emulator" }
 dependencies = [
     { name = "memento-core" },

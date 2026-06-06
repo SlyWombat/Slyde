@@ -198,8 +198,10 @@ def test_curation_endpoint_drives_delivery_then_frame_pulls(served: ServedHarnes
         json=[{"asset_id": "a1", "dest_name": "current"}],
     )
     assert put.status_code == 202
-    assert put.json()["delivered"] == 1  # the backend delivered it (no UI involvement)
+    assert put.json() == {"queued": 1}  # returns immediately; delivery runs in the background (#50)
 
+    # delivery happens off the request path (a fire-and-forget background drain) — once it lands the
+    # frame can pull its prepared image, with no UI involvement.
     listing = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EF-WIRE"}
     ).json()

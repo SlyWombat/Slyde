@@ -77,9 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     data_dir = Path(args.data_dir) if args.data_dir else None
     app_dir = Path(os.environ["MEMENTO_APP_DIR"]) if os.environ.get("MEMENTO_APP_DIR") else None
     state = FrameState(name=args.name, ip=advertise_ip, data_dir=data_dir)
-    # Report this soft-frame's own firmware version: the staged OTA bundle's VERSION if running
-    # from one, otherwise our package version. (This is what the manager's OTA check compares.)
-    state.update_config({"SoftwareVersion": _bundle_version(app_dir) or __version__})
+    # Report this soft-frame's app/bundle version in a DEDICATED field — the staged OTA bundle's
+    # VERSION if running from one, else our package version. Don't clobber the Memento
+    # ``SoftwareVersion`` firmware field (a float the protocol + manager discovery parse): a semver
+    # like "0.1.2" there masquerades as firmware and 500s the manager's discovery scan (#54).
+    state.update_config({"AppVersion": _bundle_version(app_dir) or __version__})
     frame = EmulatedFrame(
         state, host=args.host, ports=DEFAULT_PORTS, on_update=_make_on_update(app_dir)
     ).start()

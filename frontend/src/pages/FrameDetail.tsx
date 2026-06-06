@@ -243,7 +243,7 @@ function FirmwareTab({ host }: { host: string }) {
   });
   const update = useMutation({ mutationFn: () => api.updateFrame(host) });
   const avail = fw.data?.tracks.find((t) => t.track === fw.data?.track);
-  const current = cfg.data?.config.SoftwareVersion;
+  const current = cfg.data?.config.AppVersion ?? cfg.data?.config.SoftwareVersion; // app/bundle ver (#54)
   const err = (check.error ?? update.error) as Error | undefined;
 
   return (

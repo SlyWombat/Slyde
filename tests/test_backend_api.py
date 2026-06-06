@@ -133,6 +133,17 @@ def test_list_frames_includes_configured(client: ApiHarness) -> None:
     assert any(f["ip"] == HOST for f in frames)
 
 
+def test_discovery_tolerates_non_float_software_version(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    """#54: a soft-frame reporting a semver SoftwareVersion must not 500 the whole scan."""
+    frame.state.config["SoftwareVersion"] = "0.1.2"  # not float-parseable
+    res = client.get("/api/frames")
+    assert res.status_code == 200
+    me = next(f for f in res.json() if f["ip"] == HOST)
+    assert me["softver"] == 0.0  # coerced safely instead of crashing the sweep
+
+
 def test_frame_info_strips_wifi(client: ApiHarness) -> None:
     info = client.get(F).json()
     assert info["host"] == HOST and info["config"]["Name"] == "Test Frame"

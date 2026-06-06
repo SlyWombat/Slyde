@@ -5,7 +5,8 @@ export interface FrameConfig {
   NightModeOn?: boolean;
   PortraitMode?: boolean;
   DisplayTime?: number;
-  SoftwareVersion?: number;
+  SoftwareVersion?: number; // Memento firmware version (float)
+  AppVersion?: string; // soft-frame app/bundle version (semver), reported separately (#54)
   ScreenSize?: number;
   Orientation?: string;
   [key: string]: unknown;

@@ -118,7 +118,7 @@ function FirmwareRow({ frame, available }: { frame: FrameStatus; available: stri
   });
 
   if (detail.data && !detail.data.capabilities.ota) return null; // capability-gated to OTA frames
-  const current = cfg.data?.config.SoftwareVersion;
+  const current = cfg.data?.config.AppVersion ?? cfg.data?.config.SoftwareVersion;
 
   return (
     <li className="flex items-center gap-2 px-3 py-2 text-sm">

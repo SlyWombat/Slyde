@@ -83,6 +83,16 @@ def _strip_wifi(config: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in config.items() if k not in _WIFI_KEYS}
 
 
+def _to_float(value: object) -> float:
+    """Coerce a frame-reported version to float, tolerating semver/garbage. A discovery sweep must
+    never 500 because one frame reports a non-float SoftwareVersion (e.g. a soft-frame's '0.1.2') —
+    mirrors memento_core's discovery parsing (#54)."""
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @router.get("", response_model=list[FrameSummary])
 async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSummary]:
     """Discover frames on the LAN (the start screen). Includes a configured FRAME_HOST if set."""
@@ -112,7 +122,7 @@ async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSumma
             FrameSummary(
                 name=str(cfg.get("Name", host)),
                 ip=host,
-                softver=float(cfg.get("SoftwareVersion", 0) or 0),
+                softver=_to_float(cfg.get("SoftwareVersion", 0)),
                 size=int(cfg.get("ScreenSize", 0) or 0),
                 orientation=str(cfg.get("Orientation", "")),
                 guid=str(cfg.get("GUID", "")),

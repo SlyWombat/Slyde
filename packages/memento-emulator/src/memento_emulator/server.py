@@ -90,7 +90,10 @@ class EmulatedFrame:
 
     def stop(self) -> None:
         self._stop.set()
-        for s in self._sockets:
+        with self._file_cv:  # any file sockets still parked (registered but never claimed)
+            parked = [s for socks in self._file_socks.values() for s in socks]
+            self._file_socks.clear()
+        for s in self._sockets + parked:
             with contextlib.suppress(OSError):
                 s.close()
         for t in self._threads:
@@ -102,10 +105,13 @@ class EmulatedFrame:
     def __exit__(self, *exc: object) -> None:
         self.stop()
 
-    def _spawn(self, fn: Callable[..., object], *args: object) -> None:
+    def _spawn(self, fn: Callable[..., object], *args: object, track: bool = True) -> None:
+        # Long-lived loops (accept/udp/cycle) are tracked so stop() can join them; short-lived
+        # per-connection handlers are not, so they don't accumulate in _threads forever (#49).
         t = threading.Thread(target=fn, args=args, daemon=True)
         t.start()
-        self._threads.append(t)
+        if track:
+            self._threads.append(t)
 
     # -- slideshow ------------------------------------------------------------
     def _cycle_loop(self) -> None:
@@ -166,18 +172,19 @@ class EmulatedFrame:
                 continue
             except OSError:
                 break
-            self._sockets.append(conn)
-            self._spawn(handler, conn, addr)
+            # The handler owns the connection and closes it when done — don't pin it in _sockets
+            # (that list only held listeners + every accepted conn, leaking them all; #49).
+            self._spawn(handler, conn, addr, track=False)
 
     # -- file channel ---------------------------------------------------------
     def _register_file_socket(self, conn: socket.socket, addr: tuple[str, int]) -> None:
+        # Park the connection for its paired control session to claim, then return immediately. The
+        # reference held in _file_socks (and, once claimed, by the control handler) keeps it open —
+        # no hold-loop, so we don't leak a thread per file connection (#49). The control session
+        # closes it in its finally; anything never claimed is closed at stop().
         with self._file_cv:
             self._file_socks.setdefault(addr[0], []).append(conn)
             self._file_cv.notify_all()
-        # Hold the connection open; the paired control session reads/writes it for transfers.
-        while not self._stop.is_set():
-            if self._stop.wait(0.5):
-                break
 
     def _claim_file_socket(self, ip: str, timeout: float = 5.0) -> socket.socket:
         """Take ownership of the next unclaimed file connection from ``ip``."""
@@ -210,6 +217,14 @@ class EmulatedFrame:
                 self._dispatch(conn, file_sock, pending.pop(0))
         except (ConnectionError, OSError):
             return
+        finally:
+            # Always release this session's sockets — the control conn and the file socket it
+            # claimed — so every delivered image frees its fds instead of leaking them (#49).
+            with contextlib.suppress(OSError):
+                conn.close()
+            if claimed[0] is not None:
+                with contextlib.suppress(OSError):
+                    claimed[0].close()
 
     def _dispatch(
         self, conn: socket.socket, file_sock: Callable[[], socket.socket], msg: Message
@@ -311,7 +326,7 @@ class EmulatedFrame:
                 self.last_update = (str(payload["url"]), str(payload.get("md5", "")))
                 if self._on_update is not None:
                     # Apply off the control thread (a real updater downloads + restarts).
-                    self._spawn(self._on_update, *self.last_update)
+                    self._spawn(self._on_update, *self.last_update, track=False)
             self._reply(conn, T_CONTROL_FLOW, action + 1)
         else:
             self._reply(conn, T_CONTROL_FLOW, action + 1)

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import threading
 import time
+
+import pytest
 
 from conftest import HOST, PORTS
 from memento_core import FrameClient, Setup, discover
@@ -13,6 +17,38 @@ from memento_emulator import EmulatedFrame, FrameState
 
 def _client() -> FrameClient:
     return FrameClient(HOST, ports=PORTS)
+
+
+def _fd_count() -> int:
+    return len(os.listdir(f"/proc/{os.getpid()}/fd"))
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self/fd"), reason="needs /proc to count fds")
+def test_sustained_uploads_do_not_leak_sockets_or_threads(frame: EmulatedFrame) -> None:
+    """#49: each delivered image must release its control + file sockets and its handler thread.
+
+    Regression for the leak that crashed the emulator/soft-frame ('Too many open files') part-way
+    through a large-album sync. Drives many real upload sessions; fds + threads must stay flat.
+    """
+    with _client() as c:  # warm up: first connection, lazy imports, parked file sockets
+        c.upload_image(b"warmup", "warm.jpg")
+    time.sleep(0.3)
+    fd0, threads0 = _fd_count(), threading.active_count()
+
+    for i in range(40):
+        with _client() as c:
+            c.upload_image(b"x" * 64, f"img{i:03d}.jpg")
+
+    # Let the emulator's per-connection handlers run their finally + exit.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and (
+        _fd_count() > fd0 + 4 or threading.active_count() > threads0 + 1
+    ):
+        time.sleep(0.1)
+
+    assert _fd_count() <= fd0 + 4, "file descriptors leaked across uploads (#49)"
+    assert threading.active_count() <= threads0 + 1, "threads leaked across uploads (#49)"
+    assert len(frame.state.photos) >= 40  # the uploads actually landed
 
 
 def test_get_config(frame: EmulatedFrame) -> None:

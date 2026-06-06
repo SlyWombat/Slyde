@@ -2,11 +2,11 @@ import { HashRouter, NavLink, Navigate, Route, Routes, useNavigate, useParams } 
 import { FrameView } from "./components/FrameView";
 import { useFrames } from "./lib/frames";
 import { Activity } from "./pages/Activity";
-import { ComingSoon } from "./pages/ComingSoon";
 import { Curate } from "./pages/Curate";
 import { FleetDashboard } from "./pages/FleetDashboard";
 import { FrameDetail } from "./pages/FrameDetail";
 import { FramesList } from "./pages/FramesList";
+import { Settings } from "./pages/Settings";
 
 const NAV = [
   { to: "/", label: "Picture Frames", icon: "▦", end: true },
@@ -100,10 +100,7 @@ export default function App() {
           <Route path="/frames/:id" element={<FrameDetail />} />
           <Route path="/curate" element={<Curate />} />
           <Route path="/activity" element={<Activity />} />
-          <Route
-            path="/settings"
-            element={<ComingSoon title="Settings" issue={44} note="Immich, scheduler, firmware, and app info." />}
-          />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/legacy/:host" element={<LegacyFrame />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

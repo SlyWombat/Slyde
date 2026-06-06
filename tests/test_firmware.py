@@ -79,6 +79,17 @@ def test_serve_unknown_track() -> None:
         asyncio.run(svc.serve("nope"))
 
 
+def test_asset_url_prefers_browser_download_unless_tokened() -> None:
+    """Public/tokenless repos use browser_download_url (no API asset-settling 404s); a token opts
+    into the API asset URL for private repos."""
+    asset = {"name": "x", "url": "https://api/asset/1", "browser_download_url": "https://dl/x"}
+    assert FirmwareService(Settings())._asset_url(asset) == "https://dl/x"
+    tokened = FirmwareService(Settings(firmware_github_token="tok"))
+    assert tokened._asset_url(asset) == "https://api/asset/1"
+    # browser URL still wins when there's no API url, regardless of token.
+    assert tokened._asset_url({"browser_download_url": "https://dl/y"}) == "https://dl/y"
+
+
 def test_auth_headers_reflect_token() -> None:
     assert FirmwareService(Settings())._auth_headers() == {}
     with_token = FirmwareService(Settings(firmware_github_token="tok"))

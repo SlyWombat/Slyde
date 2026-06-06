@@ -57,12 +57,7 @@ class FirmwareService:
         raw = str(release.get("tag_name") or release.get("name") or "")
         match = re.search(r"\d+(?:\.\d+)*", raw)  # e.g. "softframe-v1.2.3" -> "1.2.3"
         version = match.group(0) if match else raw
-        # Prefer the API asset URL (works for private repos with a token); fall back to the
-        # public browser_download_url (used by the file:// test fixtures).
-        assets = {
-            str(a["name"]): str(a.get("url") or a["browser_download_url"])
-            for a in release.get("assets", [])
-        }
+        assets = {str(a["name"]): self._asset_url(a) for a in release.get("assets", [])}
         track = self._settings.firmware_track
         zip_name = next((n for n in assets if n.startswith(track) and n.endswith(".zip")), None)
         if zip_name is None:
@@ -85,6 +80,18 @@ class FirmwareService:
             raise FirmwareError("artifact md5 mismatch — refusing to serve a corrupt update")
         self._cache[track] = data
         return data
+
+    def _asset_url(self, asset: dict[str, Any]) -> str:
+        """Pick how to download a release asset.
+
+        Public/tokenless repos use the ``browser_download_url`` — the CDN download that needs no
+        auth and (unlike the API asset URL) doesn't briefly 404 while a just-uploaded asset settles.
+        Private repos (a token is set) use the API asset URL, which honours the bearer token.
+        """
+        api_url = asset.get("url")
+        if self._settings.firmware_github_token and api_url:
+            return str(api_url)
+        return str(asset.get("browser_download_url") or api_url)
 
     # -- default network fetchers (overridable for tests) ---------------------
     def _auth_headers(self) -> dict[str, str]:

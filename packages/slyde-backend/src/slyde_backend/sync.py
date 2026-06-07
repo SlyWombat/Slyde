@@ -27,6 +27,12 @@ _MAX_NAME = 64  # frame filename limit (Cadre.Utils.VerifyFilename)
 _log = logging.getLogger(__name__)
 
 
+def _chunked(items: list[ImmichAsset], size: int) -> list[list[ImmichAsset]]:
+    """Split ``items`` into chunks of ``size`` (so a large album streams with bounded memory)."""
+    size = max(1, size)
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 def dest_name_for(file_name: str, unique: str) -> str:
     """A frame-safe, unique .jpg filename (<= 64 chars) from a source name + a unique suffix."""
     stem = re.sub(r"[^a-z0-9]+", "-", file_name.rsplit(".", 1)[0].lower()).strip("-")
@@ -70,45 +76,39 @@ class SyncService:
             return [await client.get_asset(aid) for aid in req.asset_ids]
         return []
 
-    async def _prepare_new(
+    async def _prepare_one(
         self,
         client: ImmichClient,
         host: str,
-        assets: list[ImmichAsset],
+        asset: ImmichAsset,
         result: SyncResult,
         canvas: tuple[int, int],
-    ) -> tuple[list[tuple[bytes, str]], dict[str, tuple[str, str]]]:
-        """Fetch + prepare assets not already on ``host``; return (to_upload, dest->(id,hash))."""
-        to_upload: list[tuple[bytes, str]] = []
-        meta: dict[str, tuple[str, str]] = {}
-        for asset in assets:
-            if asset.type != "IMAGE":
-                result.skipped += 1
-                continue
-            if self._store.get(host, asset.id) is not None:
-                result.skipped += 1  # already on the frame — no re-download
-                continue
-            dest = dest_name_for(asset.file_name, asset.id)
-            try:
-                source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
-                prepared = await asyncio.to_thread(
-                    prepare_for_frame,
-                    source,
-                    canvas,
-                    fit=self._settings.frame_fit,
-                    crop_tolerance=self._settings.frame_crop_tolerance,
-                )
-            except Exception as exc:
-                result.failed += 1
-                result.items.append(
-                    SyncItem(
-                        asset_id=asset.id, dest_name=dest, status="failed", detail=str(exc)[:200]
-                    )
-                )
-                continue
-            to_upload.append((prepared, dest))
-            meta[dest] = (asset.id, hashlib.sha256(source).hexdigest())
-        return to_upload, meta
+    ) -> tuple[bytes, str, tuple[str, str]] | None:
+        """Fetch + prepare a single asset not already on ``host``; return (bytes, dest, (id, hash))
+        or None (skipped/failed, counted on ``result``). One image in flight → bounded memory."""
+        if asset.type != "IMAGE":
+            result.skipped += 1
+            return None
+        if self._store.get(host, asset.id) is not None:
+            result.skipped += 1  # already on the frame — no re-download
+            return None
+        dest = dest_name_for(asset.file_name, asset.id)
+        try:
+            source = await client.asset_bytes(asset.id, self._settings.immich_asset_size)
+            prepared = await asyncio.to_thread(
+                prepare_for_frame,
+                source,
+                canvas,
+                fit=self._settings.frame_fit,
+                crop_tolerance=self._settings.frame_crop_tolerance,
+            )
+        except Exception as exc:
+            result.failed += 1
+            result.items.append(
+                SyncItem(asset_id=asset.id, dest_name=dest, status="failed", detail=str(exc)[:200])
+            )
+            return None
+        return prepared, dest, (asset.id, hashlib.sha256(source).hexdigest())
 
     def _recorder(
         self,
@@ -137,11 +137,11 @@ class SyncService:
     @staticmethod
     def _record_outcomes(
         result: SyncResult,
-        to_upload: list[tuple[bytes, str]],
+        prepared_dests: list[str],
         meta: dict[str, tuple[str, str]],
         done: set[str],
     ) -> None:
-        for _data, dest in to_upload:
+        for dest in prepared_dests:
             asset_id = meta[dest][0]
             if dest in done:
                 result.items.append(SyncItem(asset_id=asset_id, dest_name=dest, status="uploaded"))
@@ -155,7 +155,7 @@ class SyncService:
                     )
                 )
         result.uploaded = len(done)
-        result.failed += len(to_upload) - len(done)
+        result.failed += len(prepared_dests) - len(done)
 
     # -- one-off sync ---------------------------------------------------------
     async def sync(
@@ -168,23 +168,32 @@ class SyncService:
         result = result if result is not None else SyncResult()
         album_id = req.target_album or req.album_id
         canvas = await self._canvas_for(host)
+        done: set[str] = set()
+        meta: dict[str, tuple[str, str]] = {}
+        prepared_dests: list[str] = []
+        recorder = self._recorder(host, meta, album_id, done, result)
         async with self._immich_factory() as client:
             assets = await self._assets_for(client, req)
             result.total = len(assets)
-            to_upload, meta = await self._prepare_new(client, host, assets, result, canvas)
-        if not to_upload:
-            return result
-        done: set[str] = set()
-        try:
-            await self._frame.upload_images(
-                host,
-                to_upload,
-                req.target_album,
-                self._recorder(host, meta, album_id, done, result),
-            )
-        except Exception:  # partial progress preserved via the recorder
-            _log.exception("frame upload interrupted for %s", host)
-        self._record_outcomes(result, to_upload, meta, done)
+            # Stream in bounded chunks: prepare a chunk, upload it, move on — so only ~chunk_size
+            # images are ever in memory and `uploaded` ticks live from the first chunk (#57).
+            for batch in _chunked(assets, self._settings.sync_chunk_size):
+                to_upload: list[tuple[bytes, str]] = []
+                for asset in batch:
+                    result.prepared += 1
+                    one = await self._prepare_one(client, host, asset, result, canvas)
+                    if one is not None:
+                        data, dest, m = one
+                        to_upload.append((data, dest))
+                        meta[dest] = m
+                        prepared_dests.append(dest)
+                if not to_upload:
+                    continue
+                try:
+                    await self._frame.upload_images(host, to_upload, req.target_album, recorder)
+                except Exception:  # partial progress preserved via the recorder
+                    _log.exception("frame upload interrupted for %s", host)
+        self._record_outcomes(result, prepared_dests, meta, done)
         return result
 
     # -- direct upload --------------------------------------------------------
@@ -255,6 +264,10 @@ class SyncService:
         new_assets: list[ImmichAsset] = []
         desired_ids: set[str] = set()
         canvas = await self._canvas_for(host)
+        done: set[str] = set()
+        meta: dict[str, tuple[str, str]] = {}
+        prepared_dests: list[str] = []
+        recorder = self._recorder(host, meta, immich_album_id, done, result)
 
         async with self._immich_factory() as client:
             for asset in await client.album_assets(immich_album_id):
@@ -268,20 +281,34 @@ class SyncService:
                 else:
                     new_assets.append(asset)
             result.total = len(desired_ids)
-            to_upload, meta = await self._prepare_new(client, host, new_assets, result, canvas)
+            result.prepared = result.skipped  # already-present items are "examined" for progress
+            # Stream new items in bounded chunks (upload only); set album membership once after.
+            for batch in _chunked(new_assets, self._settings.sync_chunk_size):
+                to_upload: list[tuple[bytes, str]] = []
+                for asset in batch:
+                    result.prepared += 1
+                    one = await self._prepare_one(client, host, asset, result, canvas)
+                    if one is not None:
+                        data, dest, m = one
+                        to_upload.append((data, dest))
+                        meta[dest] = m
+                        prepared_dests.append(dest)
+                if not to_upload:
+                    continue
+                try:
+                    await self._frame.upload_images(host, to_upload, None, recorder)
+                except Exception:  # partial progress preserved via the recorder
+                    _log.exception(
+                        "subscription upload interrupted for %s/%s", host, immich_album_id
+                    )
 
-        done: set[str] = set()
+        # Set the frame album to exactly keep + newly-uploaded (1:1 mirror), in one final pass.
+        members = keep_dests + [d for d in prepared_dests if d in done]
         try:
-            await self._frame.mirror_album(
-                host,
-                keep_dests,
-                to_upload,
-                target_album,
-                self._recorder(host, meta, immich_album_id, done, result),
-            )
-        except Exception:  # partial progress preserved via the recorder
+            await self._frame.mirror_album(host, members, [], target_album)
+        except Exception:
             _log.exception("subscription mirror interrupted for %s/%s", host, immich_album_id)
-        self._record_outcomes(result, to_upload, meta, done)
+        self._record_outcomes(result, prepared_dests, meta, done)
 
         # Drop photos that left the Immich album from the frame album (folder mirror).
         for photo in self._store.list_for_album(host, immich_album_id):

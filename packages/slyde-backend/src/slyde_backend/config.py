@@ -48,6 +48,12 @@ class Settings(BaseSettings):
         description="How often the backend drains the delivery queue to frames, decoupled from "
         "album re-mirroring so a fresh curation syncs in seconds, not minutes (0 disables)",
     )
+    sync_chunk_size: int = Field(
+        16,
+        ge=1,
+        description="Folder sync prepares + uploads photos in chunks of this many, so a large "
+        "album streams with bounded memory (not buffering every prepared image at once)",
+    )
 
     # Firmware / app updates --------------------------------------------------
     firmware_repo: str = Field(

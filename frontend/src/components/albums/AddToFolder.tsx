@@ -74,15 +74,25 @@ function SyncSummary({ result }: { result: SyncResult }) {
 function JobProgress({ info }: { info: SyncJobInfo }) {
   const r = info.result;
   const processed = r.uploaded + r.skipped + r.failed;
-  const pct = r.total ? Math.round((processed / r.total) * 100) : 0;
+  // Two stages so a large album never looks frozen at "0/N" (#57): the prepare phase advances
+  // `prepared` while it fetches+processes from Immich, then uploads tick `uploaded`.
+  const preparing = r.uploaded === 0 && r.prepared < r.total;
+  const n = preparing ? r.prepared : processed;
+  const pct = r.total ? Math.round((n / r.total) * 100) : 0;
   return (
     <div className="space-y-1">
       <div className="h-2 overflow-hidden rounded-full bg-ink">
         <div className="h-full bg-accent motion-safe:transition-all" style={{ width: `${pct}%` }} />
       </div>
       <div className="text-xs text-slate-400">
-        Syncing… {r.uploaded} added{r.skipped > 0 && ` · ${r.skipped} kept`}
-        {r.total > 0 && ` · ${processed}/${r.total}`}
+        {preparing ? (
+          <>Preparing {r.prepared}/{r.total}…</>
+        ) : (
+          <>
+            Syncing… {r.uploaded} added{r.skipped > 0 && ` · ${r.skipped} kept`}
+            {r.total > 0 && ` · ${processed}/${r.total}`}
+          </>
+        )}
       </div>
     </div>
   );

@@ -362,6 +362,20 @@ class MutableImmich:
         return _png_bytes()
 
 
+def test_sync_streams_in_chunks_with_prepared_progress(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    """#57: a multi-photo album syncs in bounded chunks; total/prepared/uploaded each reflect every
+    photo (so the UI never sits frozen at 0/N), and all land across multiple chunks."""
+    client.app.state.sync._immich_factory = MutableImmich
+    client.app.state.settings.sync_chunk_size = 1  # force one chunk per photo
+    MutableImmich.assets = [_cat(1), _cat(2), _cat(3)]
+    res = client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Stream"}).json()
+    assert res["total"] == 3 and res["prepared"] == 3
+    assert res["uploaded"] == 3 and res["failed"] == 0
+    assert len([i for i in res["items"] if i["status"] == "uploaded"]) == 3
+
+
 def _cat(n: int) -> ImmichAsset:
     return ImmichAsset(id=f"c{n}", file_name=f"cat{n}.jpg", type="IMAGE")
 

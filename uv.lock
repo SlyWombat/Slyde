@@ -1061,7 +1061,7 @@ wheels = [
 
 [[package]]
 name = "slyde-backend"
-version = "0.1.12"
+version = "0.1.14"
 source = { editable = "packages/slyde-backend" }
 dependencies = [
     { name = "fastapi" },

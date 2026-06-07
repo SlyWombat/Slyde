@@ -64,6 +64,7 @@ export interface SyncItem {
 
 export interface SyncResult {
   total: number;
+  prepared: number;
   uploaded: number;
   skipped: number;
   failed: number;

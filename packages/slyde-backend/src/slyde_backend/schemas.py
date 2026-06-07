@@ -211,6 +211,9 @@ class SyncItem(BaseModel):
 
 class SyncResult(BaseModel):
     total: int = 0  # assets considered (for progress)
+    prepared: int = (
+        0  # assets fetched+processed in the prepare phase (live progress before uploads)
+    )
     uploaded: int = 0
     skipped: int = 0
     failed: int = 0

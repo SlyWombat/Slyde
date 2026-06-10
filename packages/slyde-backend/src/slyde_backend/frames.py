@@ -188,10 +188,10 @@ class FrameService:
         target = guid if guid and guid != NULL_GUID else (current.id if current else address)
         if current is not None and current.id != target:
             self._store.rekey_frame(current.id, target)
-        keep = current.name if (current and current.name and current.name != current.id) else ""
-        self._store.upsert_frame(
-            Frame.connected(address, backend=self._backend.name, name=keep, guid=guid)
-        )
+        # Upsert with an empty name (preserved by the registry's name CASE) + capture the reported
+        # name onto the stable id — capture_name fills placeholders (incl. an IP-shaped one) but
+        # never a user rename (#51/#58).
+        self._store.upsert_frame(Frame.connected(address, backend=self._backend.name, guid=guid))
         if name:
             self._store.capture_name(target, name)
 

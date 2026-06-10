@@ -41,7 +41,10 @@ class Frame:
             id=stable,
             backend=backend,
             interaction="connected",
-            name=name or address,
+            # Don't default the name to the address — an IP-shaped placeholder would look like a
+            # real name and clobber the captured/reported one (#58). The UI falls back to the id, and
+            # device's Name is captured on the first config read (#51).
+            name=name,
             address=address,
         )
 

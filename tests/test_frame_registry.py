@@ -32,6 +32,22 @@ def test_frame_connected_identity_is_guid_when_reported() -> None:
     assert z.id == "192.168.1.5"  # emulator/blank GUID -> legacy IP identity
 
 
+def test_capture_name_heals_placeholders_not_user_rename(tmp_path: Path) -> None:
+    """#58: a captured Name fills a placeholder (empty / id / IP-shaped) but never a user rename."""
+    store = Store(str(tmp_path / "name.db"))
+    g = "guid-1"
+    store.upsert_frame(Frame.connected("192.168.10.80", backend="memento-lan", guid=g))
+    assert store.get_frame(g).name == ""  # not defaulted to the address
+    store.capture_name(g, "Living Room")
+    assert store.get_frame(g).name == "Living Room"
+    store.rename_frame(g, "192.168.10.99")  # simulate an IP-shaped clobber
+    store.capture_name(g, "Living Room")
+    assert store.get_frame(g).name == "Living Room"  # placeholder healed
+    store.rename_frame(g, "Den")  # a real user rename
+    store.capture_name(g, "Living Room")
+    assert store.get_frame(g).name == "Den"  # preserved
+
+
 def test_store_rekey_moves_library_and_delivery(tmp_path: Path) -> None:
     """#58: migrating an IP-keyed entry onto its GUID carries the curated set + delivery queue."""
     from datetime import datetime

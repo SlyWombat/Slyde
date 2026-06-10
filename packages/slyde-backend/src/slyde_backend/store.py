@@ -262,14 +262,15 @@ class Store:
             return cur.rowcount > 0
 
     def capture_name(self, frame_id: str, name: str) -> None:
-        """Record a frame's self-reported name, but only while none is known yet (registry name is
-        still the bare id) — so a device's Name fills the default without overriding a user rename
-        (#51)."""
+        """Record a frame's self-reported name, but only while the registry name is still a
+        placeholder — empty, the bare id, or an IP-shaped string — so a device's Name fills the
+        default (and heals a clobbered IP name) without overriding a user rename (#51/#58)."""
         if not name:
             return
         with self._conn() as conn:
             conn.execute(
-                "UPDATE frame SET name = ? WHERE id = ? AND (name = '' OR name = id)",
+                "UPDATE frame SET name = ? "
+                "WHERE id = ? AND (name = '' OR name = id OR name GLOB '*.*.*.*')",
                 (name, frame_id),
             )
 

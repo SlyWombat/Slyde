@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+NULL_GUID = "00000000-0000-0000-0000-000000000000"  # default/blank — not a usable stable identity
+
 
 @dataclass(frozen=True)
 class Frame:
@@ -27,10 +29,20 @@ class Frame:
     last_seen: str | None = None  # ISO timestamp the registry last saw it
 
     @classmethod
-    def connected(cls, host: str, *, backend: str, name: str = "") -> Frame:
-        """A frame the manager reaches over the network (id == host)."""
+    def connected(cls, address: str, *, backend: str, name: str = "", guid: str = "") -> Frame:
+        """A frame the manager reaches over the network.
+
+        Identified by its **stable GUID** when it reports a real one — so a DHCP address change
+        never loses the frame or its curated library/delivery (#58). ``address`` (the current IP)
+        is a mutable field refreshed on each discovery. Frames with no/zero GUID (e.g. the emulator)
+        fall back to the address as id (legacy behaviour)."""
+        stable = guid if guid and guid != NULL_GUID else address
         return cls(
-            id=host, backend=backend, interaction="connected", name=name or host, address=host
+            id=stable,
+            backend=backend,
+            interaction="connected",
+            name=name or address,
+            address=address,
         )
 
     @classmethod

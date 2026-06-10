@@ -21,6 +21,64 @@ def test_frame_connected_identity_is_its_host() -> None:
     assert f.name == "Living Room"
 
 
+def test_frame_connected_identity_is_guid_when_reported() -> None:
+    """#58: a real GUID is the stable id; the address is mutable. A null/blank GUID falls back."""
+    g = "a5a82f1d-7599-4c32-b720-bf94bc5c9e3a"
+    f = Frame.connected("192.168.1.5", backend="memento-lan", name="Living Room", guid=g)
+    assert f.id == g and f.address == "192.168.1.5"
+    z = Frame.connected(
+        "192.168.1.5", backend="memento-lan", guid="00000000-0000-0000-0000-000000000000"
+    )
+    assert z.id == "192.168.1.5"  # emulator/blank GUID -> legacy IP identity
+
+
+def test_store_rekey_moves_library_and_delivery(tmp_path: Path) -> None:
+    """#58: migrating an IP-keyed entry onto its GUID carries the curated set + delivery queue."""
+    from datetime import datetime
+
+    from slyde_backend.delivery import enqueue
+
+    store = Store(str(tmp_path / "rk.db"))
+    store.upsert_frame(Frame.connected("10.0.0.9", backend="memento-lan"))  # legacy IP-keyed
+    store.set_library("10.0.0.9", [("a1", "one.jpg")])
+    enqueue(store, "10.0.0.9", "one.jpg", now=datetime(2026, 1, 1))
+    assert store.get_frame_by_address("10.0.0.9").id == "10.0.0.9"
+
+    store.rekey_frame("10.0.0.9", "guid-xyz")
+    store.upsert_frame(Frame.connected("10.0.0.9", backend="memento-lan", guid="guid-xyz"))
+    assert store.list_library("guid-xyz") == [("a1", "one.jpg")]  # library followed
+    assert [d.frame_id for d in store.list_deliveries("guid-xyz")] == ["guid-xyz"]  # delivery too
+    assert store.list_library("10.0.0.9") == []  # old key emptied
+
+
+def test_discovery_keys_by_guid_and_survives_dhcp_change(tmp_path: Path) -> None:
+    """#58: the registry tracks the frame's GUID; a DHCP IP change updates the address but keeps the
+    identity + curated content, with no duplicate entry — and resolve_host returns the new IP."""
+    import asyncio
+
+    from memento_core.discovery import FrameInfo
+
+    store = Store(str(tmp_path / "disc.db"))
+    svc = FrameService(Settings(frame_discovery=True), store=store)
+    g = "a5a82f1d-7599-4c32-b720-bf94bc5c9e3a"
+
+    svc._backend.discover = lambda **kw: [FrameInfo(ip="192.168.10.69", name="Living Room", guid=g)]  # type: ignore[method-assign]
+    asyncio.run(svc.discover_frames())
+    f = store.get_frame(g)
+    assert f is not None and f.address == "192.168.10.69" and f.name == "Living Room"
+    store.set_library(g, [("a1", "one.jpg")])  # curate to the stable GUID
+
+    svc._backend.discover = lambda **kw: [
+        FrameInfo(ip="192.168.10.142", name="Living Room", guid=g)
+    ]  # type: ignore[method-assign]
+    asyncio.run(svc.discover_frames())
+    f2 = store.get_frame(g)
+    assert f2.id == g and f2.address == "192.168.10.142"  # same identity, new address
+    assert store.list_library(g) == [("a1", "one.jpg")]  # curation followed the frame
+    assert len(store.list_frames()) == 1  # no duplicate from the IP change
+    assert asyncio.run(svc.resolve_host(g)) == "192.168.10.142"  # resolves to the current IP
+
+
 def test_frame_served_identity_is_its_frame_code() -> None:
     f = Frame.served("ABC123", backend="sungale-cloud")
     assert f.id == "ABC123"

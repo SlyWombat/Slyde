@@ -110,7 +110,9 @@ class DeliveryService:
             )  # cache for reuse (served serves from here)
         if frame.interaction == "served":
             return  # the prepared image waits in the cache; the frame pulls it on wake
-        try:  # connected: push over the LAN — an offline frame is a transient (retried) failure
-            await self._frames.upload_images(frame.address, [(prepared, item.key)], album=None)
+        try:  # connected: push over the LAN — an offline frame is a transient (retried) failure.
+            # Pass the frame's stable id (not a fixed address) so delivery resolves its CURRENT IP
+            # and self-heals across DHCP changes (#58).
+            await self._frames.upload_images(frame.id, [(prepared, item.key)], album=None)
         except FrameUnavailable as exc:
             raise TransientDeliveryError(f"frame offline: {exc}") from exc

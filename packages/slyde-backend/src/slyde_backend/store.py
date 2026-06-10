@@ -225,6 +225,32 @@ class Store:
             row = conn.execute("SELECT * FROM frame WHERE id = ?", (frame_id,)).fetchone()
         return _frame(row) if row else None
 
+    def get_frame_by_address(self, address: str) -> Frame | None:
+        """The connected frame currently at ``address`` (used to map a reached IP back to its stable
+        id, so a 'we reached it' touch updates the GUID entry instead of making an IP duplicate)."""
+        if not address:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM frame WHERE address = ? AND interaction='connected' LIMIT 1",
+                (address,),
+            ).fetchone()
+        return _frame(row) if row else None
+
+    def rekey_frame(self, old_id: str, new_id: str) -> None:
+        """Move a frame and its GUID-keyed state (curated library + delivery queue) from ``old_id``
+        to ``new_id`` — used once to migrate a legacy IP-keyed entry onto its stable GUID (#58).
+        Merges into any existing ``new_id`` rows (UPDATE OR IGNORE + drop leftovers)."""
+        if old_id == new_id:
+            return
+        with self._conn() as conn:
+            for tbl in ("library_item", "delivery"):
+                conn.execute(
+                    f"UPDATE OR IGNORE {tbl} SET frame_id=? WHERE frame_id=?", (new_id, old_id)
+                )
+                conn.execute(f"DELETE FROM {tbl} WHERE frame_id=?", (old_id,))
+            conn.execute("DELETE FROM frame WHERE id=?", (old_id,))
+
     def list_frames(self) -> list[Frame]:
         with self._conn() as conn:
             rows = conn.execute("SELECT * FROM frame ORDER BY name").fetchall()

@@ -15,7 +15,7 @@ from memento_core import AlbumData, FrameInfo, Ports, Setup
 
 from .backends import ConnectedFrameBackend, FrameConnection, get_backend
 from .config import Settings
-from .frame import Frame
+from .frame import NULL_GUID, Frame
 from .store import Store
 
 T = TypeVar("T")
@@ -40,11 +40,21 @@ class FrameService:
         frames = await asyncio.to_thread(self._backend.discover, timeout=timeout, ports=self._ports)
         if self._store is not None:
             for fi in frames:
-                self._store.upsert_frame(
-                    Frame.connected(fi.ip, backend=self._backend.name, name=fi.name)
-                )
-                self._store.touch_frame(fi.ip)
+                self._register_discovered(fi)
         return frames
+
+    def _register_discovered(self, fi: FrameInfo) -> None:
+        """Register/refresh a discovered frame by its **stable id (GUID)**, updating its current
+        address; the upsert auto-updates the address so a DHCP change just moves the IP, not the
+        identity. The first time we learn a frame's GUID, migrate its old IP-keyed entry (#58)."""
+        assert self._store is not None
+        frame = Frame.connected(fi.ip, backend=self._backend.name, name=fi.name, guid=fi.guid)
+        if frame.id != fi.ip:  # GUID-identified: fold any pre-existing IP-keyed entry into it
+            legacy = self._store.get_frame_by_address(fi.ip)
+            if legacy is not None and legacy.id == fi.ip:
+                self._store.rekey_frame(fi.ip, frame.id)
+        self._store.upsert_frame(frame)
+        self._store.touch_frame(frame.id)
 
     def list_known_frames(self) -> list[Frame]:
         """Every frame the registry has seen (across backends). Empty if no registry is attached."""
@@ -52,7 +62,13 @@ class FrameService:
 
     async def resolve_host(self, host: str | None = None) -> str:
         if host:
-            return host
+            # ``host`` may be a frame's stable id (GUID) — translate it to the frame's CURRENT
+            # address from the registry, so callers never assume a fixed IP (#58).
+            if self._store is not None:
+                frame = self._store.get_frame(host)
+                if frame is not None and frame.address:
+                    return frame.address
+            return host  # otherwise treat it as a literal IP/host
         if self._settings.frame_host:
             return self._settings.frame_host
         if not self._settings.frame_discovery:
@@ -77,21 +93,57 @@ class FrameService:
             with backend.session(resolved, ports=self._ports) as conn:
                 return fn(conn)
 
-        result = await asyncio.to_thread(run)
+        try:
+            result = await asyncio.to_thread(run)
+        except FrameUnavailable:
+            # The frame may have moved (DHCP) since we last knew its address. Re-discover and if its
+            # address changed, retry once at the new one — so management never assumes a fixed IP
+            # (#58). ``run`` reads ``resolved`` from this scope, so reassigning it is enough.
+            if self._store is None or not host or not self._settings.frame_discovery:
+                raise
+            await self.discover_frames()
+            new_address = await self.resolve_host(host)
+            if new_address == resolved:
+                raise
+            resolved = new_address
+            result = await asyncio.to_thread(run)
         if self._store is not None:  # we just reached this frame — record it as seen
-            self._store.upsert_frame(Frame.connected(resolved, backend=backend.name))
-            self._store.touch_frame(resolved)
+            existing = self._store.get_frame_by_address(resolved)
+            if existing is not None:  # touch the (GUID) entry, don't make an IP duplicate (#58)
+                self._store.touch_frame(existing.id)
+            else:
+                self._store.upsert_frame(Frame.connected(resolved, backend=backend.name))
+                self._store.touch_frame(resolved)
         return result
+
+    def _capture_identity(self, address: str, *, guid: str, name: str) -> None:
+        """From a config read, pin the frame's stable GUID identity + reported name (#51/#58).
+
+        Migrates a legacy IP-keyed entry at ``address`` onto its GUID (so curation/delivery survive
+        DHCP changes), then captures the name onto that stable id. Establishes GUID identity even
+        without working UDP discovery (e.g. a bridged container reaching the frame by host)."""
+        if self._store is None:
+            return
+        current = self._store.get_frame_by_address(address)
+        target = guid if guid and guid != NULL_GUID else (current.id if current else address)
+        if current is not None and current.id != target:
+            self._store.rekey_frame(current.id, target)
+        keep = current.name if (current and current.name and current.name != current.id) else ""
+        self._store.upsert_frame(
+            Frame.connected(address, backend=self._backend.name, name=keep, guid=guid)
+        )
+        if name:
+            self._store.capture_name(target, name)
 
     # -- config / display -----------------------------------------------------
     async def get_config(self, host: str) -> dict[str, Any]:
         config = await self._with_client(host, lambda c: c.get_config())
-        # Capture the frame's reported Name into the registry so the fleet UI shows it, not the IP
-        # (#51). Guarded: only fills the default, never overrides a user rename.
         if self._store is not None:
-            name = str(config.get("Name") or "").strip()
-            if name:
-                self._store.capture_name(await self.resolve_host(host), name)
+            self._capture_identity(
+                await self.resolve_host(host),
+                guid=str(config.get("GUID") or "").strip(),
+                name=str(config.get("Name") or "").strip(),
+            )
         return config
 
     async def update_config(self, host: str, patch: dict[str, Any]) -> dict[str, Any]:

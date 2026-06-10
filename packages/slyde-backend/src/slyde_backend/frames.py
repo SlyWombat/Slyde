@@ -105,11 +105,15 @@ class FrameService:
         live = [ip for ip in await asyncio.gather(*(probe(h) for h in hosts)) if ip]
         registered: list[Frame] = []
         for ip in live:  # read config -> captures GUID identity + name (#51/#58)
-            with contextlib.suppress(Exception):
-                await self.get_config(ip)
+            for _ in range(4):  # the Memento control protocol is flaky; retry the config read
+                try:
+                    await self.get_config(ip)
+                except Exception:
+                    continue
                 f = self._store.get_frame_by_address(ip)
                 if f is not None:
                     registered.append(f)
+                break
         return registered
 
     def list_known_frames(self) -> list[Frame]:

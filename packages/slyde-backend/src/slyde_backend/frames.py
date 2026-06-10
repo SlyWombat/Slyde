@@ -8,6 +8,8 @@ value, config, or discovery — never hardcoded.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import ipaddress
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -55,6 +57,60 @@ class FrameService:
                 self._store.rekey_frame(fi.ip, frame.id)
         self._store.upsert_frame(frame)
         self._store.touch_frame(frame.id)
+
+    def _scan_cidr(self) -> str:
+        """The subnet the manual scan probes — explicit config, else a /24 derived from a known
+        connected frame or FRAME_HOST. Empty if we can't infer one."""
+        if self._settings.frame_scan_cidr:
+            return self._settings.frame_scan_cidr
+        base = ""
+        if self._store is not None:
+            base = next(
+                (
+                    f.address
+                    for f in self._store.list_frames()
+                    if f.interaction == "connected" and f.address
+                ),
+                "",
+            )
+        base = base or self._settings.frame_host
+        if base.count(".") == 3:
+            return ".".join(base.split(".")[:3]) + ".0/24"
+        return ""
+
+    async def scan_for_frames(self, cidr: str | None = None) -> list[Frame]:
+        """Actively find connected frames by TCP-probing the control port across the subnet, then
+        reading each responder's config to register it by GUID (#58). Works from a bridged container
+        where UDP broadcast discovery can't. Manual/user-triggered only — never run on a timer."""
+        cidr = cidr or self._scan_cidr()
+        if cidr == "" or self._store is None:
+            return []
+        port = self._ports.control
+        hosts = [str(ip) for ip in ipaddress.ip_network(cidr, strict=False).hosts()]
+        sem = asyncio.Semaphore(64)
+
+        async def probe(ip: str) -> str | None:
+            async with sem:
+                try:
+                    _, writer = await asyncio.wait_for(
+                        asyncio.open_connection(ip, port), timeout=1.0
+                    )
+                    writer.close()
+                    with contextlib.suppress(Exception):
+                        await writer.wait_closed()
+                    return ip
+                except (TimeoutError, OSError):
+                    return None
+
+        live = [ip for ip in await asyncio.gather(*(probe(h) for h in hosts)) if ip]
+        registered: list[Frame] = []
+        for ip in live:  # read config -> captures GUID identity + name (#51/#58)
+            with contextlib.suppress(Exception):
+                await self.get_config(ip)
+                f = self._store.get_frame_by_address(ip)
+                if f is not None:
+                    registered.append(f)
+        return registered
 
     def list_known_frames(self) -> list[Frame]:
         """Every frame the registry has seen (across backends). Empty if no registry is attached."""

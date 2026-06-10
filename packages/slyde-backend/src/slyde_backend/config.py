@@ -48,6 +48,11 @@ class Settings(BaseSettings):
         description="How often the backend drains the delivery queue to frames, decoupled from "
         "album re-mirroring so a fresh curation syncs in seconds, not minutes (0 disables)",
     )
+    frame_scan_cidr: str = Field(
+        "",
+        description="LAN subnet (CIDR) the manual 'Scan' button probes for frames; derived as a "
+        "/24 from a known frame / FRAME_HOST when blank. Manual-only.",
+    )
     sync_chunk_size: int = Field(
         16,
         ge=1,

@@ -46,6 +46,9 @@ export const api = {
 
   // -- frames --------------------------------------------------------------
   frames: () => request<FrameSummary[]>("/frames"), // LAN discovery (connected onboarding)
+  // Manual active LAN scan (TCP-probe the control port, register by GUID) — finds frames where UDP
+  // discovery can't, and relocates a frame after a DHCP change (#58). User-triggered only.
+  scanFrames: () => request<FrameStatus[]>("/frames/scan", { method: "POST" }),
   framesStatus: () => request<FrameStatus[]>("/frames/status"),
   frame: (host: string) => request<FrameInfo>(`/frames/${enc(host)}`),
   // Onboard a served/cloud frame by code so it appears in status before its first poll (#29/#35).

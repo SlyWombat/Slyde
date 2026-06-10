@@ -161,6 +161,25 @@ def _served_backends() -> list[str]:
     return [n for n in available_backends() if get_backend(n).capabilities.interaction == "served"]
 
 
+@router.post("/scan", response_model=list[FrameStatus])
+async def scan_frames(frame: FrameDep, store: StoreDep) -> list[FrameStatus]:
+    """Actively scan the LAN for connected frames (the manual 'Scan' button) — TCP-probe the control
+    port across the subnet, then register each responder by its GUID. Use where UDP discovery can't
+    run (containerised hub) or to relocate a frame after a DHCP change (#58). Manual-only."""
+    found = await frame.scan_for_frames()
+    return [
+        FrameStatus(
+            id=f.id,
+            backend=f.backend,
+            interaction=f.interaction,
+            name=f.name,
+            last_seen=f.last_seen,
+            deliveries=DeliverySummary(**store.delivery_summary(f.id)),
+        )
+        for f in found
+    ]
+
+
 @router.post("/register", response_model=FrameStatus, status_code=201)
 async def register_frame(body: RegisterFrameRequest, store: StoreDep) -> FrameStatus:
     """Onboard a served/cloud frame by its frame-code before it has ever polled (#29), so the UI can

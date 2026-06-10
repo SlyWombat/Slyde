@@ -15,6 +15,7 @@ import {
   Skeleton,
   StatusDot,
   relTime,
+  useToast,
 } from "../ui";
 
 type KindFilter = "all" | "connected" | "served";
@@ -30,6 +31,22 @@ export function FramesList() {
   const [kind, setKind] = useState<KindFilter>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(params.get("add") != null);
+  const qc = useQueryClient();
+  const toast = useToast();
+  // Manual active LAN scan — finds connected frames (and relocates one after a DHCP change) where
+  // UDP discovery can't run. User-triggered only (#58).
+  const scan = useMutation({
+    mutationFn: api.scanFrames,
+    onSuccess: (found) => {
+      qc.invalidateQueries({ queryKey: ["frames-status"] });
+      toast(
+        found.length
+          ? `Found ${found.length} frame${found.length === 1 ? "" : "s"} on the network.`
+          : "No frames found on the network.",
+      );
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -50,9 +67,18 @@ export function FramesList() {
             {total} registered · search, filter, and add frames.
           </p>
         </div>
-        <Button variant={adding ? "default" : "accent"} onClick={() => setAdding((v) => !v)}>
-          {adding ? "Close" : "+ Add frame"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => scan.mutate()}
+            disabled={scan.isPending}
+            title="Actively probe the LAN for frames (finds them at any IP)"
+          >
+            {scan.isPending ? "Scanning…" : "Scan LAN"}
+          </Button>
+          <Button variant={adding ? "default" : "accent"} onClick={() => setAdding((v) => !v)}>
+            {adding ? "Close" : "+ Add frame"}
+          </Button>
+        </div>
       </header>
 
       {adding && <AddFrame initial={params.get("add")} onClose={() => setAdding(false)} />}

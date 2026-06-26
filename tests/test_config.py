@@ -16,3 +16,9 @@ def test_configured_hosts_empty() -> None:
 
 def test_canvas_parses() -> None:
     assert Settings(frame_canvas="3240x2160").canvas == (3240, 2160)
+
+
+def test_served_backend_names_parses_and_dedupes() -> None:
+    s = Settings(frame_served_backends="sungale-cloud, sungale-cloud ,")
+    assert s.served_backend_names == ["sungale-cloud"]
+    assert Settings(frame_served_backends="").served_backend_names == []

@@ -53,6 +53,12 @@ FRAME_BACKEND=memento-lan     # default — the reverse-engineered Memento LAN p
 FRAME_BACKEND=sungale-cloud   # Aluratek/Sungale Spectra-6 ePaper (cloud impersonation)
 ```
 
+**One hub, multiple frames (ADR-010).** A served backend can be mounted *alongside* the primary via
+`FRAME_SERVED_BACKENDS` (comma-separated), so a single Slyde drives both — e.g.
+`FRAME_BACKEND=memento-lan` + `FRAME_SERVED_BACKENDS=sungale-cloud` runs the Memento frame and the
+eFrame on one hub and one registry/delivery queue. This works because identity, delivery, and
+processing are keyed per `frame.backend`, not globally. (Run exactly one hub against a set of frames.)
+
 For a **served** backend the frame finds us by DNS: point an AdGuard Home rewrite of the vendor host
 (`us.xiaowooya.eframe.sungale.com.cn`) at Slyde. The frame then polls Slyde's mounted endpoints and
 downloads its image. App photo pushes (`photo/upload`) are ingested too — see

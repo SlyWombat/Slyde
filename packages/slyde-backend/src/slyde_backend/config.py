@@ -16,7 +16,12 @@ class Settings(BaseSettings):
     # Frame -------------------------------------------------------------------
     frame_backend: str = Field(
         "memento-lan",
-        description="Which frame backend to drive: memento-lan (default) | sungale-cloud",
+        description="The primary frame backend to drive: memento-lan (default) | sungale-cloud",
+    )
+    frame_served_backends: str = Field(
+        "",
+        description="Comma-separated served (cloud) backends to ALSO mount alongside the primary, "
+        "so one hub drives both a connected frame and a polled one (e.g. 'sungale-cloud')",
     )
     frame_host: str = Field("", description="Explicit frame IP/host; empty enables discovery")
     frame_hosts: str = Field(
@@ -95,6 +100,15 @@ class Settings(BaseSettings):
         for host in (h.strip() for h in raw):
             if host and host not in out:
                 out.append(host)
+        return out
+
+    @property
+    def served_backend_names(self) -> list[str]:
+        """Served backends to mount in addition to the primary (FRAME_SERVED_BACKENDS), de-duped."""
+        out: list[str] = []
+        for name in (n.strip() for n in self.frame_served_backends.split(",")):
+            if name and name not in out:
+                out.append(name)
         return out
 
     @property

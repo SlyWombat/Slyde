@@ -112,10 +112,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(firmware.router, prefix="/api")
 
     # Served (cloud) backends mount the endpoints their frames poll — at the cloud's own path (not
-    # under /api), before the SPA catch-all. Driven by FRAME_BACKEND; nothing hardcoded.
-    backend = get_backend(settings.frame_backend)
-    if isinstance(backend, ServedFrameBackend):
-        mount_served_backends(app, [backend])
+    # under /api), before the SPA catch-all. The hub mounts the primary backend if it's served, PLUS
+    # any FRAME_SERVED_BACKENDS, so one hub drives both a connected frame (e.g. memento-lan) and a
+    # polled one (e.g. sungale-cloud) over a shared registry/delivery queue. Nothing hardcoded.
+    served: list[ServedFrameBackend] = []
+    primary = get_backend(settings.frame_backend)
+    if isinstance(primary, ServedFrameBackend):
+        served.append(primary)
+    for name in settings.served_backend_names:
+        backend = get_backend(name)
+        if not isinstance(backend, ServedFrameBackend):
+            raise ValueError(f"FRAME_SERVED_BACKENDS entry {name!r} is not a served backend")
+        if backend.name not in {b.name for b in served}:
+            served.append(backend)
+    if served:
+        mount_served_backends(app, served)
 
     if settings.static_dir and Path(settings.static_dir).is_dir():
         # Serve the built SPA (and let client-side routing handle unknown paths).

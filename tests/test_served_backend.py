@@ -58,6 +58,37 @@ BASE = "/xiaowooya/api/v1"
 IMAGE_BASE = "/e_frame_image"
 
 
+def test_multi_backend_hub_mounts_served_alongside_a_connected_primary(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """One hub: a connected primary (memento-lan) + FRAME_SERVED_BACKENDS=sungale-cloud. The served
+    endpoints are mounted, so a polled eFrame registers on the same hub/registry."""
+    settings = Settings(
+        frame_backend="memento-lan",
+        frame_served_backends="sungale-cloud",
+        frame_discovery=False,
+        database_url=f"sqlite:///{tmp_path}/m.db",
+        cache_dir=f"{tmp_path}/cache",
+    )
+    harness = ServedHarness(settings)
+    try:
+        resp = harness.request("POST", f"{BASE}/frame/ping?serial=EF-MULTI")
+        assert resp.status_code == 200 and resp.json()["code"] == "ok"
+        frames = {f.id: f for f in harness.app.state.store.list_frames()}
+        assert frames["EF-MULTI"].backend == "sungale-cloud"  # the eFrame registered, served
+    finally:
+        harness.close()
+
+
+def test_connected_backend_listed_as_served_is_rejected(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    settings = Settings(
+        frame_served_backends="memento-lan",  # connected, not a served backend
+        frame_discovery=False,
+        database_url=f"sqlite:///{tmp_path}/m.db",
+        cache_dir=f"{tmp_path}/cache",
+    )
+    with pytest.raises(ValueError, match="not a served backend"):
+        create_app(settings)
+
+
 def test_served_endpoints_are_mounted_and_identify_register_the_frame(
     served: ServedHarness,
 ) -> None:

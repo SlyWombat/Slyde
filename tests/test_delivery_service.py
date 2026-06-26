@@ -67,8 +67,8 @@ def test_served_curation_publishes_to_cache_and_marks_delivered(tmp_path: Path) 
 
     assert counts == {"delivered": 2, "retried": 0, "failed": 0}
     assert cache.keys("EF-1") == ["one", "two"]  # prepared images cached, ready to pull
-    with Image.open(io.BytesIO(cache.get("EF-1", "one"))) as img:
-        assert img.format == "PNG" and img.size == (64, 48)  # e-paper PNG at the frame canvas
+    one = cache.get("EF-1", "one")  # delivered to an e-ink frame == the exact panel BMP (#11)
+    assert one is not None and one[:2] == b"BM" and len(one) == 960118
     assert {d.state for d in store.list_deliveries("EF-1")} == {"delivered"}
 
 

@@ -20,7 +20,8 @@ from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
 from .library import FrameLibrary
-from .routers import firmware, frames, health, immich
+from .previews import AssetPreviewCache
+from .routers import assets, firmware, frames, health, immich
 from .scheduler import SyncScheduler
 from .serving import CachedImageDelivery, PlaceholderDelivery, mount_served_backends
 from .store import Store
@@ -42,6 +43,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Cache of prepared (edited) images, ready to serve/push (#25). Served frames are handed a
         # cached image on poll; until the delivery service fills it, a placeholder is used.
         image_cache = ImageCache(settings.cache_dir)
+        # Slyde's own canonical previews, kept per asset independent of any frame (like Immich).
+        asset_previews = AssetPreviewCache(f"{settings.cache_dir}/previews")
         # The desired photo set per frame (curation), decoupled from delivery (#23).
         library = FrameLibrary(store, image_cache)
         # Live wiring (#25/#26): curation -> guaranteed-delivery queue -> prepare -> cache/push.
@@ -64,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.jobs = JobManager()
         app.state.firmware = FirmwareService(settings)
         app.state.image_cache = image_cache
+        app.state.asset_previews = asset_previews
         app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
         app.state.library = library
         app.state.delivery_service = delivery_service
@@ -101,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(frames.router, prefix="/api")
     app.include_router(immich.router, prefix="/api")
+    app.include_router(assets.router, prefix="/api")
     app.include_router(firmware.router, prefix="/api")
 
     # Served (cloud) backends mount the endpoints their frames poll — at the cloud's own path (not

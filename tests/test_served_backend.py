@@ -55,6 +55,7 @@ def served(tmp_path) -> Iterator[ServedHarness]:  # type: ignore[no-untyped-def]
 
 
 BASE = "/xiaowooya/api/v1"
+IMAGE_BASE = "/e_frame_image"
 
 
 def test_served_endpoints_are_mounted_and_identify_register_the_frame(
@@ -63,7 +64,8 @@ def test_served_endpoints_are_mounted_and_identify_register_the_frame(
     # A frame poll with its frame-code is identified and the frame is auto-registered.
     resp = served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": "EFRAME-001"})
     assert resp.status_code == 200
-    assert resp.json() == {"code": 0, "msg": "ok", "data": {"frame_id": "EFRAME-001"}}
+    # Action endpoints use the observed envelope: a string ``code`` + ``message`` (not wrapped).
+    assert resp.json() == {"code": "ok", "message": "ok"}
 
     known = served.app.state.store.list_frames()
     assert [f.id for f in known] == ["EFRAME-001"]
@@ -71,29 +73,73 @@ def test_served_endpoints_are_mounted_and_identify_register_the_frame(
     assert known[0].last_seen is not None
 
 
-def test_image_library_list_returns_json_envelope(served: ServedHarness) -> None:
-    # No cached images -> empty list in the vendor envelope (#8 endpoint shape).
+def test_identify_by_serial_query_param_registers_by_serial(served: ServedHarness) -> None:
+    # The real protocol carries the frame's identity as a query param (serial), not a header; the
+    # account-wide access_token is present but must NOT be used as the frame key.
+    resp = served.request(
+        "POST", f"{BASE}/frame/ping?serial=AS54S44600647&access_token=deadbeef&client=aluratek"
+    )
+    assert resp.status_code == 200 and resp.json()["code"] == "ok"
+    assert [f.id for f in served.app.state.store.list_frames()] == ["AS54S44600647"]
+
+
+def test_image_library_list_returns_top_level_list(served: ServedHarness) -> None:
+    # No cached images -> empty list at the top level (the observed shape, not data-wrapped).
     resp = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EFRAME-002"}
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["code"] == 0 and body["data"]["list"] == [] and body["data"]["total"] == 0
+    assert body["list"] == [] and body["total"] == 0
 
 
 def test_image_list_then_file_download_returns_cached_image(served: ServedHarness) -> None:
-    # The frame lists its photos (URLs), then downloads each from the file endpoint (#8 flow).
+    # The frame lists its photos (path/thumbPath URLs), then downloads the full image (#8 flow).
     edited = b"\xff\xd8\xffSMART-BLUR-EDITED\xff\xd9"
     served.app.state.image_cache.put("EFRAME-CACHED", "current.jpg", edited)
 
     listing = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EFRAME-CACHED"}
     ).json()
-    items = listing["data"]["list"]
-    assert [i["id"] for i in items] == ["current.jpg"]
+    items = listing["list"]
+    assert [i["id"] for i in items] == ["current"]  # the photo id (stem), two URLs per item
+    assert items[0]["path"].endswith("/e_frame_image/EFRAME-CACHED/current.bmp")
+    assert items[0]["thumbPath"].endswith("/e_frame_image/EFRAME-CACHED/current.jpg")
 
-    img = served.request("GET", urlparse(items[0]["url"]).path)  # the frame downloads the URL
+    img = served.request("GET", urlparse(items[0]["path"]).path)  # frame downloads the full image
     assert img.status_code == 200 and img.content == edited
+    assert img.headers["content-type"] == "image/bmp" and img.headers["ETag"]
+
+
+def test_image_file_supports_etag_not_modified(served: ServedHarness) -> None:
+    served.app.state.image_cache.put("EF-ETAG", "current.jpg", b"\xff\xd8\xffX\xff\xd9")
+    url = f"{IMAGE_BASE}/EF-ETAG/current.bmp"
+    first = served.request("GET", url)
+    assert first.status_code == 200
+    again = served.request("GET", url, headers={"If-None-Match": first.headers["ETag"]})
+    assert again.status_code == 304 and not again.content
+
+
+def test_frame_list_carries_full_record_and_name(served: ServedHarness) -> None:
+    # frame/list returns the device record the app reads, including the carried display name.
+    served.request("POST", "/api/frames/register", json={"frame_code": "AS54", "name": "Kazoo"})
+    served.app.state.image_cache.put("AS54", "a.jpg", b"\xff\xd8\xffA\xff\xd9")
+
+    rec = served.request("GET", f"{BASE}/frame/list", headers={"X-Frame-Code": "AS54"}).json()
+    dev = rec["list"][0]
+    assert dev["serialNumber"] == "AS54" and dev["frameUser"]["alias"] == "Kazoo"
+    assert dev["album"]["id"] == "AS54" and dev["album"]["total"] == 1
+    assert dev["screenModel"] and dev["setting"]["wakeUpInterval"] == "259200"
+
+
+def test_album_detail_lists_photos_with_path_and_thumb(served: ServedHarness) -> None:
+    # The app fetches a frame's photos via album/detail?album_id=<frame id we minted in frame/list>.
+    served.app.state.image_cache.put("AS99", "p1.jpg", b"\xff\xd8\xff1\xff\xd9")
+    listing = served.request("POST", f"{BASE}/album/detail?album_id=AS99").json()
+    items = listing["list"]
+    assert listing["total"] == 1 and items[0]["id"] == "p1"
+    assert items[0]["path"].endswith("/e_frame_image/AS99/p1.bmp")
+    assert items[0]["thumbPath"].endswith("/e_frame_image/AS99/p1.jpg")
 
 
 def test_full_served_loop_curate_publish_then_frame_downloads(served: ServedHarness) -> None:
@@ -121,30 +167,36 @@ def test_full_served_loop_curate_publish_then_frame_downloads(served: ServedHarn
     listing = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": code}
     ).json()
-    items = listing["data"]["list"]
+    items = listing["list"]
     assert len(items) == 1
-    img = served.request("GET", urlparse(items[0]["url"]).path)
+    img = served.request("GET", urlparse(items[0]["path"]).path)
     assert img.status_code == 200
     with Image.open(io.BytesIO(img.content)) as i:
         assert i.size == (160, 96)  # the image prepared to the frame's canvas
 
 
 def test_login_registers_frame_and_issues_token(served: ServedHarness) -> None:
-    # #8: the frame logs in (with an identifier in the body) and gets a token == its frame-code.
+    # #8: the frame logs in (with an identifier in the body) and gets back an access_token.
     resp = served.request("POST", f"{BASE}/user/login", json={"sn": "EF-LOGIN"})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["code"] == 0 and body["data"]["token"] == "EF-LOGIN"
+    assert body["code"] == "ok" and body["access_token"] == "EF-LOGIN"
     assert "EF-LOGIN" in [f.id for f in served.app.state.store.list_frames()]
     # subsequent bearer auth with that token identifies the same frame
     ping = served.request("GET", f"{BASE}/frame/ping", headers={"Authorization": "Bearer EF-LOGIN"})
-    assert ping.status_code == 200 and ping.json()["data"]["frame_id"] == "EF-LOGIN"
+    assert ping.status_code == 200 and ping.json()["code"] == "ok"
 
 
 def test_setting_schedule_frame_list_endpoints_respond(served: ServedHarness) -> None:
-    for ep in ("setting/detail", "schedule/list", "frame/list"):
-        r = served.request("GET", f"{BASE}/{ep}", headers={"X-Frame-Code": "EF-EP"})
-        assert r.status_code == 200 and r.json()["code"] == 0
+    # setting/detail -> setting dict; schedule/list -> {list}; frame/list -> {list:[record]}.
+    setting = served.request(
+        "GET", f"{BASE}/setting/detail", headers={"X-Frame-Code": "EF-EP"}
+    ).json()
+    assert "wakeUpInterval" in setting
+    sched = served.request("GET", f"{BASE}/schedule/list", headers={"X-Frame-Code": "EF-EP"}).json()
+    assert sched == {"list": []}
+    frames = served.request("GET", f"{BASE}/frame/list", headers={"X-Frame-Code": "EF-EP"}).json()
+    assert frames["list"][0]["serialNumber"] == "EF-EP"
 
 
 def test_frames_status_is_frame_agnostic(served: ServedHarness) -> None:
@@ -205,10 +257,11 @@ def test_curation_endpoint_drives_delivery_then_frame_pulls(served: ServedHarnes
     listing = served.request(
         "GET", f"{BASE}/image_library/list", headers={"X-Frame-Code": "EF-WIRE"}
     ).json()
-    assert len(listing["data"]["list"]) == 1
-    img = served.request("GET", urlparse(listing["data"]["list"][0]["url"]).path)
+    assert len(listing["list"]) == 1
+    img = served.request("GET", urlparse(listing["list"][0]["path"]).path)
     assert img.status_code == 200
-    assert img.content[:8] == b"\x89PNG\r\n\x1a\n"  # the e-paper-prepared PNG, downloaded
+    # The e-paper frame downloads the exact panel BMP we prepared (#11): 'BM', fixed 960,118 bytes.
+    assert img.content[:2] == b"BM" and len(img.content) == 960118
 
 
 def test_library_readback_and_detail(served: ServedHarness) -> None:

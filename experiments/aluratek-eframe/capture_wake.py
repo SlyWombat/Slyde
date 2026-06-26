@@ -87,7 +87,9 @@ def start(opn: OPN) -> None:
         "interface": LAN_IF,
         "protocol": "TCP",
         "host": CLOUD_IP,  # filter to the frame<->cloud conversation only
-        "port": "80",
+        # All ports (empty = any): the frame's port is unconfirmed and the phone app uses 8080
+        # (plain HTTP) for photo/upload + image_library/push — port "80" alone would miss both.
+        "port": "",
         "count": "10000",  # high cap; filtered traffic is near-zero until the wake
         "snaplen": "",  # empty = full packets (we need the HTTP bodies); "0" is rejected
         "promiscuous": "0",

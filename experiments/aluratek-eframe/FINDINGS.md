@@ -61,11 +61,56 @@ must be confirmed by capturing the frame's own traffic once, so we reimplement
 exactly the endpoints the frame calls and the response shapes it expects. The
 AdGuard query log will show the wake; the rest we already know.
 
+## Live capture — CONFIRMED (2026-06-26, app push over the gateway)
+
+A passive OPNsense packet-capture (LAN `igc1`, host `47.88.4.176`, **all ports**)
+caught a real photo push from the Android app. Everything is **plain HTTP on
+:8080**, so the full exchange — including the image — was reconstructed straight
+from the pcap. This upgrades the static analysis above from *predicted* to
+*observed*. (The pcap holds a live `access_token`, the frame MAC + serial, and
+personal photo EXIF/GPS — git-ignored, never committed.)
+
+**The app does ALL image processing client-side; the cloud just stores+serves bytes:**
+
+| | Original (Pixel HDR+) | Uploaded by app |
+|---|---|---|
+| Dimensions | 3072 × 4080 portrait | **1200 × 1600** |
+| Format/size | JPEG, 4.4 MB | **JPEG, RGB, ~139 KB** |
+
+The `photo/upload` body and the cloud's served copy are the **byte-identical
+1200×1600 JPEG**. The app does **not** do Spectra-6 quantization/dithering — it
+only crops + downscales to a 1200×1600 plain-RGB JPEG. **The 6-colour e-paper
+conversion happens on the frame itself.** ⇒ our replacement only has to serve a
+1200×1600 JPEG (+ a `.bmp` variant); the frame does the hard part.
+
+**Observed endpoints (base `…:8080/xiaowooya/api/v1`, auth via `?access_token=`):**
+- `GET frame/list` → device + `setting` + `album` (full schema below)
+- `POST photo/upload` (`multipart/form-data`) → `{"code":"ok","message":"Upload photos successfully"}`
+- `GET image_library/list` → photo list, **two URLs each**:
+  - `path` → `…/e_frame_image/<serial>/<id>.bmp`  ← **what the frame downloads**
+  - `thumbPath` → `…/<id>.jpg`  ← the thumbnail the app shows
+- Frame image GETs use `If-None-Match` ETags → `304 Not Modified` (HTTP caching;
+  only changed images are re-pulled).
+
+**`frame/list` → `setting` (live values):** `wakeUpInterval: 259200` (**3 days**,
+matches the ~2-day DNS cadence), `slideShowInterval: 60`, `firmware: "2.0.26"`,
+`displayOrientation: 1`, `modelNumber: "AEINK13F"`, `screenModel: "EL133UF1"`
+(the Spectra-6 panel).
+
+## What the wake capture still needs to confirm
+
+App→cloud + the static download URLs are now known. The remaining unknown is the
+**frame→cloud** side: does the frame download the **`.bmp`** (likely already
+panel-packed / dithered) vs the `.jpg`, and does it hit `callback/init_status` /
+a firmware check on wake? The capture is left running for the next ~05:01 UTC wake
+to answer exactly that.
+
 ## Next steps
 
 1. Stand up `fake_cloud.py` and point the AGH DNS Rewrite at it (HTTP :8080).
-2. Force/await one frame wake; the catch-all logs the **frame's** exact calls +
-   request bodies → fill in real response shapes for those endpoints.
-3. Implement `image_library/list` to return Immich image URLs (served by us),
-   and `frame/ping` / `setting/detail` / `schedule/list` to keep it happy.
+2. Await the wake; confirm whether the frame pulls `.bmp` or `.jpg` and its exact
+   request order → match response shapes (we already have most of them above).
+3. Implement `frame/list` + `image_library/list` to return Immich-backed image
+   URLs (`path`/`thumbPath`) served by us; reproduce the **frame-expected** image
+   (1200×1600; `.bmp` form TBD from the wake).
 4. Read-only, one-way from Immich — same contract as Slyde.

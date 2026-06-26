@@ -24,6 +24,9 @@ build/
 .ruff_cache/
 .coverage
 htmlcov/
+# Runtime artifacts (default cache_dir / sqlite db) — never commit.
+/cache/
+*.db
 # uv.lock IS committed (reproducible installs) — do not ignore it.
 
 # OS / editor

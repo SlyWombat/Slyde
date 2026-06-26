@@ -1,0 +1,8 @@
+# Captures and samples contain live secrets (access_token, MAC, serial, GPS/EXIF)
+# and personal photos — never commit them.
+*.pcap
+*.pcapng
+samples/
+staging/
+capture_wake.pcap
+*.jsonl

@@ -283,7 +283,9 @@ async def frame_preview(
 ) -> Response:
     """Render how an Immich asset will look on this frame's panel (#30): the frame's processing
     profile — full-colour LCD (JPEG) vs e-ink Spectra-6 palette + dither (PNG) — applied to the
-    asset, reusing the exact prepare() pipeline delivery uses. Powers the curation preview (#39).
+    asset, reusing the exact fit + quantize + dither pipeline delivery uses. Powers the curation
+    preview (#39). A preview is a *viewable* image, so for an e-ink frame whose delivery format is
+    the packed panel BMP we emit the equivalent palette PNG (same appearance, browser-displayable).
     """
     frame = store.get_frame(frame_id)
     if frame is None:
@@ -291,6 +293,8 @@ async def frame_preview(
     if not (settings.immich_base_url and settings.immich_api_key):
         raise HTTPException(status_code=503, detail="Immich is not configured")
     profile = profile_for(frame, settings, canvas=settings.canvas)
+    if profile.encoder != "auto":  # preview as a viewable image, not the raw panel bytes
+        profile = replace(profile, encoder="auto")
     try:
         async with factory() as client:
             source = await client.asset_bytes(asset_id, settings.immich_asset_size)

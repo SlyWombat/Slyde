@@ -262,6 +262,32 @@ def test_render_preview_unknown_frame_404(client: ApiHarness) -> None:
     assert client.get("/api/frames/nope/preview/x1").status_code == 404
 
 
+def test_asset_preview_is_generated_persisted_and_frame_independent(client: ApiHarness) -> None:
+    # Slyde renders its own canonical preview from Immich once, with no frame involved at all.
+    res = client.get("/api/assets/x1/preview")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/jpeg" and res.content[:3] == b"\xff\xd8\xff"
+    # ...and keeps it in its own store, keyed by asset (not by any frame).
+    assert client.app.state.asset_previews.get("x1") is not None
+
+
+def test_asset_preview_served_from_slyde_store_even_when_immich_unavailable(
+    client: ApiHarness,
+) -> None:
+    client.get("/api/assets/x1/preview")  # populate Slyde's preview store
+
+    class _BoomImmich:  # Immich must NOT be touched once Slyde has its own preview
+        async def __aenter__(self) -> _BoomImmich:
+            raise AssertionError("Immich should not be called on a preview cache hit")
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    client.app.state.immich_factory = _BoomImmich
+    res = client.get("/api/assets/x1/preview")
+    assert res.status_code == 200 and res.content[:3] == b"\xff\xd8\xff"
+
+
 def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
     client.post(f"{F}/sync", json={"album_id": "a1"})
     dest = next(iter(frame.state.photos))

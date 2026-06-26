@@ -24,15 +24,24 @@ abandoned or cloud-locked frame can be added as a backend without forking.
 
 ## The interface
 
-Two pieces (`packages/slyde-backend/src/slyde_backend/backends/base.py`):
+A frame is reached one of two ways, captured by two interaction models
+(`packages/slyde-backend/src/slyde_backend/backends/base.py`):
 
-- **`FrameConnection`** — a `Protocol` of the per-session operations the manager performs on a
-  connected frame: `get_config` / `change_setup`, `next_image` / `previous_image`,
-  `get_current_image_name`, `upload_image` / `delete_image`, `get_album_data` / `send_album_data`,
-  `get_thumbnails_list` / `get_thumbnail`, `trigger_update`. `memento_core.FrameClient` satisfies it
-  structurally; a new backend supplies its own object with the same methods.
-- **`FrameBackend`** — an `ABC` with `discover()`, `session(host) -> contextmanager[FrameConnection]`,
-  and a `FrameCapabilities` descriptor (transport, discovery, albums, thumbnails, upload, delete, ota).
+- **Connected** (`ConnectedFrameBackend`) — *we* initiate sessions to the frame (LAN). Implements
+  `discover()` and `session(host) -> contextmanager[FrameConnection]`, where **`FrameConnection`** is
+  a `Protocol` of per-session operations: `get_config` / `change_setup`, `next_image` /
+  `previous_image`, `get_current_image_name`, `upload_image` / `delete_image`, `get_album_data` /
+  `send_album_data`, `get_thumbnails_list` / `get_thumbnail`, `trigger_update`.
+  `memento_core.FrameClient` satisfies it structurally. *(memento-lan)*
+- **Served** (`ServedFrameBackend`) — the *frame* polls a server we run (cloud devices we can't reach
+  or connect to). Implements `router()` (the HTTP surface the frame polls), `identify(request)` (which
+  frame is calling), and `respond(frame, request)`. We impersonate the vendor cloud and hand the
+  frame an already-prepared image from the cache. *(sungale-cloud)*
+
+Both declare a **`FrameCapabilities`** descriptor (interaction, transport, `color_model`, discovery,
+albums, thumbnails, upload, delete, ota). `color_model` drives the per-frame processing profile:
+`full` (LCD → JPEG) or `epaper` (Spectra-6 palette + dither → the panel's 4bpp BMP, see
+`panel_bmp.py`).
 
 ## Selecting a backend
 
@@ -41,22 +50,30 @@ registered backend. `FrameService` resolves it once via `get_backend(name)`.
 
 ```
 FRAME_BACKEND=memento-lan     # default — the reverse-engineered Memento LAN protocol
-FRAME_BACKEND=sungale-cloud   # Aluratek/Sungale ePaper (cloud impersonation — WIP)
+FRAME_BACKEND=sungale-cloud   # Aluratek/Sungale Spectra-6 ePaper (cloud impersonation)
 ```
+
+For a **served** backend the frame finds us by DNS: point an AdGuard Home rewrite of the vendor host
+(`us.xiaowooya.eframe.sungale.com.cn`) at Slyde. The frame then polls Slyde's mounted endpoints and
+downloads its image. App photo pushes (`photo/upload`) are ingested too — see
+`docs/sungale-eframe-integration-plan.md`.
 
 ## Built-in backends
 
 | Backend | Transport | Status | Notes |
 |---|---|---|---|
 | `memento-lan` | LAN (UDP+TCP) | ✅ complete | The original Memento frame, emulator, and Pi soft-frame. |
-| `sungale-cloud` | Cloud (HTTP) | 🟢 endpoints built | Aluratek/Sungale ePaper. Cloud-impersonation responder (login/ping/list→file download, serves e-ink PNG). Exact JSON field names pending the live capture (#9). |
+| `sungale-cloud` | Cloud (HTTP) | ✅ complete | Aluratek/Sungale Spectra-6 ePaper. Wire-confirmed cloud-impersonation responder (frame/list, album/detail, photo/upload, `/e_frame_image/<serial>/<id>.{bmp,jpg}` with ETags). Delivers the panel's exact byte-compatible 4bpp BMP (`panel_bmp.py`). Live verification = AGH cutover + the frame's ~3-day wake (#9). |
 
 ## Adding your own
 
-1. Create `backends/<your_frame>.py` with a `class YourBackend(FrameBackend)` that sets `name` +
-   `capabilities` and implements `discover()` and `session()`. Return an object that implements the
-   `FrameConnection` methods your frame supports (raise `NotImplementedError` for ones it can't do,
-   and reflect that in `capabilities`).
+1. Create `backends/<your_frame>.py` with a `class YourBackend(...)` that sets `name` +
+   `capabilities`. Pick the interaction model:
+   - **Connected** (`ConnectedFrameBackend`): implement `discover()` and `session()`, returning an
+     object with the `FrameConnection` methods your frame supports (raise `NotImplementedError` for
+     ones it can't, and reflect that in `capabilities`).
+   - **Served** (`ServedFrameBackend`): implement `router()`, `identify()`, and `respond()` — the
+     frame polls those endpoints (see `sungale_cloud.py`).
 2. Register it in `backends/__init__.py` (`_BACKENDS`).
 3. Add a conformance test (see `tests/test_backends.py` — run your backend against a fake/emulated
    device the way `test_memento_lan_backend_drives_the_emulator` does).

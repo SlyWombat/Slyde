@@ -216,12 +216,16 @@ class SungaleCloudBackend(ServedFrameBackend):
                 data = await upload.read()
             finally:
                 await upload.close()
+            state = request.app.state
             await ingest_upload(
                 frame=frame,
                 data=data,
-                settings=request.app.state.settings,
-                image_cache=request.app.state.image_cache,
-                asset_previews=request.app.state.asset_previews,
+                settings=state.settings,
+                image_cache=state.image_cache,
+                asset_previews=state.asset_previews,
+                uploads=state.uploads,
+                library=state.library,
+                store=state.store,
             )
             return _ok("Upload photos successfully")
 

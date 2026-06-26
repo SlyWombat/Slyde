@@ -137,6 +137,40 @@ def test_connected_delivery_reuses_cached_image_without_immich(tmp_path: Path) -
     assert frames.pushed == [("10.0.0.5", "one.jpg")]
 
 
+def test_uploaded_photo_is_sourced_locally_not_from_immich(tmp_path: Path) -> None:
+    """An app-uploaded photo isn't in Immich: on a cache miss, delivery re-prepares it from the
+    uploads store (the original), never touching Immich."""
+
+    class NoImmich:
+        async def __aenter__(self) -> NoImmich:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def asset_bytes(self, *a: object, **k: object) -> bytes:
+            raise AssertionError("Immich must not be called for an app-uploaded photo")
+
+    store = Store(str(tmp_path / "d.db"))
+    cache = ImageCache(str(tmp_path / "cache"))
+    uploads = ImageCache(str(tmp_path / "uploads"))
+    library = FrameLibrary(store, cache)
+    ds = DeliveryService(
+        store, library, cache, FakeFrames(), NoImmich, Settings(frame_canvas="64x48"), uploads
+    )
+
+    store.upsert_frame(Frame.served("EF-UP", backend="sungale-cloud"))
+    buf = io.BytesIO()
+    Image.new("RGB", (90, 70), (10, 200, 60)).save(buf, format="JPEG")
+    uploads.put("EF-UP", "p1", buf.getvalue())  # the durable original; nothing cached yet
+    library.add("EF-UP", LibraryItem("p1", "p1", source="upload"))
+    store.enqueue_delivery("EF-UP", "p1", "p1", next_attempt_at=T0.isoformat())
+
+    counts = asyncio.run(ds.reconcile(now=T0))  # NoImmich raises if Immich is consulted
+    assert counts["delivered"] == 1
+    assert cache.get("EF-UP", "p1") is not None  # prepared from the local original, ready to serve
+
+
 def test_connected_offline_frame_is_retried_then_delivered(tmp_path: Path) -> None:
     frames = FakeFrames()
     frames.offline = True

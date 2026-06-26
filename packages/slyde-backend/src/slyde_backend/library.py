@@ -28,6 +28,7 @@ from .store import Store
 class LibraryItem:
     asset_id: str
     dest_name: str
+    source: str = "immich"  # "immich" (curated) | "upload" (pushed by the app, see uploads.py)
 
 
 class FrameLibrary:
@@ -38,17 +39,26 @@ class FrameLibrary:
         self._cache = cache
 
     def set_desired(self, frame_id: str, items: list[LibraryItem]) -> None:
-        """Record (durably) the photos a frame should show. Replaces the previous set, and evicts
-        any cached image / queued delivery for photos that are no longer desired (#25)."""
+        """Record (durably) the Immich-curated photos a frame should show. Replaces the previous
+        *Immich* set, evicting the cached image / queued delivery for curated photos no longer
+        desired (#25). App-uploaded photos are managed separately (``add``) and left untouched."""
         new_dests = {i.dest_name for i in items}
         for old in self.desired(frame_id):
-            if old.dest_name not in new_dests:
+            if old.source == "immich" and old.dest_name not in new_dests:
                 self._cache.delete(frame_id, old.dest_name)
                 self._store.delete_delivery(frame_id, old.dest_name)
         self._store.set_library(frame_id, [(i.asset_id, i.dest_name) for i in items])
 
+    def add(self, frame_id: str, item: LibraryItem) -> None:
+        """Add a single photo to the frame's library (e.g. an app upload), without disturbing the
+        rest of the curated set. The prepared image is cached separately by the caller."""
+        self._store.add_library_item(frame_id, item.asset_id, item.dest_name, source=item.source)
+
     def desired(self, frame_id: str) -> list[LibraryItem]:
-        return [LibraryItem(aid, dest) for aid, dest in self._store.list_library(frame_id)]
+        return [
+            LibraryItem(aid, dest, source)
+            for aid, dest, source in self._store.list_library(frame_id)
+        ]
 
     async def publish(
         self,

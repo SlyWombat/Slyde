@@ -45,11 +45,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         image_cache = ImageCache(settings.cache_dir)
         # Slyde's own canonical previews, kept per asset independent of any frame (like Immich).
         asset_previews = AssetPreviewCache(f"{settings.cache_dir}/previews")
+        # Originals of photos pushed by the app (not in Immich), so they survive a cache eviction.
+        uploads = ImageCache(f"{settings.cache_dir}/uploads")
         # The desired photo set per frame (curation), decoupled from delivery (#23).
         library = FrameLibrary(store, image_cache)
         # Live wiring (#25/#26): curation -> guaranteed-delivery queue -> prepare -> cache/push.
         delivery_service = DeliveryService(
-            store, library, image_cache, frame_service, immich_factory, settings
+            store, library, image_cache, frame_service, immich_factory, settings, uploads
         )
         scheduler = SyncScheduler(
             sync_service,
@@ -68,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.firmware = FirmwareService(settings)
         app.state.image_cache = image_cache
         app.state.asset_previews = asset_previews
+        app.state.uploads = uploads
         app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
         app.state.library = library
         app.state.delivery_service = delivery_service

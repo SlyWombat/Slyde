@@ -249,7 +249,7 @@ async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
     items = [
         LibraryPhoto(asset_id=aid, dest_name=dest, state=states.get(dest, "unknown"))
-        for aid, dest in store.list_library(frame_id)
+        for aid, dest, _source in store.list_library(frame_id)
     ]
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
 

@@ -40,6 +40,7 @@ class DeliveryService:
         frame_service: FrameService,
         immich_factory: Callable[[], ImmichClient],
         settings: Settings,
+        uploads: ImageCache | None = None,
     ) -> None:
         self._store = store
         self._library = library
@@ -47,6 +48,8 @@ class DeliveryService:
         self._frames = frame_service
         self._immich_factory = immich_factory
         self._settings = settings
+        # Originals of app-pushed photos (not in Immich); sourced from here instead of Immich.
+        self._uploads = uploads
         self._policy = RetryPolicy()
         self._lock = asyncio.Lock()  # serialise reconcile passes (PUT, scheduler, delivery timer)
 
@@ -97,13 +100,16 @@ class DeliveryService:
         prepared = self._cache.get(frame.id, item.key)
         if prepared is None:
             profile = profile_for(frame, self._settings, canvas=self._settings.canvas)
-            try:
-                async with self._immich_factory() as client:
-                    source = await client.asset_bytes(
-                        item.payload, self._settings.immich_asset_size
-                    )
-            except (ImmichError, OSError) as exc:  # Immich down/unreachable -> retry later
-                raise TransientDeliveryError(f"immich fetch failed: {exc}") from exc
+            # App-uploaded photos aren't in Immich — source their original locally if we have it.
+            source = self._uploads.get(frame.id, item.key) if self._uploads else None
+            if source is None:
+                try:
+                    async with self._immich_factory() as client:
+                        source = await client.asset_bytes(
+                            item.payload, self._settings.immich_asset_size
+                        )
+                except (ImmichError, OSError) as exc:  # Immich down/unreachable -> retry later
+                    raise TransientDeliveryError(f"immich fetch failed: {exc}") from exc
             prepared = await asyncio.to_thread(prepare, source, profile)
             self._cache.put(
                 frame.id, item.key, prepared

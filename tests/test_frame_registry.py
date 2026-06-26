@@ -62,7 +62,7 @@ def test_store_rekey_moves_library_and_delivery(tmp_path: Path) -> None:
 
     store.rekey_frame("10.0.0.9", "guid-xyz")
     store.upsert_frame(Frame.connected("10.0.0.9", backend="memento-lan", guid="guid-xyz"))
-    assert store.list_library("guid-xyz") == [("a1", "one.jpg")]  # library followed
+    assert store.list_library("guid-xyz") == [("a1", "one.jpg", "immich")]  # library followed
     assert [d.frame_id for d in store.list_deliveries("guid-xyz")] == ["guid-xyz"]  # delivery too
     assert store.list_library("10.0.0.9") == []  # old key emptied
 
@@ -90,7 +90,7 @@ def test_discovery_keys_by_guid_and_survives_dhcp_change(tmp_path: Path) -> None
     asyncio.run(svc.discover_frames())
     f2 = store.get_frame(g)
     assert f2.id == g and f2.address == "192.168.10.142"  # same identity, new address
-    assert store.list_library(g) == [("a1", "one.jpg")]  # curation followed the frame
+    assert store.list_library(g) == [("a1", "one.jpg", "immich")]  # curation followed the frame
     assert len(store.list_frames()) == 1  # no duplicate from the IP change
     assert asyncio.run(svc.resolve_host(g)) == "192.168.10.142"  # resolves to the current IP
 

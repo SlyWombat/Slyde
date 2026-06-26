@@ -142,9 +142,12 @@ to the cloud host. To capture these locally we point that host at us (AGH DNS re
   `uploads.ingest_upload` makes the photo Slyde-owned: it prepares the panel BMP into the frame's
   cache (the frame pulls it on next wake via album/detail → `/e_frame_image/...`) and stores a
   canonical preview (served at `/api/assets/{id}/preview`). App-uploaded photos are not in Immich,
-  so Slyde owns them. At that point the app talks only to Slyde and the China cloud is cut over.
-  *Follow-up:* surface uploads as first-class curation/library items (today they go straight to the
-  prepared cache + preview, not through the Immich-keyed delivery queue).
+  so Slyde owns them (the original is persisted too). At that point the app talks only to Slyde and
+  the China cloud is cut over.
+- **Unified into curation (done).** An upload is a first-class `library_item` with `source='upload'`:
+  it appears in the frame's library next to Immich photos, flows through the delivery queue (delivery
+  re-prepares from the persisted original, never Immich), and an Immich "Set library" PUT curates
+  alongside it without wiping it (`set_library` only replaces `source='immich'` rows).
 
 We already proved the **pull** direction (impersonate app → download our whole library):
 `pull_library.py` staged all 6 photos (full `.bmp` + thumb `.jpg`) + a manifest.

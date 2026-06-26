@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS library_item (
     asset_id  TEXT NOT NULL,
     dest_name TEXT NOT NULL,
     position  INTEGER NOT NULL DEFAULT 0,
+    source    TEXT NOT NULL DEFAULT 'immich',  -- 'immich' (curated) | 'upload' (pushed by the app)
     PRIMARY KEY (frame_id, asset_id)
 );
 """
@@ -104,6 +105,16 @@ class Store:
         self._path = path
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Idempotent column migrations for DBs created before a column existed."""
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(library_item)")}
+        if "source" not in cols:  # added with app-upload curation; older DBs default to 'immich'
+            conn.execute(
+                "ALTER TABLE library_item ADD COLUMN source TEXT NOT NULL DEFAULT 'immich'"
+            )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -294,22 +305,44 @@ class Store:
 
     # -- frame library (the desired photo set per frame; see library.py) -------
     def set_library(self, frame_id: str, items: list[tuple[str, str]]) -> None:
-        """Replace a frame's desired set with ``items`` (asset_id, dest_name), order preserved."""
+        """Replace a frame's **Immich-curated** set with ``items`` (asset_id, dest_name), order
+        preserved. App-uploaded photos (``source='upload'``) are kept — they're not part of the
+        Immich curation a 'Set library' PUT manages (see uploads.py)."""
         with self._conn() as conn:
-            conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
+            conn.execute(
+                "DELETE FROM library_item WHERE frame_id = ? AND source = 'immich'", (frame_id,)
+            )
             conn.executemany(
-                "INSERT INTO library_item (frame_id, asset_id, dest_name, position) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO library_item (frame_id, asset_id, dest_name, position, source) "
+                "VALUES (?, ?, ?, ?, 'immich')",
                 [(frame_id, aid, dest, i) for i, (aid, dest) in enumerate(items)],
             )
 
-    def list_library(self, frame_id: str) -> list[tuple[str, str]]:
+    def add_library_item(
+        self, frame_id: str, asset_id: str, dest_name: str, *, source: str = "upload"
+    ) -> None:
+        """Add (or replace) a single library item, appended after the current set — used for
+        app-uploaded photos so they join the same curation/delivery flow as Immich photos."""
+        with self._conn() as conn:
+            nxt = conn.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM library_item WHERE frame_id = ?",
+                (frame_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT OR REPLACE INTO library_item "
+                "(frame_id, asset_id, dest_name, position, source) VALUES (?, ?, ?, ?, ?)",
+                (frame_id, asset_id, dest_name, nxt, source),
+            )
+
+    def list_library(self, frame_id: str) -> list[tuple[str, str, str]]:
+        """The frame's desired photos as (asset_id, dest_name, source), in order."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT asset_id, dest_name FROM library_item WHERE frame_id = ? ORDER BY position",
+                "SELECT asset_id, dest_name, source FROM library_item "
+                "WHERE frame_id = ? ORDER BY position",
                 (frame_id,),
             ).fetchall()
-        return [(r["asset_id"], r["dest_name"]) for r in rows]
+        return [(r["asset_id"], r["dest_name"], r["source"]) for r in rows]
 
     def clear_library(self, frame_id: str) -> None:
         with self._conn() as conn:

@@ -172,6 +172,36 @@ def test_photo_upload_ingests_and_frame_can_pull_the_panel_bmp(served: ServedHar
     assert served.app.state.asset_previews.get(photo_id) is not None
 
 
+def test_uploaded_photo_joins_the_library_and_survives_immich_recuration(
+    served: ServedHarness,
+) -> None:
+    """An app upload becomes a first-class library item; a later Immich 'Set library' PUT curates
+    alongside it without wiping it."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (640, 480), (30, 160, 90)).save(buf, format="JPEG")
+    served.request(
+        "POST",
+        f"{BASE}/photo/upload?album_id=EF-MIX",
+        data={"album_id": "EF-MIX"},
+        files={"file": ("p.jpg", buf.getvalue(), "image/jpeg")},
+    )
+    lib = served.request("GET", "/api/frames/EF-MIX/library").json()
+    assert len(lib["items"]) == 1
+    upload_dest = lib["items"][0]["dest_name"]
+
+    # The UI now sets the Immich-curated library — the upload must remain.
+    put = served.request("PUT", "/api/frames/EF-MIX/library", json=[{"asset_id": "imm1"}])
+    assert put.status_code == 202
+    dests = {
+        i["dest_name"] for i in served.request("GET", "/api/frames/EF-MIX/library").json()["items"]
+    }
+    assert upload_dest in dests and "imm1.jpg" in dests  # upload kept alongside the curated photo
+
+
 def test_photo_upload_without_an_image_is_rejected(served: ServedHarness) -> None:
     resp = served.request(
         "POST", f"{BASE}/photo/upload?album_id=EF-NOIMG", data={"album_id": "EF-NOIMG"}

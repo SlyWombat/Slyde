@@ -105,7 +105,7 @@ serial auto-registers on first poll, curation/delivery/scheduling are already ke
 | Photo list endpoint | `image_library/list` → `{id,name,url}` | **`POST album/detail?album_id=`** → `{id,name,createDate,path,thumbPath}` (keep `image_library/list` too until the wake shows which the *frame* uses) |
 | Image URL fields | `url` | **`path`** (`…/<serial>/<id>.bmp`, full) + **`thumbPath`** (`.jpg`) |
 | Image route | `/image_library/file/<frame>/<key>` | **`GET /e_frame_image/<serial>/<id>.{bmp,jpg}`** (outside `API_BASE`), with **ETag / `If-None-Match` → 304** |
-| `photo/upload` | *(not implemented)* | **implement** — accept multipart, ingest the 1200×1600 JPEG (this is how the app adds photos; see §6) |
+| `photo/upload` | *(not implemented)* | **done** — accepts multipart, ingests the pushed photo (§6): prepares the panel BMP for the frame + keeps Slyde's canonical preview |
 | `album/detail` | *(not implemented)* | **implement** |
 | Image format | epaper → **PNG** (`processing.py`) | **4bpp indexed BMP**, 600×3200 packing, real palette (§2) |
 | Palette | muted 6-colour guess | pure primaries, exact index order (§2) |
@@ -138,10 +138,13 @@ to the cloud host. To capture these locally we point that host at us (AGH DNS re
   returning the real response — so the app *and* the existing frame keep working while we
   collect real uploads. This is the immediate "catch the app locally" capability.
 
-- **End state: ingest into Slyde.** `SungaleCloudBackend.photo/upload` accepts the JPEG and
-  enqueues it for that frame (serial) via the existing `FrameLibrary` + delivery queue, then the
-  frame pulls the e-ink BMP we produce. At that point the app talks only to Slyde and the China
-  cloud is fully cut over — read-only, one-way, same contract as Memento.
+- **Ingest into Slyde (done).** `SungaleCloudBackend.photo/upload` accepts the multipart push and
+  `uploads.ingest_upload` makes the photo Slyde-owned: it prepares the panel BMP into the frame's
+  cache (the frame pulls it on next wake via album/detail → `/e_frame_image/...`) and stores a
+  canonical preview (served at `/api/assets/{id}/preview`). App-uploaded photos are not in Immich,
+  so Slyde owns them. At that point the app talks only to Slyde and the China cloud is cut over.
+  *Follow-up:* surface uploads as first-class curation/library items (today they go straight to the
+  prepared cache + preview, not through the Immich-keyed delivery queue).
 
 We already proved the **pull** direction (impersonate app → download our whole library):
 `pull_library.py` staged all 6 photos (full `.bmp` + thumb `.jpg`) + a manifest.

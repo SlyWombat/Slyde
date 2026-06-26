@@ -26,12 +26,14 @@ import hashlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from starlette.datastructures import UploadFile  # the type the form parser yields
 
 from memento_core import FrameInfo, Ports
 
 from ..frame import Frame
 from ..imagecache import ImageCache
 from ..serving import resolve_or_register_served_frame
+from ..uploads import ingest_upload
 from .base import FrameCapabilities, ServedFrameBackend
 
 # Recovered cloud contract (see docs/sungale-eframe-integration-plan.md).
@@ -200,6 +202,28 @@ class SungaleCloudBackend(ServedFrameBackend):
         async def schedule_list(request: Request) -> dict[str, Any]:
             self._frame_from(request)
             return {"list": []}
+
+        @router.api_route(f"{API_BASE}/photo/upload", methods=["POST"])
+        async def photo_upload(request: Request) -> dict[str, Any]:
+            # The app pushes a photo (multipart): album_id identifies the frame, plus the image.
+            form = await request.form()
+            album_id = form.get("album_id") or request.query_params.get("album_id")
+            frame = self._frame_from(request, code=str(album_id) if album_id else None)
+            upload = next((v for v in form.values() if isinstance(v, UploadFile)), None)
+            if upload is None:
+                raise HTTPException(status_code=400, detail="no image in upload")
+            try:
+                data = await upload.read()
+            finally:
+                await upload.close()
+            await ingest_upload(
+                frame=frame,
+                data=data,
+                settings=request.app.state.settings,
+                image_cache=request.app.state.image_cache,
+                asset_previews=request.app.state.asset_previews,
+            )
+            return _ok("Upload photos successfully")
 
         @router.api_route(f"{API_BASE}/album/detail", methods=["GET", "POST"])
         async def album_detail(request: Request) -> dict[str, Any]:

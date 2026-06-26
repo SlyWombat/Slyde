@@ -142,6 +142,43 @@ def test_album_detail_lists_photos_with_path_and_thumb(served: ServedHarness) ->
     assert items[0]["thumbPath"].endswith("/e_frame_image/AS99/p1.jpg")
 
 
+def test_photo_upload_ingests_and_frame_can_pull_the_panel_bmp(served: ServedHarness) -> None:
+    """#11/#8: the app pushes a photo (multipart); it becomes the frame's prepared panel BMP, and
+    Slyde keeps its own canonical preview for the new (non-Immich) asset."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (800, 600), (200, 40, 30)).save(buf, format="JPEG")
+
+    resp = served.request(
+        "POST",
+        f"{BASE}/photo/upload?client=aluratek&access_token=tok",
+        data={"album_id": "EF-UP", "display_orientation": "1"},
+        files={"file": ("pushed.jpg", buf.getvalue(), "image/jpeg")},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"code": "ok", "message": "Upload photos successfully"}
+
+    # The pushed photo now lists for the frame and downloads as the exact panel BMP.
+    listing = served.request("POST", f"{BASE}/album/detail?album_id=EF-UP").json()
+    assert listing["total"] == 1
+    photo_id = listing["list"][0]["id"]
+    img = served.request("GET", urlparse(listing["list"][0]["path"]).path)
+    assert img.status_code == 200 and img.content[:2] == b"BM" and len(img.content) == 960118
+
+    # Slyde owns a canonical preview for the uploaded asset (served without touching Immich).
+    assert served.app.state.asset_previews.get(photo_id) is not None
+
+
+def test_photo_upload_without_an_image_is_rejected(served: ServedHarness) -> None:
+    resp = served.request(
+        "POST", f"{BASE}/photo/upload?album_id=EF-NOIMG", data={"album_id": "EF-NOIMG"}
+    )
+    assert resp.status_code == 400
+
+
 def test_full_served_loop_curate_publish_then_frame_downloads(served: ServedHarness) -> None:
     """#8/#23 end-to-end: curate -> publish (e-ink prepare + cache) -> list -> download."""
     import io

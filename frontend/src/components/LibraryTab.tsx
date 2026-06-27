@@ -1,8 +1,46 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { LibraryPhoto, LibraryView } from "../api/types";
+import { useFrame } from "../lib/frames";
+import { useSyncJob } from "../lib/useSyncJob";
 import { Button, EmptyState, ErrorState, Pill, Skeleton, StatusDot, usePoll, type Tone } from "../ui";
+
+/** Pull the photos already ON a connected frame into the library (gentle background job). Only
+ *  meaningful for connected frames; renders nothing otherwise. */
+function ImportFromFrame({ frameId }: { frameId: string }) {
+  const { frame } = useFrame(frameId);
+  const qc = useQueryClient();
+  const { info, start, running } = useSyncJob(frameId);
+  const status = info?.status;
+  useEffect(() => {
+    if (status && status !== "running")
+      qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
+  }, [status, frameId, qc]);
+
+  if (!frame || frame.interaction !== "connected") return null;
+  const r = info?.result;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button disabled={running} onClick={() => start(() => api.startFrameImport(frameId))}>
+        {running ? "Importing…" : "Import photos on the frame"}
+      </Button>
+      {running && r && (
+        <span className="text-xs text-slate-400">
+          {r.uploaded + r.skipped + r.failed}/{r.total}
+        </span>
+      )}
+      {status === "done" && r && (
+        <span className="text-xs text-slate-400">
+          Imported {r.uploaded}
+          {r.skipped > 0 && ` · ${r.skipped} already had`}
+          {r.failed > 0 && ` · ${r.failed} failed`}.
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** Per-photo delivery state → status tone. Pending/unknown are not failures. */
 const STATE_TONE: Record<LibraryPhoto["state"], Tone> = {
@@ -59,11 +97,14 @@ export function LibraryTab({ frameId }: { frameId: string }) {
       <EmptyState
         icon="✦"
         title="No photos curated yet"
-        desc="Pick photos from Immich to build this frame's set. They deliver automatically — even if the frame is asleep."
+        desc="Pick photos from Immich to build this frame's set, or pull in the photos already on the frame. They deliver automatically — even if the frame is asleep."
         action={
-          <Link to={`/curate?target=${encodeURIComponent(frameId)}`}>
-            <Button variant="accent">Curate photos</Button>
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Link to={`/curate?target=${encodeURIComponent(frameId)}`}>
+              <Button variant="accent">Curate photos</Button>
+            </Link>
+            <ImportFromFrame frameId={frameId} />
+          </div>
         }
       />
     );
@@ -86,9 +127,12 @@ export function LibraryTab({ frameId }: { frameId: string }) {
         {d && d.delivered > 0 && <Pill tone="ok">{d.delivered} on frame</Pill>}
         {d && d.pending > 0 && <Pill tone="pending">{d.pending} delivering</Pill>}
         {d && d.failed > 0 && <Pill tone="fail">{d.failed} failed</Pill>}
-        <Link to={`/curate?target=${encodeURIComponent(frameId)}`} className="ml-auto">
-          <Button variant="accent">+ Add photos</Button>
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <ImportFromFrame frameId={frameId} />
+          <Link to={`/curate?target=${encodeURIComponent(frameId)}`}>
+            <Button variant="accent">+ Add photos</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">

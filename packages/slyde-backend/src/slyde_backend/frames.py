@@ -56,6 +56,12 @@ class FrameService:
         self._backend = get_backend(settings.frame_backend)
         # Optional registry of known frames (transport-independent). None disables registration.
         self._store = store
+        # One control op per physical frame at a time — low-power frames stop answering under
+        # concurrent/rapid requests, so we serialize (and pace) per resolved host. Keyed lazily.
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _lock_for(self, host: str) -> asyncio.Lock:
+        return self._locks.setdefault(host, asyncio.Lock())
 
     async def discover_frames(
         self, timeout: float = 4.0, *, register: bool = True
@@ -193,26 +199,33 @@ class FrameService:
                     f"frame {resolved} did not respond (asleep?): {exc}"
                 ) from exc
 
-        try:
-            result = await asyncio.to_thread(run)
-        except FrameUnavailable:
-            # The frame may have moved (DHCP) since we last knew its address. Re-discover and if its
-            # address changed, retry once at the new one — so management never assumes a fixed IP
-            # (#58). ``run`` reads ``resolved`` from this scope, so reassigning it is enough.
-            # Skipped for discover-only reads (register=False) — those never touch the registry.
-            if (
-                not register
-                or self._store is None
-                or not host
-                or not self._settings.frame_discovery
-            ):
-                raise
-            await self.discover_frames()
-            new_address = await self.resolve_host(host)
-            if new_address == resolved:
-                raise
-            resolved = new_address
-            result = await asyncio.to_thread(run)
+        # Serialize all control ops to THIS frame (and pace them) so concurrent callers — the UI
+        # polling, a bulk import, album thumbnails — can't overload a low-power device.
+        async with self._lock_for(resolved):
+            try:
+                result = await asyncio.to_thread(run)
+            except FrameUnavailable:
+                # The frame may have moved (DHCP) since we last knew its address. Re-discover and if
+                # its address changed, retry once at the new one — so management never assumes a
+                # fixed IP (#58). ``run`` reads ``resolved`` from this scope; reassigning suffices.
+                # Skipped for discover-only reads (register=False) — those never touch the registry.
+                if (
+                    not register
+                    or self._store is None
+                    or not host
+                    or not self._settings.frame_discovery
+                ):
+                    raise
+                await self.discover_frames()
+                new_address = await self.resolve_host(host)
+                if new_address == resolved:
+                    raise
+                resolved = new_address
+                result = await asyncio.to_thread(run)
+            if self._settings.frame_settle_delay:
+                await asyncio.sleep(
+                    self._settings.frame_settle_delay
+                )  # give the frame breathing room
         if register and self._store is not None:  # we just reached this frame — record it as seen
             existing = self._store.get_frame_by_address(resolved)
             if existing is not None:  # touch the (GUID) entry, don't make an IP duplicate (#58)
@@ -285,6 +298,10 @@ class FrameService:
 
     async def get_thumbnail(self, host: str, image_filename: str) -> bytes:
         return await self._with_client(host, lambda c: c.get_thumbnail(image_filename))
+
+    async def download_image(self, host: str, image_filename: str) -> bytes:
+        """Pull the full-resolution original of an on-frame photo (#frame-import)."""
+        return await self._with_client(host, lambda c: c.download_image(image_filename))
 
     async def create_album(self, host: str, name: str) -> AlbumData:
         def run(client: FrameConnection) -> AlbumData:

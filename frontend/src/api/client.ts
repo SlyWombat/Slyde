@@ -119,6 +119,10 @@ export const api = {
     }),
   syncJob: (host: string, id: string) =>
     request<SyncJobInfo>(`/frames/${enc(host)}/sync/jobs/${enc(id)}`),
+  // Pull the photos already on a connected frame into the library (gentle background job); poll
+  // syncJob(frameId, job.id) for progress.
+  startFrameImport: (frameId: string) =>
+    request<SyncJobInfo>(`/frames/${enc(frameId)}/import/jobs`, { method: "POST" }),
   upload: (host: string, files: File[], targetAlbum?: string) => {
     const form = new FormData();
     files.forEach((f) => form.append("files", f));

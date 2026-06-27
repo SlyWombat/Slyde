@@ -23,6 +23,7 @@ from fastapi import (
 
 from ..backends import available_backends, get_backend
 from ..delivery_service import DeliveryService
+from ..frame_import import import_frame_photos
 from ..frames import FrameUnavailable
 from ..immich import ImmichError
 from ..jobs import SyncJob
@@ -455,6 +456,45 @@ async def start_sync_job(
         raise HTTPException(status_code=400, detail="provide album_id and/or asset_ids")
     label = request.target_album or request.album_id or "selected photos"
     job = jobs.start(host, label, lambda result: syncer.sync(host, request, result=result))
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/import/jobs", response_model=SyncJobInfo, status_code=202)
+async def start_frame_import(
+    frame_id: str,
+    request: Request,
+    frame: FrameDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    jobs: JobsDep,
+) -> SyncJobInfo:
+    """Pull the photos already ON a connected frame into Slyde's library — gentle + idempotent.
+
+    Reads the frame's albums, downloads each original off the device (serialized + paced so the
+    frame keeps cycling), and ingests them as Slyde-owned, already-delivered library items. A
+    background job; poll GET /{frame_id}/sync/jobs/{job_id} for progress.
+    """
+    f = store.get_frame(frame_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    if f.interaction != "connected":
+        raise HTTPException(status_code=422, detail="only connected frames hold photos to import")
+    state = request.app.state
+
+    def runner(result: SyncResult) -> object:
+        return import_frame_photos(
+            frame=f,
+            frame_service=frame,
+            settings=settings,
+            image_cache=state.image_cache,
+            asset_previews=state.asset_previews,
+            uploads=state.uploads,
+            library=state.library,
+            store=store,
+            result=result,
+        )
+
+    job = jobs.start(frame_id, f"Import from {f.name or frame_id}", runner)  # type: ignore[arg-type]
     return _job_info(job)
 
 

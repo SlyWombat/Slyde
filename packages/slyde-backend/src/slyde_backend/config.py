@@ -58,6 +58,19 @@ class Settings(BaseSettings):
         description="LAN subnet (CIDR) the manual 'Scan' button probes for frames; derived as a "
         "/24 from a known frame / FRAME_HOST when blank. Manual-only.",
     )
+    frame_settle_delay: float = Field(
+        0.3,
+        ge=0,
+        description="Seconds to pause after each control-protocol op to a connected frame. Control "
+        "ops to one frame are serialized; this paces them so we don't overload a low-power frame "
+        "(some stop answering under concurrent/rapid requests). 0 disables.",
+    )
+    frame_import_delay: float = Field(
+        0.5,
+        ge=0,
+        description="Extra seconds to pause between images when pulling a frame's existing photos "
+        "into the library — on top of serialization, to stay gentle on the device.",
+    )
     sync_chunk_size: int = Field(
         16,
         ge=1,

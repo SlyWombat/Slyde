@@ -202,8 +202,18 @@ def test_frame_list_carries_full_record_and_name(served: ServedHarness) -> None:
     rec = served.request("GET", f"{BASE}/frame/list", headers={"X-Frame-Code": "AS54"}).json()
     dev = rec["list"][0]
     assert dev["serialNumber"] == "AS54" and dev["frameUser"]["alias"] == "Kazoo"
-    assert dev["album"]["id"] == "AS54" and dev["album"]["total"] == 1
+    # the app's parser needs an INT id (used as frame_id/setting_id), echoed in setting + album
+    assert isinstance(dev["id"], int) and dev["setting"]["id"] == dev["id"]
+    assert dev["album"]["id"] == dev["id"] and dev["album"]["total"] == 1
+    assert dev["status"] == 1 and dev["online"] is False and dev["client"] == "aluratek"
     assert dev["screenModel"] and dev["setting"]["wakeUpInterval"] == "259200"
+
+    # the int id the app got from frame/list resolves back to the frame on a later call
+    served.request(
+        "POST",
+        f"{BASE}/setting/update_display_orientation?setting_id={dev['id']}&display_orientation=2",
+    )
+    assert served.app.state.store.get_frame_setting("AS54")["display_orientation"] == "2"
 
 
 def test_frame_list_is_account_scoped_and_never_401s(served: ServedHarness) -> None:

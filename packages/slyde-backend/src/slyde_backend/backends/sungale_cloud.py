@@ -68,14 +68,28 @@ def _ok(message: str = "ok") -> dict[str, Any]:
     return {"code": "ok", "message": message}
 
 
-def _setting_block(s: dict[str, str]) -> dict[str, Any]:
-    """The camelCase ``setting`` block the app reads, from the stored (snake_case) settings."""
+def _numeric_id(frame_id: str) -> int:
+    """A stable integer id for a frame — the app's frame/list parser expects an int `id` (the real
+    cloud used a DB row id like 753) and uses it as frame_id/setting_id. Derived from the device id;
+    linked back to the frame via the alias map so the app's later numeric-id calls resolve."""
+    return int(hashlib.sha1(frame_id.encode()).hexdigest()[:8], 16) % 1_000_000_000
+
+
+def _setting_block(s: dict[str, str], nid: int) -> dict[str, Any]:
+    """The ``setting`` block the app reads — full real shape (typed), from the stored settings."""
     return {
+        "id": nid,
         "slideShowInterval": s["slide_show_interval"],
         "wakeUpInterval": s["wake_up_interval"],
+        "firmware": "2.0.26",
+        "batteryPercentage": 0.0,
+        "rssi": 0,
         "slideShowSwitch": int(s["slide_show_switch"]),
-        "displayOrientation": int(s["display_orientation"]),
+        "frame": None,
+        "timeZone": None,
+        "wakeupScheduleTime": None,
         "timingType": int(s["timing_type"]),
+        "displayOrientation": int(s["display_orientation"]),
     }
 
 
@@ -202,16 +216,40 @@ class SungaleCloudBackend(ServedFrameBackend):
     def _frame_record(
         self, frame: Frame, cache: ImageCache, setting: dict[str, str]
     ) -> dict[str, Any]:
-        """The device record the app/frame reads from ``frame/list`` (observed shape)."""
+        """The device record the app reads from ``frame/list`` — the full observed shape, with typed
+        fields (int ids), so the app's parser accepts it."""
+        nid = _numeric_id(frame.id)
         return {
-            "id": frame.id,
+            "id": nid,
             "deviceId": frame.id,
             "serialNumber": frame.id,
+            "macAddress": "",
+            "createDate": "",
             "modelNumber": _MODEL_NUMBER,
+            "status": 1,
+            "lastUpdate": "",
+            "setting": _setting_block(setting, nid),
+            "todayAdd": False,
+            "online": False,
+            "regDate": "",
+            "album": {
+                "id": nid,
+                "name": frame.id,
+                "createDate": "",
+                "user": None,
+                "cover": None,
+                "total": len(cache.keys(frame.id)),
+            },
+            "client": "aluratek",
+            "frameUser": {
+                "id": 0,
+                "frame": None,
+                "user": None,
+                "status": None,
+                "alias": frame.name or frame.id,  # the display name the owner set
+            },
+            "productId": "",
             "screenModel": _SCREEN_MODEL,
-            "setting": _setting_block(setting),
-            "album": {"id": frame.id, "name": frame.id, "total": len(cache.keys(frame.id))},
-            "frameUser": {"alias": frame.name or frame.id},  # the display name the owner set
         }
 
     def router(self) -> APIRouter:
@@ -249,6 +287,8 @@ class SungaleCloudBackend(ServedFrameBackend):
             if self._candidate_ids(request):
                 self._frame_from(request)
             frames = [f for f in store.list_frames() if f.backend == self.name]
+            for f in frames:  # the app uses the int id as frame_id/setting_id/album_id later
+                store.link_alias(str(_numeric_id(f.id)), f.id)
             return {
                 "list": [
                     self._frame_record(f, cache, store.get_frame_setting(f.id)) for f in frames
@@ -258,7 +298,8 @@ class SungaleCloudBackend(ServedFrameBackend):
         @router.api_route(f"{API_BASE}/setting/detail", methods=["GET", "POST"])
         async def setting_detail(request: Request) -> dict[str, Any]:
             frame = self._frame_from(request)
-            return _setting_block(request.app.state.store.get_frame_setting(frame.id))
+            s = request.app.state.store.get_frame_setting(frame.id)
+            return _setting_block(s, _numeric_id(frame.id))
 
         @router.api_route(f"{API_BASE}/setting/update", methods=["GET", "POST"])
         async def setting_update(request: Request) -> dict[str, Any]:

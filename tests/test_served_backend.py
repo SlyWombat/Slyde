@@ -243,7 +243,7 @@ def test_frame_wake_sequence_status_playlist_ack(served: ServedHarness) -> None:
         "POST", f"{BASE}/dev/frame/status", data={"device_id": dev, "battery": "80", "fw": "2.0.26"}
     ).json()
     assert st["action"] == 2 and st["firstImageToDisplay"] == 0 and st["lastUpdate"] != "0"
-    assert st["wakeUpSchedule"] == [172800, 86400]
+    assert st["wakeUpSchedule"] == [259200, 0]  # default interval until setting/update changes it
     assert dev in [f.id for f in served.app.state.store.list_frames()]  # registered by device_id
 
     pl = served.request("POST", f"{BASE}/dev/playlist/detail", data={"device_id": dev}).json()
@@ -285,6 +285,60 @@ def test_dev_frame_status_re_displays_when_the_image_changes(served: ServedHarne
 def test_dev_frame_status_idle_when_nothing_curated(served: ServedHarness) -> None:
     st = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": "dev-3"}).json()
     assert st["action"] == 0  # no image -> nothing to display
+
+
+def test_setting_update_persists_and_drives_wakeupschedule(served: ServedHarness) -> None:
+    """The app's setting/update changes the wake interval; dev/frame/status's wakeUpSchedule and
+    setting/detail/frame/list reflect it."""
+    dev = "dev-set"
+    # default before any update
+    st = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()
+    assert st["wakeUpSchedule"] == [259200, 0]
+
+    upd = served.request(
+        "GET",
+        f"{BASE}/setting/update?device_id={dev}&wake_up_interval=1800&slide_show_interval=60&slide_show_switch=1",
+    ).json()
+    assert upd == {"code": "ok", "message": "update setting successfully."}
+
+    st2 = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()
+    assert st2["wakeUpSchedule"] == [1800, 0]  # 30-minute wake now drives the schedule
+    detail = served.request("GET", f"{BASE}/setting/detail", headers={"X-Frame-Code": dev}).json()
+    assert detail["wakeUpInterval"] == "1800" and detail["slideShowSwitch"] == 1
+
+
+def test_setting_update_orientation_and_timing_type(served: ServedHarness) -> None:
+    # the real app uses setting_id (not device_id) for these dedicated endpoints
+    f = "753"
+    served.request(
+        "POST", f"{BASE}/setting/update_display_orientation?setting_id={f}&display_orientation=2"
+    )
+    served.request("POST", f"{BASE}/setting/update_timing_type?setting_id={f}&timing_type=2")
+    setting = served.request("GET", f"{BASE}/frame/list", headers={"X-Frame-Code": f}).json()[
+        "list"
+    ][0]["setting"]
+    assert setting["displayOrientation"] == 2 and setting["timingType"] == 2
+
+
+def test_unknown_cloud_endpoint_is_logged_and_benign(served: ServedHarness, caplog) -> None:  # type: ignore[no-untyped-def]
+    """Any cloud-API request we don't handle is logged (token redacted) and gets a benign ok, so we
+    discover endpoints the app/frame use that we haven't reverse-engineered yet."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        r = served.request("POST", f"{BASE}/some/new_endpoint?access_token=sekret&foo=bar")
+    assert r.status_code == 200 and r.json()["code"] == "ok"  # benign, device keeps going
+    assert any(
+        "UNHANDLED" in rec.getMessage() and "new_endpoint" in rec.getMessage()
+        for rec in caplog.records
+    )
+    assert all("sekret" not in rec.getMessage() for rec in caplog.records)  # token redacted
+
+
+def test_known_endpoints_are_not_shadowed_by_the_catch_all(served: ServedHarness) -> None:
+    # the catch-all is registered last, so a known endpoint still gets its real response
+    r = served.request("POST", f"{BASE}/frame/ping", headers={"X-Frame-Code": "EF-NS"})
+    assert r.json() == {"code": "ok", "message": "ok"}
 
 
 def test_dev_endpoints_require_device_id(served: ServedHarness) -> None:

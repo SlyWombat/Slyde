@@ -141,3 +141,25 @@ thumbnail fetches, not the frame.)
 These four endpoints are implemented in `SungaleCloudBackend` (keyed by `device_id`, with a
 `frame_display` table driving the `action` 2→0 transition). The eFrame go-live now only needs
 the AGH DNS rewrite + publishing the hub's `:8080`.
+
+## More app endpoints sniffed (2026-06-27 setting changes) + an identity caveat
+
+Driving the app's settings revealed the rest of the app→cloud surface (all return the ok envelope):
+
+- `GET setting/update?setting_id=&wake_up_interval=&slide_show_interval=&device_id=&slide_show_switch=` (by `device_id`)
+- `POST setting/update_display_orientation?setting_id=&display_orientation=` → `{"code":"ok","message":"update setting successfully."}`
+- `POST setting/update_timing_type?setting_id=&timing_type=`
+- `POST schedule/add?frame_id=&weekday_array=…&time_set=07%3A00&alias=Every+Day` → `{"code":"ok","message":"Schedule added successfully."}`
+- `POST schedule/status?schedule_id=&status=` → `{"code":"ok","message":"update schedule successfully."}`
+- `GET setting/detail?frame_id=`
+
+**Identity caveat (important):** the app refers to ONE frame by **three different ids** depending on
+the endpoint — the **numeric frame id** (`frame_id` / `setting_id`, e.g. `753`), the **`device_id`**
+(`42ce…`), and the **serial** (`AS54…` in image paths) — while the **frame** identifies itself only by
+`device_id`. Our backend keys served frames by whatever id an endpoint presents, so against our cloud
+these would fragment into separate Frame records. A **canonical identity map** (numeric id ↔ device_id
+↔ serial → one Frame) is the next design task before the app↔our-cloud path is fully coherent.
+
+`setting/update`, `setting/update_display_orientation`, `setting/update_timing_type` are implemented
+(persisted per frame; drive `wakeUpSchedule` + the setting block). `schedule/*` is currently handled
+by the catch-all logger (benign ok) — implement if the on/off schedule is needed.

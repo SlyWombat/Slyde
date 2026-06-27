@@ -23,6 +23,8 @@ code serves any regional Sungale rebrand once that host is rewritten here.
 from __future__ import annotations
 
 import hashlib
+import logging
+import re
 import time
 from typing import Any
 
@@ -43,21 +45,20 @@ CLOUD_PORT = 8080
 API_BASE = "/xiaowooya/api/v1"
 IMAGE_BASE = "/e_frame_image"  # the frame downloads images from here (outside API_BASE)
 
-# Family defaults for the device record the app/frame reads (the real values observed on the wire).
-# These describe the Sungale eFrame family this backend serves; the frame does not appear to
-# validate them strictly. Per-frame settings (curation, naming) live in the registry, not here.
-_DEFAULT_SETTING: dict[str, Any] = {
-    "slideShowInterval": "60",
-    "wakeUpInterval": "259200",  # 3 days — the frame's observed wake cadence
-    "displayOrientation": 1,
-    "timingType": 0,
-}
+_log = logging.getLogger(__name__)
+_TOKEN_RE = re.compile(r"(access_token=)[^&\s]+")
+
+
+def _redact(text: str) -> str:
+    return _TOKEN_RE.sub(r"\1<redacted>", text)
+
+
+# Device-record constants for the Sungale eFrame family this backend serves (the frame doesn't
+# appear to validate them). Mutable per-frame settings (wake interval, orientation, …) are persisted
+# in the store and changed via setting/update*; see store.get_frame_setting.
 _MODEL_NUMBER = "AEINK13F"
 _SCREEN_MODEL = "EL133UF1"  # the 13.3" Spectra-6 panel
-
-# The frame's status poll returns a sleep schedule (two ints summing to wakeUpInterval; the frame
-# sleeps on the first). Observed values keep the panel on its ~2-day wake cadence (#9).
-_WAKE_SCHEDULE = [172800, 86400]  # [sleep ~2 days, remainder of the 3-day interval]
+_DEFAULT_WAKE_INTERVAL = 259200  # 3 days, if a frame has no setting yet
 _ACTION_DISPLAY = 2  # there's a new image to fetch + display
 _ACTION_IDLE = 0  # nothing to do (heartbeat) — lets the frame go back to sleep
 
@@ -65,6 +66,17 @@ _ACTION_IDLE = 0  # nothing to do (heartbeat) — lets the frame go back to slee
 def _ok(message: str = "ok") -> dict[str, Any]:
     """The vendor's action-result envelope: a string ``code`` + ``message`` (observed shape)."""
     return {"code": "ok", "message": message}
+
+
+def _setting_block(s: dict[str, str]) -> dict[str, Any]:
+    """The camelCase ``setting`` block the app reads, from the stored (snake_case) settings."""
+    return {
+        "slideShowInterval": s["slide_show_interval"],
+        "wakeUpInterval": s["wake_up_interval"],
+        "slideShowSwitch": int(s["slide_show_switch"]),
+        "displayOrientation": int(s["display_orientation"]),
+        "timingType": int(s["timing_type"]),
+    }
 
 
 async def _device_id(request: Request) -> str:
@@ -148,8 +160,19 @@ class SungaleCloudBackend(ServedFrameBackend):
         NOT the frame key. We key by the frame's serial / device id, accepting it from a query param
         or header. ``X-Frame-Code`` / bearer are kept so onboarding + tests can name a frame.
         """
+        # NOTE: the app refers to one frame by THREE ids depending on endpoint — numeric frame id
+        # (frame_id / setting_id), device_id, and serial — while the frame uses device_id. Until a
+        # canonical identity map unifies them, we accept whichever is present (device_id preferred).
         q = request.query_params
-        for key in ("serial", "sn", "serialNumber", "device_id", "deviceId", "frame_id"):
+        for key in (
+            "serial",
+            "sn",
+            "serialNumber",
+            "device_id",
+            "deviceId",
+            "frame_id",
+            "setting_id",
+        ):
             if q.get(key):
                 return q[key]
         code = request.headers.get("x-frame-code")
@@ -166,7 +189,9 @@ class SungaleCloudBackend(ServedFrameBackend):
             raise HTTPException(status_code=401, detail="frame not identified")
         return resolve_or_register_served_frame(request.app.state.store, self.name, code)
 
-    def _frame_record(self, frame: Frame, cache: ImageCache) -> dict[str, Any]:
+    def _frame_record(
+        self, frame: Frame, cache: ImageCache, setting: dict[str, str]
+    ) -> dict[str, Any]:
         """The device record the app/frame reads from ``frame/list`` (observed shape)."""
         return {
             "id": frame.id,
@@ -174,7 +199,7 @@ class SungaleCloudBackend(ServedFrameBackend):
             "serialNumber": frame.id,
             "modelNumber": _MODEL_NUMBER,
             "screenModel": _SCREEN_MODEL,
-            "setting": dict(_DEFAULT_SETTING),
+            "setting": _setting_block(setting),
             "album": {"id": frame.id, "name": frame.id, "total": len(cache.keys(frame.id))},
             "frameUser": {"alias": frame.name or frame.id},  # the display name the owner set
         }
@@ -207,12 +232,49 @@ class SungaleCloudBackend(ServedFrameBackend):
         @router.api_route(f"{API_BASE}/frame/list", methods=["GET", "POST"])
         async def frame_list(request: Request) -> dict[str, Any]:
             frame = self._frame_from(request)
-            return {"list": [self._frame_record(frame, request.app.state.image_cache)]}
+            store = request.app.state.store
+            record = self._frame_record(
+                frame, request.app.state.image_cache, store.get_frame_setting(frame.id)
+            )
+            return {"list": [record]}
 
         @router.api_route(f"{API_BASE}/setting/detail", methods=["GET", "POST"])
         async def setting_detail(request: Request) -> dict[str, Any]:
-            self._frame_from(request)
-            return dict(_DEFAULT_SETTING)
+            frame = self._frame_from(request)
+            return _setting_block(request.app.state.store.get_frame_setting(frame.id))
+
+        @router.api_route(f"{API_BASE}/setting/update", methods=["GET", "POST"])
+        async def setting_update(request: Request) -> dict[str, Any]:
+            # The app changes device settings (wake interval, slideshow, orientation, …) — persist
+            # whichever fields are present so dev/frame/status + setting/detail reflect them.
+            frame = self._frame_from(request)
+            q = request.query_params
+            request.app.state.store.set_frame_setting(
+                frame.id,
+                wake_up_interval=q.get("wake_up_interval"),
+                slide_show_interval=q.get("slide_show_interval"),
+                slide_show_switch=q.get("slide_show_switch"),
+                display_orientation=q.get("display_orientation"),
+                timing_type=q.get("timing_type"),
+            )
+            return {"code": "ok", "message": "update setting successfully."}
+
+        @router.api_route(f"{API_BASE}/setting/update_display_orientation", methods=["GET", "POST"])
+        async def setting_update_orientation(request: Request) -> dict[str, Any]:
+            # The dedicated orientation endpoint (decompile) — persist display_orientation.
+            frame = self._frame_from(request)
+            request.app.state.store.set_frame_setting(
+                frame.id, display_orientation=request.query_params.get("display_orientation")
+            )
+            return {"code": "ok", "message": "update setting successfully."}
+
+        @router.api_route(f"{API_BASE}/setting/update_timing_type", methods=["GET", "POST"])
+        async def setting_update_timing_type(request: Request) -> dict[str, Any]:
+            frame = self._frame_from(request)
+            request.app.state.store.set_frame_setting(
+                frame.id, timing_type=request.query_params.get("timing_type")
+            )
+            return {"code": "ok", "message": "update setting successfully."}
 
         @router.api_route(f"{API_BASE}/schedule/list", methods=["GET", "POST"])
         async def schedule_list(request: Request) -> dict[str, Any]:
@@ -264,11 +326,17 @@ class SungaleCloudBackend(ServedFrameBackend):
                     acked_key=acked_key,
                 )
             action = _ACTION_DISPLAY if (content_key and content_key != acked_key) else _ACTION_IDLE
+            # Sleep for the configured wake interval (the frame sleeps on the first value), so
+            # changing it via setting/update changes the wake cadence.
+            try:
+                interval = int(store.get_frame_setting(frame.id)["wake_up_interval"])
+            except (ValueError, KeyError):
+                interval = _DEFAULT_WAKE_INTERVAL
             return {
                 "lastUpdate": last_update_ms,
                 "action": action,
                 "firstImageToDisplay": 0,
-                "wakeUpSchedule": list(_WAKE_SCHEDULE),
+                "wakeUpSchedule": [interval, 0],
             }
 
         @router.api_route(f"{API_BASE}/dev/playlist/detail", methods=["POST"])
@@ -331,6 +399,24 @@ class SungaleCloudBackend(ServedFrameBackend):
             return Response(
                 content=data, media_type=_media_type(filename, data), headers={"ETag": etag}
             )
+
+        # Catch-all (registered LAST, so the routes above win): log any cloud-API request we don't
+        # handle — the app or frame calling an endpoint we haven't reverse-engineered yet. Returns a
+        # benign ok so the device keeps going and the gap shows up in the logs. (token redacted.)
+        @router.api_route(
+            f"{API_BASE}/{{rest:path}}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
+        )
+        async def unhandled(rest: str, request: Request) -> dict[str, Any]:
+            body = (await request.body())[:400]
+            _log.warning(
+                "sungale: UNHANDLED %s %s%s%s body=%r",
+                request.method,
+                request.url.path,
+                "?" if request.url.query else "",
+                _redact(request.url.query),
+                _redact(body.decode("latin1", "replace")),
+            )
+            return _ok()
 
         return router
 

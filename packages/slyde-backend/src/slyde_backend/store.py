@@ -73,7 +73,33 @@ CREATE TABLE IF NOT EXISTS frame_display (
     last_update_ms TEXT NOT NULL DEFAULT '0',
     acked_key      TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS frame_setting (
+    -- Per-frame device settings the app changes via setting/update* and the frame reads back.
+    -- Drives dev/frame/status's wakeUpSchedule and the setting block in frame/list, setting/detail.
+    frame_id            TEXT PRIMARY KEY,
+    wake_up_interval    TEXT NOT NULL DEFAULT '259200',
+    slide_show_interval TEXT NOT NULL DEFAULT '60',
+    slide_show_switch   TEXT NOT NULL DEFAULT '0',
+    display_orientation TEXT NOT NULL DEFAULT '1',
+    timing_type         TEXT NOT NULL DEFAULT '0'
+);
 """
+
+# Per-frame setting fields + their defaults (the observed Sungale family values).
+_SETTING_FIELDS = (
+    "wake_up_interval",
+    "slide_show_interval",
+    "slide_show_switch",
+    "display_orientation",
+    "timing_type",
+)
+_SETTING_DEFAULTS = {
+    "wake_up_interval": "259200",  # 3 days
+    "slide_show_interval": "60",
+    "slide_show_switch": "0",
+    "display_orientation": "1",
+    "timing_type": "0",
+}
 
 
 @dataclass
@@ -309,6 +335,7 @@ class Store:
             conn.execute("DELETE FROM delivery WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_display WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM frame_setting WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM synced_photo WHERE host = ?", (frame_id,))
             conn.execute("DELETE FROM album_sync WHERE host = ?", (frame_id,))
         return existed
@@ -380,6 +407,34 @@ class Store:
                 "content_key=excluded.content_key, last_update_ms=excluded.last_update_ms, "
                 "acked_key=excluded.acked_key",
                 (frame_id, content_key, last_update_ms, acked_key),
+            )
+
+    def get_frame_setting(self, frame_id: str) -> dict[str, str]:
+        """A frame's device settings (wake interval, orientation, …), with family defaults."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM frame_setting WHERE frame_id = ?", (frame_id,)
+            ).fetchone()
+        return {f: row[f] for f in _SETTING_FIELDS} if row else dict(_SETTING_DEFAULTS)
+
+    def set_frame_setting(self, frame_id: str, **fields: str | None) -> None:
+        """Update the given setting fields (ignoring ``None``), preserving the rest."""
+        merged = self.get_frame_setting(frame_id)
+        merged.update(
+            {k: str(v) for k, v in fields.items() if k in _SETTING_FIELDS and v is not None}
+        )
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame_setting "
+                "(frame_id, wake_up_interval, slide_show_interval, slide_show_switch, "
+                "display_orientation, timing_type) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(frame_id) DO UPDATE SET "
+                "wake_up_interval=excluded.wake_up_interval, "
+                "slide_show_interval=excluded.slide_show_interval, "
+                "slide_show_switch=excluded.slide_show_switch, "
+                "display_orientation=excluded.display_orientation, "
+                "timing_type=excluded.timing_type",
+                (frame_id, *(merged[f] for f in _SETTING_FIELDS)),
             )
 
     # -- delivery queue (guaranteed delivery; see delivery.py) -----------------

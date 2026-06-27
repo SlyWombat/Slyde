@@ -214,5 +214,20 @@ and it uses **no ETag**.
 - `callback/action_status` (marks the current image acked → `action` goes idle) and `callback/power_off`.
 - Frames register by **`device_id`**; everything (cache, image path, curation) keys on that id.
 
-Still open (not blocking cutover): persisting the frame's reported `battery`/`rssi`/`fw` telemetry to
-the status UI, and the OTA/firmware path (#12).
+Still open (not blocking the existing frame): persisting the frame's reported `battery`/`rssi`/`fw`
+telemetry to the status UI, and the OTA/firmware path (#12).
+
+## 9. Onboarding a NEW frame (not yet characterized)
+
+An already-provisioned frame auto-registers in Slyde by `device_id` on its first `dev/frame/status`
+wake — so a frame Slyde has seen before "just works". A **brand-new, out-of-the-box** eFrame is
+different: its initial WiFi setup + app pairing is a flow we've never captured (we only ever saw an
+already-paired device). That pairing likely hits endpoints we haven't implemented (e.g.
+`user/register`, a frame-pairing/claim call, `callback/init_status`). Plan:
+- When adding a frame, the **catch-all logger** records whatever the app/frame call during pairing
+  (token redacted) — sniff one real "Add frame" flow to recover the contract, same method as the rest.
+- Likely need: a way to mint/accept a new `device_id`+serial, return a `frame/list` record for it, and
+  handle the provisioning callbacks. The account model (one token → many frames) also becomes real
+  here — today `frame/list` returns *all* served frames as a single-account stand-in.
+- Until then, a new frame can be **pre-registered** in Slyde (`POST /api/frames/register` by its
+  `device_id`) so it appears and is curatable; it then binds on first wake.

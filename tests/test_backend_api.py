@@ -96,6 +96,7 @@ def client(frame: EmulatedFrame, tmp_path) -> Iterator[ApiHarness]:  # type: ign
         immich_api_key="k",
         database_url=f"sqlite:///{tmp_path}/memento.db",
         frame_canvas="640x480",  # fallback only; the frame's reported size wins
+        frame_settle_delay=0,  # no gentleness pacing in tests (emulator handles concurrency)
     )
     harness = ApiHarness(settings)
     try:

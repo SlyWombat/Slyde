@@ -114,3 +114,30 @@ to answer exactly that.
    URLs (`path`/`thumbPath`) served by us; reproduce the **frame-expected** image
    (1200×1600; `.bmp` form TBD from the wake).
 4. Read-only, one-way from Immich — same contract as Slyde.
+
+## Frame→cloud — CONFIRMED at the 2026-06-27 05:00:53 UTC wake (the real frame, not the app)
+
+The passive OPNsense capture caught the **frame's own** wake. It is an **ESP32**
+(`User-Agent: ESP32 HTTP Client/1.0`), plain HTTP `:8080`, **`x-www-form-urlencoded`**
+POST bodies, and identifies by **`device_id`** (a form field). Its API is *different*
+from the app's, so the static/app analysis above was the app contract, not the frame's.
+
+Wake sequence (frame → cloud):
+1. `POST dev/frame/status` — body `device_id,rssi,battery,fw,p_id,device_mode,t`
+   → `{"lastUpdate","action","firstImageToDisplay":0,"wakeUpSchedule":[a,b]}`
+   (`action` 2 = fetch+display, 0 = idle; `a+b = 259200` = the 3-day wakeUpInterval).
+2. `POST dev/playlist/detail` — body `device_id,t`
+   → `{"list":[{id,name,createDate,"path":…<id>.bmp,"thumbPath":…<id>.jpg}]}` (same shape as album/detail).
+3. `GET /e_frame_image/<serial>/<id>.bmp` — downloads the **.bmp** (no `If-None-Match`/ETag).
+4. `POST callback/action_status` — body `device_id,t,action_code` → `{"code":"success",…}`.
+5. ~55× `POST dev/frame/status` (all `action:0`) while the e-paper renders.
+6. `POST callback/power_off` — body `device_id` → `{"code":"success",…}`.
+
+It fetched `1782501676382714867.bmp` — the exact image we had pushed — proving the
+byte-exact panel BMP and the `path`/`thumbPath` shapes are right, it wants **.bmp**, and
+it uses **no ETag**. (The earlier "frame image GETs use ETags" note was the *app's* `.jpg`
+thumbnail fetches, not the frame.)
+
+These four endpoints are implemented in `SungaleCloudBackend` (keyed by `device_id`, with a
+`frame_display` table driving the `action` 2→0 transition). The eFrame go-live now only needs
+the AGH DNS rewrite + publishing the hub's `:8080`.

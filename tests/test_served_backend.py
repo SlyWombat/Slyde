@@ -233,6 +233,65 @@ def test_uploaded_photo_joins_the_library_and_survives_immich_recuration(
     assert upload_dest in dests and "imm1.jpg" in dests  # upload kept alongside the curated photo
 
 
+def test_frame_wake_sequence_status_playlist_ack(served: ServedHarness) -> None:
+    """#9: the real ESP32 frame's wake — dev/frame/status (action 2 -> fetch), dev/playlist/detail
+    (.bmp list), download, callback/action_status (ack), then status goes idle (action 0)."""
+    dev = "42ce038d7b1c45d7bc74ddf9cb0a8921360154"  # the frame's device_id (its identity)
+    served.app.state.image_cache.put(dev, "p1", b"BMpanel-bytes")  # an image is ready for it
+
+    st = served.request(
+        "POST", f"{BASE}/dev/frame/status", data={"device_id": dev, "battery": "80", "fw": "2.0.26"}
+    ).json()
+    assert st["action"] == 2 and st["firstImageToDisplay"] == 0 and st["lastUpdate"] != "0"
+    assert st["wakeUpSchedule"] == [172800, 86400]
+    assert dev in [f.id for f in served.app.state.store.list_frames()]  # registered by device_id
+
+    pl = served.request("POST", f"{BASE}/dev/playlist/detail", data={"device_id": dev}).json()
+    assert pl["list"][0]["path"].endswith(f"/e_frame_image/{dev}/p1.bmp")
+    img = served.request("GET", urlparse(pl["list"][0]["path"]).path)
+    assert img.status_code == 200 and img.content == b"BMpanel-bytes"
+
+    ack = served.request(
+        "POST", f"{BASE}/callback/action_status", data={"device_id": dev, "action_code": "2"}
+    )
+    assert ack.json()["code"] == "success"
+
+    st2 = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()
+    assert st2["action"] == 0  # acked -> idle, so the 55 heartbeats don't loop-fetch
+    assert st2["lastUpdate"] == st["lastUpdate"]  # stable while content unchanged
+
+    off = served.request("POST", f"{BASE}/callback/power_off", data={"device_id": dev})
+    assert off.json()["code"] == "success"
+
+
+def test_dev_frame_status_re_displays_when_the_image_changes(served: ServedHarness) -> None:
+    dev = "dev-2"
+    served.app.state.image_cache.put(dev, "a", b"BM1")
+    served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev})
+    served.request("POST", f"{BASE}/callback/action_status", data={"device_id": dev})
+    assert (
+        served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()["action"]
+        == 0
+    )
+    # a new image is delivered -> the next poll asks the frame to display again
+    served.app.state.image_cache.delete(dev, "a")
+    served.app.state.image_cache.put(dev, "b", b"BM2")
+    assert (
+        served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()["action"]
+        == 2
+    )
+
+
+def test_dev_frame_status_idle_when_nothing_curated(served: ServedHarness) -> None:
+    st = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": "dev-3"}).json()
+    assert st["action"] == 0  # no image -> nothing to display
+
+
+def test_dev_endpoints_require_device_id(served: ServedHarness) -> None:
+    assert served.request("POST", f"{BASE}/dev/frame/status").status_code == 400
+    assert served.request("POST", f"{BASE}/dev/playlist/detail").status_code == 400
+
+
 def test_photo_upload_without_an_image_is_rejected(served: ServedHarness) -> None:
     resp = served.request(
         "POST", f"{BASE}/photo/upload?album_id=EF-NOIMG", data={"album_id": "EF-NOIMG"}

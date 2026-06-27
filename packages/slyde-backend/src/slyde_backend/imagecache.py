@@ -50,6 +50,11 @@ class ImageCache:
         d = self._dir(frame_id)
         return sorted(p.name for p in d.iterdir() if p.is_file()) if d.is_dir() else []
 
+    def current_key(self, frame_id: str) -> str | None:
+        """The key of the image to show a frame right now (first cached key, or None)."""
+        keys = self.keys(frame_id)
+        return keys[0] if keys else None
+
     def current(self, frame_id: str) -> bytes | None:
         """The image to serve a frame right now (first cached key for the slice; #23 refines)."""
         keys = self.keys(frame_id)

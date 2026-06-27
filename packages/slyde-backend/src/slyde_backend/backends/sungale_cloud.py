@@ -23,6 +23,7 @@ code serves any regional Sungale rebrand once that host is rewritten here.
 from __future__ import annotations
 
 import hashlib
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -54,10 +55,25 @@ _DEFAULT_SETTING: dict[str, Any] = {
 _MODEL_NUMBER = "AEINK13F"
 _SCREEN_MODEL = "EL133UF1"  # the 13.3" Spectra-6 panel
 
+# The frame's status poll returns a sleep schedule (two ints summing to wakeUpInterval; the frame
+# sleeps on the first). Observed values keep the panel on its ~2-day wake cadence (#9).
+_WAKE_SCHEDULE = [172800, 86400]  # [sleep ~2 days, remainder of the 3-day interval]
+_ACTION_DISPLAY = 2  # there's a new image to fetch + display
+_ACTION_IDLE = 0  # nothing to do (heartbeat) — lets the frame go back to sleep
+
 
 def _ok(message: str = "ok") -> dict[str, Any]:
     """The vendor's action-result envelope: a string ``code`` + ``message`` (observed shape)."""
     return {"code": "ok", "message": message}
+
+
+async def _device_id(request: Request) -> str:
+    """The frame identifies itself by ``device_id`` in the form body of dev/* + callback calls."""
+    form = await request.form()
+    dev = form.get("device_id")
+    if not dev or isinstance(dev, UploadFile):
+        raise HTTPException(status_code=400, detail="missing device_id")
+    return str(dev)
 
 
 def _media_type(filename: str, data: bytes) -> str:
@@ -228,6 +244,62 @@ class SungaleCloudBackend(ServedFrameBackend):
                 store=state.store,
             )
             return _ok("Upload photos successfully")
+
+        # --- the FRAME's own API (ESP32, form-urlencoded, keyed by device_id) -- confirmed by the
+        # live wake capture (#9). Distinct from the app endpoints above.
+        @router.api_route(f"{API_BASE}/dev/frame/status", methods=["POST"])
+        async def dev_frame_status(request: Request) -> dict[str, Any]:
+            # The frame's heartbeat: we answer with the current image's change-state. action=2 once
+            # (fetch + display) then 0 on the heartbeats, so the frame displays once and sleeps.
+            store = request.app.state.store
+            frame = resolve_or_register_served_frame(store, self.name, await _device_id(request))
+            current = request.app.state.image_cache.current_key(frame.id) or ""
+            content_key, last_update_ms, acked_key = store.get_frame_display(frame.id)
+            if current != content_key:  # the image changed -> new lastUpdate, pending display
+                content_key, last_update_ms = current, str(int(time.time() * 1000))
+                store.set_frame_display(
+                    frame.id,
+                    content_key=content_key,
+                    last_update_ms=last_update_ms,
+                    acked_key=acked_key,
+                )
+            action = _ACTION_DISPLAY if (content_key and content_key != acked_key) else _ACTION_IDLE
+            return {
+                "lastUpdate": last_update_ms,
+                "action": action,
+                "firstImageToDisplay": 0,
+                "wakeUpSchedule": list(_WAKE_SCHEDULE),
+            }
+
+        @router.api_route(f"{API_BASE}/dev/playlist/detail", methods=["POST"])
+        async def dev_playlist_detail(request: Request) -> dict[str, Any]:
+            # The frame's playlist: same item shape as the app's album/detail (path .bmp + thumb).
+            store = request.app.state.store
+            frame = resolve_or_register_served_frame(store, self.name, await _device_id(request))
+            base = str(request.base_url).rstrip("/")
+            return {"list": _photo_items(frame, request.app.state.image_cache, base)}
+
+        @router.api_route(f"{API_BASE}/callback/action_status", methods=["POST"])
+        async def callback_action_status(request: Request) -> dict[str, Any]:
+            # The frame acks it displayed the image -> mark current content shown so action is idle.
+            store = request.app.state.store
+            frame = resolve_or_register_served_frame(store, self.name, await _device_id(request))
+            content_key, last_update_ms, _ = store.get_frame_display(frame.id)
+            store.set_frame_display(
+                frame.id,
+                content_key=content_key,
+                last_update_ms=last_update_ms,
+                acked_key=content_key,
+            )
+            return {"code": "success", "message": "action code updated succefully."}
+
+        @router.api_route(f"{API_BASE}/callback/power_off", methods=["POST"])
+        async def callback_power_off(request: Request) -> dict[str, Any]:
+            # The frame is going back to sleep; just acknowledge.
+            resolve_or_register_served_frame(
+                request.app.state.store, self.name, await _device_id(request)
+            )
+            return {"code": "success", "message": "power off status sync succefully."}
 
         @router.api_route(f"{API_BASE}/album/detail", methods=["GET", "POST"])
         async def album_detail(request: Request) -> dict[str, Any]:

@@ -102,7 +102,7 @@ serial auto-registers on first poll, curation/delivery/scheduling are already ke
 | Auth / `identify()` | bearer / `X-Frame-Code` / `?frame_id` | read **`?access_token`** (account) + **`device_id`/serial** (frame); key frame by serial |
 | Success envelope | `{"code":0,"msg":"ok","data":…}` | top-level payload for lists; `{"code":"ok","message":…}` for actions |
 | `frame/list` | `{"list":[{id,name}]}` | full record: `deviceId, serialNumber, setting{}, album{id,name,total}, frameUser{alias}, screenModel` |
-| Photo list endpoint | `image_library/list` → `{id,name,url}` | **`POST album/detail?album_id=`** → `{id,name,createDate,path,thumbPath}` (keep `image_library/list` too until the wake shows which the *frame* uses) |
+| Photo list endpoint | `image_library/list` → `{id,name,url}` | app: **`POST album/detail?album_id=`** → `{id,name,createDate,path,thumbPath}`. The *frame* uses **`dev/playlist/detail`** (same item shape) — see §8 |
 | Image URL fields | `url` | **`path`** (`…/<serial>/<id>.bmp`, full) + **`thumbPath`** (`.jpg`) |
 | Image route | `/image_library/file/<frame>/<key>` | **`GET /e_frame_image/<serial>/<id>.{bmp,jpg}`** (outside `API_BASE`), with **ETag / `If-None-Match` → 304** |
 | `photo/upload` | *(not implemented)* | **done** — accepts multipart, ingests the pushed photo (§6): prepares the panel BMP for the frame + keeps Slyde's canonical preview |
@@ -156,15 +156,15 @@ We already proved the **pull** direction (impersonate app → download our whole
 
 ## 7. Phased plan
 
-1. **Protocol fixes** to `SungaleCloudBackend`: `identify()`, envelopes, `frame/list` record,
-   `album/detail`, `/e_frame_image/<serial>/<id>.{bmp,jpg}` route + ETag. Frame keyed by serial,
-   name from `alias`. Conformance tests against a fake frame (match existing `test_backends.py`).
-2. **Image format**: real palette + 4bpp-BMP encoder + packing round-trip test.
-3. **App ingestion**: `photo/upload` → library/delivery; ship `capture_proxy.py` for interim
-   capture-and-forward.
-4. **Cutover**: AGH rewrite of the cloud host → Slyde; verify a real wake pulls our BMP and
-   renders; confirm multi-frame with a second serial.
-5. **Docs**: update `docs/frame-backends.md` table + `.env.example`; fold §1–§3 into FINDINGS.
+1. **Protocol fixes** to `SungaleCloudBackend` (app endpoints, envelopes, `album/detail`, image route). ✅
+2. **Image format**: real palette + byte-exact 4bpp-BMP encoder (`panel_bmp.py`). ✅
+3. **App ingestion**: `photo/upload` → library/delivery (unified into curation). ✅
+4. **The frame's own API** (§8): `dev/frame/status` + `dev/playlist/detail` + `callback/*`, keyed by
+   `device_id`, with the `action` 2→0 display-state. ✅
+5. **Multi-backend hub**: `FRAME_SERVED_BACKENDS` so one hub drives Memento + the eFrame. ✅
+6. **Cutover** (live, remaining): AGH rewrite of the cloud host → the kdocker2 hub (publish `:8080`),
+   then verify a real wake pulls our BMP and renders; confirm multi-frame.
+7. **Docs**: `docs/frame-backends.md` + `.env.example`. ✅
 
 ## 7a. Previews are Slyde's, not a frame's
 
@@ -181,10 +181,38 @@ removal, format changes, and offline frames — and the curation UI must not re-
   panel") layers on top, on demand, and for an e-ink frame emits the viewable palette PNG (not the
   packed panel BMP, which is delivery-only).
 
-## 8. Still needs the wake capture (#9)
+## 8. The frame's own API — CAPTURED at the 2026-06-27 05:00:53 UTC wake (#9)
 
-- Whether the **frame** pulls via `album/detail` or `image_library/list`, and its exact call order.
-- Whether it strictly requires the `.bmp` container/ETag semantics (vs tolerating PNG).
-- Any `callback/init_status` / firmware check on wake (feeds the OTA question, #12).
+The static analysis + app capture gave us the **app's** contract. The live wake gave us the
+**frame's**, which is *different*. The frame is an **ESP32** (`User-Agent: ESP32 HTTP Client/1.0`),
+plain HTTP on `:8080`, **`x-www-form-urlencoded`** POST bodies, and it identifies by **`device_id`**
+(a form field — not serial, not token, not a query param). Its wake sequence:
 
-The OPNsense capture is armed for the next wake (~05:01 UTC) to answer these.
+| Frame call (POST unless noted) | Body fields | Response |
+|---|---|---|
+| `dev/frame/status` (heartbeat) | `device_id,rssi,battery,fw,p_id,device_mode,t` | `{lastUpdate, action, firstImageToDisplay, wakeUpSchedule:[a,b]}` |
+| `dev/playlist/detail` | `device_id,t` | `{list:[{id,name,createDate,path:…<id>.bmp, thumbPath:…<id>.jpg}]}` |
+| `GET /e_frame_image/<serial>/<id>.bmp` | — | the 4bpp panel BMP (**no `If-None-Match`/ETag**) |
+| `callback/action_status` | `device_id,t,action_code` | `{"code":"success","message":"action code updated succefully."}` |
+| `callback/power_off` | `device_id` | `{"code":"success","message":"power off status sync succefully."}` |
+
+`action`: **2** = fetch + display a new image; **0** = idle (heartbeat). On wake the frame sends one
+`dev/frame/status` (gets `action:2`), `dev/playlist/detail`, downloads the `.bmp`, posts
+`callback/action_status`, then ~55× `dev/frame/status` (all `action:0`) while the e-paper renders,
+then `callback/power_off`. `wakeUpSchedule = [a,b]` with **a+b = `wakeUpInterval` (259200 = 3 days)**;
+the frame sleeps on the first value (~2 days observed).
+
+**Confirmed by the wake:** it fetched **`1782501676382714867.bmp`** — the exact image we'd pushed —
+so the byte-exact panel BMP and `path`/`thumbPath` shapes are right, it wants **`.bmp`** (not `.jpg`),
+and it uses **no ETag**.
+
+**Implemented (this is what the frame actually calls; the app endpoints in §4 stay for the app):**
+- `dev/frame/status` — returns `action` 2→0 using a tiny per-frame state (`frame_display` table:
+  `content_key`/`last_update_ms`/`acked_key`), so the frame displays once then the 55 heartbeats stay
+  idle and it sleeps. `wakeUpSchedule = [172800, 86400]`.
+- `dev/playlist/detail` — reuses the `_photo_items` builder (`path` .bmp + `thumbPath` .jpg).
+- `callback/action_status` (marks the current image acked → `action` goes idle) and `callback/power_off`.
+- Frames register by **`device_id`**; everything (cache, image path, curation) keys on that id.
+
+Still open (not blocking cutover): persisting the frame's reported `battery`/`rssi`/`fw` telemetry to
+the status UI, and the OTA/firmware path (#12).

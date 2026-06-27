@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS library_item (
     source    TEXT NOT NULL DEFAULT 'immich',  -- 'immich' (curated) | 'upload' (pushed by the app)
     PRIMARY KEY (frame_id, asset_id)
 );
+CREATE TABLE IF NOT EXISTS frame_display (
+    -- Per-frame display state for served e-paper frames that poll dev/frame/status: which image is
+    -- current, when it changed, and what the frame has acknowledged showing — so the poll returns
+    -- action=2 once (fetch+display) then action=0 (idle) after the frame's callback.
+    frame_id       TEXT PRIMARY KEY,
+    content_key    TEXT NOT NULL DEFAULT '',
+    last_update_ms TEXT NOT NULL DEFAULT '0',
+    acked_key      TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -299,6 +308,7 @@ class Store:
             existed = conn.execute("DELETE FROM frame WHERE id = ?", (frame_id,)).rowcount > 0
             conn.execute("DELETE FROM delivery WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM frame_display WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM synced_photo WHERE host = ?", (frame_id,))
             conn.execute("DELETE FROM album_sync WHERE host = ?", (frame_id,))
         return existed
@@ -347,6 +357,30 @@ class Store:
     def clear_library(self, frame_id: str) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
+
+    # -- served e-paper display state (dev/frame/status poll; see backends/sungale_cloud.py) ----
+    def get_frame_display(self, frame_id: str) -> tuple[str, str, str]:
+        """(content_key, last_update_ms, acked_key) for a frame, or empty defaults if unseen."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT content_key, last_update_ms, acked_key FROM frame_display WHERE frame_id=?",
+                (frame_id,),
+            ).fetchone()
+        return (
+            (row["content_key"], row["last_update_ms"], row["acked_key"]) if row else ("", "0", "")
+        )
+
+    def set_frame_display(
+        self, frame_id: str, *, content_key: str, last_update_ms: str, acked_key: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame_display (frame_id, content_key, last_update_ms, acked_key) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(frame_id) DO UPDATE SET "
+                "content_key=excluded.content_key, last_update_ms=excluded.last_update_ms, "
+                "acked_key=excluded.acked_key",
+                (frame_id, content_key, last_update_ms, acked_key),
+            )
 
     # -- delivery queue (guaranteed delivery; see delivery.py) -----------------
     def enqueue_delivery(

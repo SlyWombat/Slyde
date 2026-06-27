@@ -69,7 +69,7 @@ downloads its image. App photo pushes (`photo/upload`) are ingested too — see
 | Backend | Transport | Status | Notes |
 |---|---|---|---|
 | `memento-lan` | LAN (UDP+TCP) | ✅ complete | The original Memento frame, emulator, and Pi soft-frame. |
-| `sungale-cloud` | Cloud (HTTP) | ✅ complete | Aluratek/Sungale Spectra-6 ePaper. Wire-confirmed cloud-impersonation responder (frame/list, album/detail, photo/upload, `/e_frame_image/<serial>/<id>.{bmp,jpg}` with ETags). Delivers the panel's exact byte-compatible 4bpp BMP (`panel_bmp.py`). Live verification = AGH cutover + the frame's ~3-day wake (#9). |
+| `sungale-cloud` | Cloud (HTTP) | ✅ complete | Aluratek/Sungale Spectra-6 ePaper (ESP32). Cloud-impersonation responder for **both** the app (`frame/list`, `album/detail`, `photo/upload`) **and the frame** (`dev/frame/status`, `dev/playlist/detail`, `callback/*`, keyed by `device_id`) — full wake sequence confirmed live (#9). Delivers the panel's exact byte-compatible 4bpp BMP (`panel_bmp.py`). Remaining: the AGH-rewrite cutover. |
 
 ## Adding your own
 

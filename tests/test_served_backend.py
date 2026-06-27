@@ -185,6 +185,17 @@ def test_image_list_then_file_download_returns_cached_image(served: ServedHarnes
     assert img.headers["content-type"] == "image/bmp" and img.headers["ETag"]
 
 
+def test_jpg_thumbnail_serves_the_canonical_preview_not_the_bmp(served: ServedHarness) -> None:
+    # .bmp = the frame's panel image (cache); .jpg = the app's thumbnail (a real JPEG preview).
+    served.app.state.image_cache.put("EF-T", "p1", b"BMpanelbytes")
+    served.app.state.asset_previews.put("p1", b"\xff\xd8\xffJPEGTHUMB\xff\xd9")
+    bmp = served.request("GET", f"{IMAGE_BASE}/EF-T/p1.bmp")
+    jpg = served.request("GET", f"{IMAGE_BASE}/EF-T/p1.jpg")
+    assert bmp.content == b"BMpanelbytes" and bmp.headers["content-type"] == "image/bmp"
+    assert jpg.content == b"\xff\xd8\xffJPEGTHUMB\xff\xd9"
+    assert jpg.headers["content-type"] == "image/jpeg"
+
+
 def test_image_file_supports_etag_not_modified(served: ServedHarness) -> None:
     served.app.state.image_cache.put("EF-ETAG", "current.jpg", b"\xff\xd8\xffX\xff\xd9")
     url = f"{IMAGE_BASE}/EF-ETAG/current.bmp"

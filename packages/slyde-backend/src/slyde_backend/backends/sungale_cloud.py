@@ -460,9 +460,16 @@ class SungaleCloudBackend(ServedFrameBackend):
 
         @router.get(IMAGE_BASE + "/{serial}/{filename}")
         async def image_file(serial: str, filename: str, request: Request) -> Response:
+            # .bmp = the frame's panel image (from the cache); .jpg = the app's thumbnail, served
+            # from Slyde's canonical preview (a real JPEG) so the app renders it, not the BMP.
             cache: ImageCache = request.app.state.image_cache
-            key = _resolve_key(cache, serial, filename)
-            data = cache.get(serial, key) if key else None
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            data = None
+            if ext in ("jpg", "jpeg"):
+                data = request.app.state.asset_previews.get(_stem(filename))
+            if data is None:
+                key = _resolve_key(cache, serial, filename)
+                data = cache.get(serial, key) if key else None
             if data is None:
                 raise HTTPException(status_code=404, detail="image not found")
             etag = f'W/"{len(data)}-{hashlib.sha1(data).hexdigest()[:16]}"'

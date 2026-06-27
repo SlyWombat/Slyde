@@ -389,6 +389,24 @@ def test_dev_endpoints_require_device_id(served: ServedHarness) -> None:
     assert served.request("POST", f"{BASE}/dev/playlist/detail").status_code == 400
 
 
+def test_photo_delete_removes_from_cache_and_library(served: ServedHarness) -> None:
+    dev = "EF-DEL"
+    served.app.state.image_cache.put(dev, "p9", b"BMx")
+    served.app.state.uploads.put(dev, "p9", b"orig")
+    served.app.state.store.add_library_item(dev, "p9", "p9", source="upload")
+
+    listing = served.request("POST", f"{BASE}/album/detail?album_id={dev}").json()
+    assert any(i["id"] == "p9" for i in listing["list"])
+
+    r = served.request("GET", f"{BASE}/photo/delete?photo_id=p9&album_id={dev}").json()
+    assert r == {"code": "ok", "message": "Delete photo successfully"}
+
+    assert served.app.state.image_cache.get(dev, "p9") is None  # gone from cache
+    assert served.app.state.store.list_library(dev) == []  # gone from the library
+    gone = served.request("POST", f"{BASE}/album/detail?album_id={dev}").json()
+    assert gone["list"] == []
+
+
 def test_photo_upload_without_an_image_is_rejected(served: ServedHarness) -> None:
     resp = served.request(
         "POST", f"{BASE}/photo/upload?album_id=EF-NOIMG", data={"album_id": "EF-NOIMG"}

@@ -422,6 +422,15 @@ class Store:
         with self._conn() as conn:
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
 
+    def delete_library_item_by_dest(self, frame_id: str, dest_name: str) -> bool:
+        """Remove a single curated/uploaded photo by its dest name; True if it existed."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM library_item WHERE frame_id = ? AND dest_name = ?",
+                (frame_id, dest_name),
+            )
+            return cur.rowcount > 0
+
     # -- served e-paper display state (dev/frame/status poll; see backends/sungale_cloud.py) ----
     def get_frame_display(self, frame_id: str) -> tuple[str, str, str]:
         """(content_key, last_update_ms, acked_key) for a frame, or empty defaults if unseen."""

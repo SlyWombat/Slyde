@@ -317,6 +317,20 @@ class SungaleCloudBackend(ServedFrameBackend):
             )
             return _ok("Upload photos successfully")
 
+        @router.api_route(f"{API_BASE}/photo/delete", methods=["GET", "POST"])
+        async def photo_delete(request: Request) -> dict[str, Any]:
+            # The app removes a photo by photo_id (the album/detail item id = our cache-key stem).
+            frame = self._frame_from(request)
+            photo_id = request.query_params.get("photo_id", "")
+            state = request.app.state
+            for key in state.image_cache.keys(frame.id):
+                if _stem(key) == photo_id:
+                    state.image_cache.delete(frame.id, key)
+                    state.uploads.delete(frame.id, key)
+                    state.store.delete_library_item_by_dest(frame.id, key)
+                    state.store.delete_delivery(frame.id, key)
+            return {"code": "ok", "message": "Delete photo successfully"}
+
         # --- the FRAME's own API (ESP32, form-urlencoded, keyed by device_id) -- confirmed by the
         # live wake capture (#9). Distinct from the app endpoints above.
         @router.api_route(f"{API_BASE}/dev/frame/status", methods=["POST"])

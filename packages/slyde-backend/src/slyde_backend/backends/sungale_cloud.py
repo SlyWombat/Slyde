@@ -241,12 +241,19 @@ class SungaleCloudBackend(ServedFrameBackend):
 
         @router.api_route(f"{API_BASE}/frame/list", methods=["GET", "POST"])
         async def frame_list(request: Request) -> dict[str, Any]:
-            frame = self._frame_from(request)
+            # Account-scoped: the app lists its frames with only a token (no frame id), so we return
+            # all this backend's served frames (single-account setup). If the request DID name a
+            # specific frame, register/resolve it first so it appears.
             store = request.app.state.store
-            record = self._frame_record(
-                frame, request.app.state.image_cache, store.get_frame_setting(frame.id)
-            )
-            return {"list": [record]}
+            cache = request.app.state.image_cache
+            if self._candidate_ids(request):
+                self._frame_from(request)
+            frames = [f for f in store.list_frames() if f.backend == self.name]
+            return {
+                "list": [
+                    self._frame_record(f, cache, store.get_frame_setting(f.id)) for f in frames
+                ]
+            }
 
         @router.api_route(f"{API_BASE}/setting/detail", methods=["GET", "POST"])
         async def setting_detail(request: Request) -> dict[str, Any]:

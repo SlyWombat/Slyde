@@ -206,6 +206,21 @@ def test_frame_list_carries_full_record_and_name(served: ServedHarness) -> None:
     assert dev["screenModel"] and dev["setting"]["wakeUpInterval"] == "259200"
 
 
+def test_frame_list_is_account_scoped_and_never_401s(served: ServedHarness) -> None:
+    """The app loads its frame list with only a token (no frame id) — must return the served frames,
+    not 401 (the real bug that broke the app post-cutover)."""
+    empty = served.request("GET", f"{BASE}/frame/list?client=aluratek&access_token=tok")
+    assert empty.status_code == 200 and empty.json() == {"list": []}  # nothing registered yet
+
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-A", "name": "Kitchen"})
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-B"})
+    lst = served.request("GET", f"{BASE}/frame/list?access_token=tok").json()["list"]
+    assert {f["serialNumber"] for f in lst} == {
+        "EF-A",
+        "EF-B",
+    }  # token-only lists all served frames
+
+
 def test_album_detail_lists_photos_with_path_and_thumb(served: ServedHarness) -> None:
     # The app fetches a frame's photos via album/detail?album_id=<frame id we minted in frame/list>.
     served.app.state.image_cache.put("AS99", "p1.jpg", b"\xff\xd8\xff1\xff\xd9")

@@ -242,6 +242,22 @@ def test_frame_list_is_account_scoped_and_never_401s(served: ServedHarness) -> N
     }  # token-only lists all served frames
 
 
+def test_remove_library_item_works_for_any_source(served: ServedHarness) -> None:
+    """DELETE /library/{asset_id} removes a single photo of ANY source — the old curation re-PUT
+    only touched Immich rows, so uploads/imports couldn't be removed (#61)."""
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-RM"})
+    store = served.app.state.store
+    store.set_library("EF-RM", [("imm1", "imm1.jpg", "")])  # an Immich-curated item
+    store.add_library_item("EF-RM", "up1", "up1", source="upload")  # an upload item
+
+    r = served.request("DELETE", "/api/frames/EF-RM/library/up1")
+    assert r.status_code == 204
+    aids = {
+        i["asset_id"] for i in served.request("GET", "/api/frames/EF-RM/library").json()["items"]
+    }
+    assert aids == {"imm1"}  # the upload was removed, the Immich item kept
+
+
 def test_curate_grandfathers_existing_dest_names_and_folders(served: ServedHarness) -> None:
     """Re-curating an asset already in the library keeps its existing dest_name AND folder (no
     re-key/re-push); a genuinely new asset gets the canonical slug + its requested folder (#61)."""

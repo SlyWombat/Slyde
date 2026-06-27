@@ -33,23 +33,29 @@ async def ingest_upload(
     uploads: ImageCache,
     library: FrameLibrary,
     store: Store,
+    folder: str = "",
+    canvas: tuple[int, int] | None = None,
 ) -> str:
-    """Make a pushed photo a first-class, Slyde-owned member of the frame's library; returns its id.
+    """Make a pushed/uploaded photo a first-class member of the frame's library; returns its id.
+    Used by both the served-device app upload AND the web upload (#61, closing F4).
 
     The photo is not in Immich, so Slyde keeps the original (``uploads``) and a canonical preview,
     prepares the frame image into the cache, and adds it to the curation library + delivery queue so
-    it travels the same path as an Immich-curated photo. Heavy work runs off the event loop. The id
-    mirrors the vendor's long numeric ids so it slots into the frame's existing list/download flow.
+    it travels the same path as an Immich-curated photo. ``folder`` groups it (#61); ``canvas``
+    overrides the prep size (a connected frame's reported WxH) when known. ``photo_id`` is used as
+    BOTH the asset id and the dest_name so the preview/cache/eFrame-thumbnail keys all align.
     """
     photo_id = str(time.time_ns())
     uploads.put(frame.id, photo_id, data)  # durable original (re-preparable; survives cache wipe)
-    profile = profile_for(frame, settings, canvas=settings.canvas)
+    profile = profile_for(frame, settings, canvas=canvas or settings.canvas)
     prepared = await asyncio.to_thread(prepare, data, profile)
     image_cache.put(frame.id, photo_id, prepared)  # what the frame downloads (e.g. the panel BMP)
     preview = await asyncio.to_thread(render_canonical_preview, data)
     asset_previews.put(photo_id, preview)  # Slyde's canonical, frame-independent preview
     # Join the curation library + delivery queue (delivery reuses the cached image — no Immich).
-    library.add(frame.id, LibraryItem(asset_id=photo_id, dest_name=photo_id, source="upload"))
+    library.add(
+        frame.id, LibraryItem(asset_id=photo_id, dest_name=photo_id, source="upload", folder=folder)
+    )
     store.enqueue_delivery(
         frame.id, photo_id, photo_id, next_attempt_at=datetime.now(UTC).isoformat()
     )

@@ -217,24 +217,29 @@ def test_resync_skips_after_upload(client: ApiHarness, frame: EmulatedFrame) -> 
     assert second["uploaded"] == 0 and second["skipped"] == 1
 
 
-def test_prepare_uses_frame_reported_canvas(client: ApiHarness, frame: EmulatedFrame) -> None:
-    # Prepared image matches the frame's *reported* resolution, not the FRAME_CANVAS default.
+def test_web_upload_becomes_a_library_item_with_folder(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    """#61 (F4): a web upload is now a first-class library item (visible in Library) that delivers
+    like a curated photo — prepared to the connected frame's reported canvas, into the chosen
+    folder — instead of the old folder-sync path that was invisible to the library."""
+    from slyde_backend.frame import Frame
+
+    client.app.state.store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
     frame.state.config["Width"], frame.state.config["Height"] = 80, 60
-    result = client.post(
-        f"{F}/upload", files={"files": ("snap.png", _png_bytes(), "image/png")}
-    ).json()
-    dest = result["items"][0]["dest_name"]
-    with Image.open(io.BytesIO(frame.state.photos[dest])) as prepared:
-        assert prepared.size == (80, 60)
 
+    r = client.post(
+        f"{F}/upload",
+        files={"files": ("snap.png", _png_bytes(), "image/png")},
+        data={"folder": "Snaps"},
+    )
+    assert r.json()["uploaded"] == 1
 
-def test_direct_upload_and_thumbnail(client: ApiHarness, frame: EmulatedFrame) -> None:
-    files = {"files": ("snap.png", _png_bytes(), "image/png")}
-    result = client.post(f"{F}/upload", files=files, data={"target_album": "Direct"}).json()
-    assert result["uploaded"] == 1
-    dest = result["items"][0]["dest_name"]
-    thumb = client.get(f"{F}/thumbnail/{dest}")
-    assert thumb.status_code == 200 and thumb.content.startswith(b"\x89PNG")
+    item = client.get(f"{F}/library").json()["items"][0]
+    assert item["folder"] == "Snaps"  # uploaded straight into the folder
+    prepared = client.app.state.image_cache.get(HOST, item["dest_name"])
+    with Image.open(io.BytesIO(prepared)) as img:
+        assert img.size == (80, 60)  # prepared to the reported canvas, cached for delivery
 
 
 def test_render_preview_full_colour_is_jpeg(client: ApiHarness) -> None:

@@ -292,6 +292,7 @@ function DirectUpload({ host, folder }: { host: string; folder: string }) {
     }
     setRunning(false);
     qc.invalidateQueries({ queryKey: ["albums", host] });
+    qc.invalidateQueries({ queryKey: ["frame-library", host] }); // uploads are library items now (#61)
     toast(`Uploaded to “${folder || "Photos"}”.`);
   }
 

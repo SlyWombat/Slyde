@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { LibraryPhoto, LibraryView } from "../api/types";
 import { useFrame } from "../lib/frames";
 import { useSyncJob } from "../lib/useSyncJob";
-import { EmptyState, ErrorState, Pill, Skeleton, StatusDot, usePoll, type Tone } from "../ui";
+import { EmptyState, ErrorState, Pill, Skeleton, StatusDot, useToast, usePoll, type Tone } from "../ui";
 import { AlbumsTab } from "./albums/AlbumsTab";
 
 /** Unified "Add photos" menu — the single entry point for filling a frame (#60). From Immich
@@ -21,6 +21,8 @@ function AddPhotos({
   folder?: string | null;
 }) {
   const qc = useQueryClient();
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
   const { info, start, running } = useSyncJob(frameId);
   const status = info?.status;
   useEffect(() => {
@@ -32,8 +34,30 @@ function AddPhotos({
   const curateTo =
     `/curate?target=${encodeURIComponent(frameId)}` +
     (folder ? `&folder=${encodeURIComponent(folder)}` : "");
+
+  const upload = useMutation({
+    mutationFn: (files: File[]) => api.upload(frameId, files, folder || undefined),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
+      toast(`Uploaded ${res.uploaded} ${res.uploaded === 1 ? "photo" : "photos"}.`);
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+
   return (
     <div className="flex flex-col items-end gap-1">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          if (files.length) upload.mutate(files);
+          e.target.value = "";
+        }}
+      />
       <details className="relative">
         <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
           + Add photos
@@ -48,6 +72,18 @@ function AddPhotos({
             </div>
             <div className="text-xs text-slate-400">Pick photos to curate to this frame</div>
           </Link>
+          <button
+            type="button"
+            disabled={upload.isPending}
+            onClick={() => fileRef.current?.click()}
+            className="block w-full px-3 py-2 text-left hover:bg-edge disabled:opacity-50"
+          >
+            <div className="text-sm font-medium">
+              {upload.isPending ? "Uploading…" : "Upload files…"}
+              {folder ? ` → ${folder}` : ""}
+            </div>
+            <div className="text-xs text-slate-400">Add photos from your device</div>
+          </button>
           {connected && (
             <button
               type="button"
@@ -61,7 +97,7 @@ function AddPhotos({
           )}
           {connected && (
             <div className="border-t border-edge px-3 py-2 text-xs text-slate-500">
-              Upload files &amp; keep-in-sync are per-folder — in Folders below ↓
+              Keep-in-sync from an Immich album is per-folder — in Folders below ↓
             </div>
           )}
         </div>
@@ -123,6 +159,7 @@ const STATE_LABEL: Record<LibraryPhoto["state"], string> = {
  */
 export function LibraryTab({ frameId }: { frameId: string }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const { frame } = useFrame(frameId);
   const connected = frame?.interaction === "connected";
   const [folder, setFolder] = useState<string | null>(null); // null = the "All" view (#61)
@@ -145,6 +182,16 @@ export function LibraryTab({ frameId }: { frameId: string }) {
     },
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
     onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  });
+  // Remove a photo from the library (any source); on a connected frame also delete the device file
+  // (best-effort — a sleeping frame keeps it, but it's no longer curated so it won't re-deliver).
+  const remove = useMutation({
+    mutationFn: async (p: LibraryPhoto) => {
+      await api.removeLibraryItem(frameId, p.asset_id);
+      if (connected) await api.deletePhoto(frameId, p.dest_name).catch(() => undefined);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["frame-library", frameId] }),
+    onError: (e) => toast((e as Error).message, "fail"),
   });
 
   if (lib.isLoading && !lib.data) return <Skeleton className="h-64 w-full" />;
@@ -175,8 +222,6 @@ export function LibraryTab({ frameId }: { frameId: string }) {
     [next[i], next[j]] = [next[j], next[i]];
     write.mutate(next);
   };
-  const remove = (assetId: string) =>
-    write.mutate(items.filter((p) => p.asset_id !== assetId));
 
   // Folder grouping (#61): chips filter the grid; reorder is only offered in the flat "All" view.
   const folders = [...new Set(items.map((p) => p.folder))].sort();
@@ -244,7 +289,11 @@ export function LibraryTab({ frameId }: { frameId: string }) {
               ) : (
                 <span />
               )}
-              <IconBtn label="Remove from frame" onClick={() => remove(p.asset_id)}>
+              <IconBtn
+                label={connected ? "Remove from frame" : "Remove from library"}
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(p)}
+              >
                 ✕
               </IconBtn>
             </div>

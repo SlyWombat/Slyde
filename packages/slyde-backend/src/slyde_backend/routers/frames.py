@@ -55,6 +55,7 @@ from ..schemas import (
     SyncResult,
 )
 from ..serving import resolve_or_register_served_frame
+from ..uploads import ingest_upload
 from .deps import (
     FirmwareDep,
     FrameDep,
@@ -296,6 +297,19 @@ async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
 
 
+@router.delete("/{frame_id}/library/{asset_id}", status_code=204)
+async def remove_library_item(frame_id: str, asset_id: str, request: Request) -> None:
+    """Remove one photo from a frame's library (any source) + its cached image and queued delivery
+    (#61). The device file (connected) is removed separately via DELETE /photos."""
+    store = request.app.state.store
+    dest = next((d for a, d, _s, _f in store.list_library(frame_id) if a == asset_id), None)
+    if dest is None:
+        raise HTTPException(status_code=404, detail="not in the library")
+    store.delete_library_item_by_dest(frame_id, dest)
+    request.app.state.image_cache.delete(frame_id, dest)
+    store.delete_delivery(frame_id, dest)
+
+
 @router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
 async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
     """Registry detail + backend capabilities for a frame by id (#28)."""
@@ -527,16 +541,49 @@ async def get_sync_job(host: str, job_id: str, jobs: JobsDep) -> SyncJobInfo:
     return _job_info(job)
 
 
-@router.post("/{host}/upload", response_model=SyncResult)
+@router.post("/{frame_id}/upload")
 async def upload(
-    host: str,
-    syncer: SyncDep,
+    frame_id: str,
+    request: Request,
+    frame: FrameDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    background: BackgroundTasks,
     files: list[UploadFile] = File(...),
-    target_album: str | None = Form(None),
-) -> SyncResult:
-    """Direct upload of image files (no Immich), optionally into a target album."""
-    items = [(f.filename or "upload.jpg", await f.read()) for f in files]
-    return await syncer.upload_files(host, items, target_album)
+    folder: str | None = Form(None),
+) -> dict[str, int]:
+    """Upload image files (not in Immich) straight into the frame's LIBRARY — first-class items that
+    deliver like curated photos (connected push / served pull) and show in the Library tab. Optional
+    folder (#61). Unifies on the curation engine; closes F4."""
+    f = store.get_frame(frame_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    # For a connected frame, prepare to its reported canvas if we can reach it; else the default.
+    canvas: tuple[int, int] | None = None
+    if f.interaction == "connected":
+        with contextlib.suppress(Exception):
+            cfg = await frame.get_config(frame_id)
+            w, h = int(cfg.get("Width", 0) or 0), int(cfg.get("Height", 0) or 0)
+            if w and h:
+                canvas = (w, h)
+    state = request.app.state
+    for uf in files:
+        data = await uf.read()
+        await uf.close()
+        await ingest_upload(
+            frame=f,
+            data=data,
+            settings=settings,
+            image_cache=state.image_cache,
+            asset_previews=state.asset_previews,
+            uploads=state.uploads,
+            library=state.library,
+            store=store,
+            folder=folder or "",
+            canvas=canvas,
+        )
+    background.add_task(_drain_delivery, state.delivery_service)
+    return {"uploaded": len(files)}
 
 
 @router.delete("/{host}/photos/{filename}", status_code=204)

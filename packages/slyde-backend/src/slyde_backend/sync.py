@@ -188,38 +188,6 @@ class SyncService:
         self._record_outcomes(result, prepared_dests, meta, done)
         return result
 
-    # -- direct upload --------------------------------------------------------
-    async def upload_files(
-        self, host: str, files: list[tuple[str, bytes]], target_album: str | None
-    ) -> SyncResult:
-        result = SyncResult()
-        canvas = await self._canvas_for(host)
-        to_upload: list[tuple[bytes, str]] = []
-        for file_name, raw in files:
-            dest = dest_name_for(file_name, hashlib.sha256(raw).hexdigest())
-            try:
-                prepared = await asyncio.to_thread(
-                    prepare_for_frame,
-                    raw,
-                    canvas,
-                    fit=self._settings.frame_fit,
-                    crop_tolerance=self._settings.frame_crop_tolerance,
-                )
-            except Exception as exc:
-                result.failed += 1
-                result.items.append(
-                    SyncItem(
-                        asset_id=file_name, dest_name=dest, status="failed", detail=str(exc)[:200]
-                    )
-                )
-                continue
-            to_upload.append((prepared, dest))
-            result.uploaded += 1
-            result.items.append(SyncItem(asset_id=file_name, dest_name=dest, status="uploaded"))
-        if to_upload:
-            await self._frame.upload_images(host, to_upload, target_album)
-        return result
-
     async def remove(self, host: str, filename: str) -> None:
         await self._frame.delete_photo(host, filename)
         self._store.delete_by_dest(host, filename)

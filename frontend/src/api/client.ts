@@ -84,6 +84,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(items),
     }),
+  // Remove one photo from a frame's library (any source) + its cached image/queued delivery (#61).
+  removeLibraryItem: (id: string, assetId: string) =>
+    request<void>(`/frames/${enc(id)}/library/${enc(assetId)}`, { method: "DELETE" }),
   updateConfig: (host: string, patch: ConfigPatch) =>
     request<FrameInfo>(`/frames/${enc(host)}/config`, {
       method: "PATCH",
@@ -127,11 +130,12 @@ export const api = {
   // syncJob(frameId, job.id) for progress.
   startFrameImport: (frameId: string) =>
     request<SyncJobInfo>(`/frames/${enc(frameId)}/import/jobs`, { method: "POST" }),
-  upload: (host: string, files: File[], targetAlbum?: string) => {
+  // Upload files straight into a frame's library (any frame type, #61); optionally into a folder.
+  upload: (id: string, files: File[], folder?: string) => {
     const form = new FormData();
     files.forEach((f) => form.append("files", f));
-    if (targetAlbum) form.append("target_album", targetAlbum);
-    return request<SyncResult>(`/frames/${enc(host)}/upload`, { method: "POST", body: form });
+    if (folder) form.append("folder", folder);
+    return request<{ uploaded: number }>(`/frames/${enc(id)}/upload`, { method: "POST", body: form });
   },
 
   // -- subscriptions (keep an album in sync) -------------------------------

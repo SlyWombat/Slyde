@@ -258,17 +258,24 @@ async def set_library(
     store = request.app.state.store
     # Canonical dest_name (#61), grandfathered: an explicit dest_name wins; else an asset already
     # in the library keeps its name (no re-key/re-push); else a new asset gets the readable slug
-    # from its Immich filename (asset id as fallback).
-    existing = {aid: dest for aid, dest, _src in store.list_library(frame_id)}
+    # from its Immich filename (asset id as fallback). Folder is grandfathered the same way.
+    existing = {aid: (dest, folder) for aid, dest, _src, folder in store.list_library(frame_id)}
 
     def _dest(i: LibraryItemModel) -> str:
+        prior = existing.get(i.asset_id)
         return (
             i.dest_name
-            or existing.get(i.asset_id)
+            or (prior[0] if prior else None)
             or dest_name_for(i.file_name or i.asset_id, i.asset_id)
         )
 
-    desired = [LibraryItem(i.asset_id, _dest(i)) for i in items]
+    def _folder(i: LibraryItemModel) -> str:
+        if i.folder is not None:
+            return i.folder
+        prior = existing.get(i.asset_id)
+        return prior[1] if prior else ""
+
+    desired = [LibraryItem(i.asset_id, _dest(i), folder=_folder(i)) for i in items]
     library.set_desired(frame_id, desired)
     queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC))
     background.add_task(_drain_delivery, delivery)  # kick delivery without blocking the response
@@ -283,8 +290,8 @@ async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
         raise HTTPException(status_code=404, detail="frame not found")
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
     items = [
-        LibraryPhoto(asset_id=aid, dest_name=dest, state=states.get(dest, "unknown"))
-        for aid, dest, _source in store.list_library(frame_id)
+        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, "unknown"))
+        for aid, dest, _source, folder in store.list_library(frame_id)
     ]
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
 

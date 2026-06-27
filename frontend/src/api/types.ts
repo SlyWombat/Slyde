@@ -145,6 +145,7 @@ export interface FrameStatus {
 export interface LibraryPhoto {
   asset_id: string;
   dest_name: string;
+  folder: string; // "" = the flat "All" view (#61)
   state: "delivered" | "pending" | "failed" | "unknown";
 }
 

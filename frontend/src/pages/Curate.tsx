@@ -21,6 +21,7 @@ export function Curate() {
   const [targets, setTargets] = useState<Set<string>>(
     () => new Set(preTarget ? [preTarget] : []),
   );
+  const [targetFolder, setTargetFolder] = useState(params.get("folder") ?? ""); // #61: dest folder
   const [previewId, setPreviewId] = useState<string | null>(null); // asset shown in the panel preview
   const fileNames = useRef(new Map<string, string>()); // asset id -> Immich filename, for #61 names
   const toast = useToast();
@@ -59,9 +60,11 @@ export function Curate() {
           const have = new Set(cur.items.map((i) => i.asset_id));
           const merged = [
             ...cur.items.map((i) => ({ asset_id: i.asset_id, dest_name: i.dest_name })),
-            ...ids
-              .filter((a) => !have.has(a))
-              .map((a) => ({ asset_id: a, file_name: fileNames.current.get(a) })),
+            ...ids.filter((a) => !have.has(a)).map((a) => ({
+              asset_id: a,
+              file_name: fileNames.current.get(a),
+              folder: targetFolder.trim() || undefined,
+            })),
           ];
           await api.setLibrary(fid, merged);
         }),
@@ -125,6 +128,16 @@ export function Curate() {
           <Card className="space-y-3 p-4">
             <span className="font-semibold">Send to</span>
             <TargetPicker frames={frames.data} loading={frames.isLoading} selected={targets} onToggle={toggleTarget} />
+            <label className="block text-xs text-slate-400">
+              Folder (optional)
+              <input
+                className="mt-1 w-full rounded bg-ink px-2 py-1.5 text-sm text-slate-200"
+                placeholder="e.g. Family — blank = ungrouped"
+                value={targetFolder}
+                maxLength={64}
+                onChange={(e) => setTargetFolder(e.target.value)}
+              />
+            </label>
           </Card>
 
           {previewId && previewTarget && (

@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS library_item (
     asset_id  TEXT NOT NULL,
     dest_name TEXT NOT NULL,
     position  INTEGER NOT NULL DEFAULT 0,
-    source    TEXT NOT NULL DEFAULT 'immich',  -- 'immich' (curated) | 'upload' (pushed by the app)
+    source    TEXT NOT NULL DEFAULT 'immich',  -- 'immich' (curated) | 'upload' | 'frame'
+    folder    TEXT NOT NULL DEFAULT '',         -- Phase 2 (#61): folder grouping; '' = All
     PRIMARY KEY (frame_id, asset_id)
 );
 CREATE TABLE IF NOT EXISTS frame_display (
@@ -156,6 +157,8 @@ class Store:
             conn.execute(
                 "ALTER TABLE library_item ADD COLUMN source TEXT NOT NULL DEFAULT 'immich'"
             )
+        if "folder" not in cols:  # Phase 2 (#61): folder grouping; older rows default to '' (All)
+            conn.execute("ALTER TABLE library_item ADD COLUMN folder TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -378,25 +381,32 @@ class Store:
         return existed
 
     # -- frame library (the desired photo set per frame; see library.py) -------
-    def set_library(self, frame_id: str, items: list[tuple[str, str]]) -> None:
-        """Replace a frame's **Immich-curated** set with ``items`` (asset_id, dest_name), order
-        preserved. App-uploaded photos (``source='upload'``) are kept — they're not part of the
-        Immich curation a 'Set library' PUT manages (see uploads.py)."""
+    def set_library(self, frame_id: str, items: list[tuple[str, str, str]]) -> None:
+        """Replace a frame's **Immich-curated** set with ``items`` (asset_id, dest_name, folder),
+        order preserved. App-uploaded/imported photos (``source != 'immich'``) are kept — not part
+        of the Immich curation a 'Set library' PUT manages (see uploads.py)."""
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM library_item WHERE frame_id = ? AND source = 'immich'", (frame_id,)
             )
             conn.executemany(
-                "INSERT INTO library_item (frame_id, asset_id, dest_name, position, source) "
-                "VALUES (?, ?, ?, ?, 'immich')",
-                [(frame_id, aid, dest, i) for i, (aid, dest) in enumerate(items)],
+                "INSERT INTO library_item "
+                "(frame_id, asset_id, dest_name, position, source, folder) "
+                "VALUES (?, ?, ?, ?, 'immich', ?)",
+                [(frame_id, aid, dest, i, folder) for i, (aid, dest, folder) in enumerate(items)],
             )
 
     def add_library_item(
-        self, frame_id: str, asset_id: str, dest_name: str, *, source: str = "upload"
+        self,
+        frame_id: str,
+        asset_id: str,
+        dest_name: str,
+        *,
+        source: str = "upload",
+        folder: str = "",
     ) -> None:
         """Add (or replace) a single library item, appended after the current set — used for
-        app-uploaded photos so they join the same curation/delivery flow as Immich photos."""
+        app-uploaded/imported photos so they join the same curation/delivery flow as Immich."""
         with self._conn() as conn:
             nxt = conn.execute(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM library_item WHERE frame_id = ?",
@@ -404,19 +414,20 @@ class Store:
             ).fetchone()[0]
             conn.execute(
                 "INSERT OR REPLACE INTO library_item "
-                "(frame_id, asset_id, dest_name, position, source) VALUES (?, ?, ?, ?, ?)",
-                (frame_id, asset_id, dest_name, nxt, source),
+                "(frame_id, asset_id, dest_name, position, source, folder) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (frame_id, asset_id, dest_name, nxt, source, folder),
             )
 
-    def list_library(self, frame_id: str) -> list[tuple[str, str, str]]:
-        """The frame's desired photos as (asset_id, dest_name, source), in order."""
+    def list_library(self, frame_id: str) -> list[tuple[str, str, str, str]]:
+        """The frame's desired photos as (asset_id, dest_name, source, folder), in order."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT asset_id, dest_name, source FROM library_item "
+                "SELECT asset_id, dest_name, source, folder FROM library_item "
                 "WHERE frame_id = ? ORDER BY position",
                 (frame_id,),
             ).fetchall()
-        return [(r["asset_id"], r["dest_name"], r["source"]) for r in rows]
+        return [(r["asset_id"], r["dest_name"], r["source"], r["folder"]) for r in rows]
 
     def clear_library(self, frame_id: str) -> None:
         with self._conn() as conn:

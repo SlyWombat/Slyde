@@ -28,7 +28,8 @@ from .store import Store
 class LibraryItem:
     asset_id: str
     dest_name: str
-    source: str = "immich"  # "immich" (curated) | "upload" (pushed by the app, see uploads.py)
+    source: str = "immich"  # "immich" (curated) | "upload" (app) | "frame" (imported off a frame)
+    folder: str = ""  # Phase 2 (#61): folder grouping within the frame; "" = the flat "All" view
 
 
 class FrameLibrary:
@@ -47,17 +48,19 @@ class FrameLibrary:
             if old.source == "immich" and old.dest_name not in new_dests:
                 self._cache.delete(frame_id, old.dest_name)
                 self._store.delete_delivery(frame_id, old.dest_name)
-        self._store.set_library(frame_id, [(i.asset_id, i.dest_name) for i in items])
+        self._store.set_library(frame_id, [(i.asset_id, i.dest_name, i.folder) for i in items])
 
     def add(self, frame_id: str, item: LibraryItem) -> None:
         """Add a single photo to the frame's library (e.g. an app upload), without disturbing the
         rest of the curated set. The prepared image is cached separately by the caller."""
-        self._store.add_library_item(frame_id, item.asset_id, item.dest_name, source=item.source)
+        self._store.add_library_item(
+            frame_id, item.asset_id, item.dest_name, source=item.source, folder=item.folder
+        )
 
     def desired(self, frame_id: str) -> list[LibraryItem]:
         return [
-            LibraryItem(aid, dest, source)
-            for aid, dest, source in self._store.list_library(frame_id)
+            LibraryItem(aid, dest, source, folder)
+            for aid, dest, source, folder in self._store.list_library(frame_id)
         ]
 
     async def publish(

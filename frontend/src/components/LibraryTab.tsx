@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -11,7 +11,15 @@ import { AlbumsTab } from "./albums/AlbumsTab";
 /** Unified "Add photos" menu — the single entry point for filling a frame (#60). From Immich
  *  (curate, any frame) + Import from frame (connected). Folder-scoped uploads + keep-in-sync live in
  *  the Folders section below. */
-function AddPhotos({ frameId, connected }: { frameId: string; connected: boolean }) {
+function AddPhotos({
+  frameId,
+  connected,
+  folder = null,
+}: {
+  frameId: string;
+  connected: boolean;
+  folder?: string | null;
+}) {
   const qc = useQueryClient();
   const { info, start, running } = useSyncJob(frameId);
   const status = info?.status;
@@ -20,6 +28,10 @@ function AddPhotos({ frameId, connected }: { frameId: string; connected: boolean
       qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
   }, [status, frameId, qc]);
   const r = info?.result;
+  // Curating from a selected folder pre-targets that folder; "All" leaves it ungrouped (#61).
+  const curateTo =
+    `/curate?target=${encodeURIComponent(frameId)}` +
+    (folder ? `&folder=${encodeURIComponent(folder)}` : "");
   return (
     <div className="flex flex-col items-end gap-1">
       <details className="relative">
@@ -30,11 +42,10 @@ function AddPhotos({ frameId, connected }: { frameId: string; connected: boolean
           </span>
         </summary>
         <div className="absolute right-0 z-20 mt-1 w-64 overflow-hidden rounded-lg border border-edge bg-ink shadow-xl">
-          <Link
-            to={`/curate?target=${encodeURIComponent(frameId)}`}
-            className="block px-3 py-2 hover:bg-edge"
-          >
-            <div className="text-sm font-medium">From Immich…</div>
+          <Link to={curateTo} className="block px-3 py-2 hover:bg-edge">
+            <div className="text-sm font-medium">
+              From Immich…{folder ? ` → ${folder}` : ""}
+            </div>
             <div className="text-xs text-slate-400">Pick photos to curate to this frame</div>
           </Link>
           {connected && (
@@ -114,6 +125,7 @@ export function LibraryTab({ frameId }: { frameId: string }) {
   const qc = useQueryClient();
   const { frame } = useFrame(frameId);
   const connected = frame?.interaction === "connected";
+  const [folder, setFolder] = useState<string | null>(null); // null = the "All" view (#61)
   const refetchInterval = usePoll(5000);
   const key = ["frame-library", frameId];
   const lib = useQuery({ queryKey: key, queryFn: () => api.frameLibrary(frameId), refetchInterval });
@@ -166,6 +178,11 @@ export function LibraryTab({ frameId }: { frameId: string }) {
   const remove = (assetId: string) =>
     write.mutate(items.filter((p) => p.asset_id !== assetId));
 
+  // Folder grouping (#61): chips filter the grid; reorder is only offered in the flat "All" view.
+  const folders = [...new Set(items.map((p) => p.folder))].sort();
+  const hasFolders = folders.some((f) => f !== "");
+  const shown = folder === null ? items : items.filter((p) => p.folder === folder);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -174,12 +191,25 @@ export function LibraryTab({ frameId }: { frameId: string }) {
         {d && d.pending > 0 && <Pill tone="pending">{d.pending} delivering</Pill>}
         {d && d.failed > 0 && <Pill tone="fail">{d.failed} failed</Pill>}
         <div className="ml-auto">
-          <AddPhotos frameId={frameId} connected={connected} />
+          <AddPhotos frameId={frameId} connected={connected} folder={folder} />
         </div>
       </div>
 
+      {hasFolders && (
+        <div className="flex flex-wrap gap-1.5">
+          <FolderChip active={folder === null} onClick={() => setFolder(null)}>
+            All {items.length}
+          </FolderChip>
+          {folders.map((f) => (
+            <FolderChip key={f} active={folder === f} onClick={() => setFolder(f)}>
+              {f || "Ungrouped"} {items.filter((p) => p.folder === f).length}
+            </FolderChip>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {items.map((p, i) => (
+        {shown.map((p, i) => (
           <figure
             key={p.asset_id}
             className="group relative overflow-hidden rounded-lg border border-edge bg-ink"
@@ -195,20 +225,25 @@ export function LibraryTab({ frameId }: { frameId: string }) {
               {STATE_LABEL[p.state]}
             </figcaption>
 
-            {/* Reorder + remove controls (hover on desktop, always-visible on touch). */}
+            {/* Reorder + remove controls (hover on desktop, always-visible on touch). Reorder is
+                offered only in the flat "All" view, where the index maps to the stored order. */}
             <div className="absolute inset-x-0 top-0 flex items-center justify-between p-1.5 opacity-0 transition group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-              <div className="flex gap-1">
-                <IconBtn label="Move earlier" disabled={i === 0} onClick={() => move(i, -1)}>
-                  ‹
-                </IconBtn>
-                <IconBtn
-                  label="Move later"
-                  disabled={i === items.length - 1}
-                  onClick={() => move(i, 1)}
-                >
-                  ›
-                </IconBtn>
-              </div>
+              {folder === null ? (
+                <div className="flex gap-1">
+                  <IconBtn label="Move earlier" disabled={i === 0} onClick={() => move(i, -1)}>
+                    ‹
+                  </IconBtn>
+                  <IconBtn
+                    label="Move later"
+                    disabled={i === items.length - 1}
+                    onClick={() => move(i, 1)}
+                  >
+                    ›
+                  </IconBtn>
+                </div>
+              ) : (
+                <span />
+              )}
               <IconBtn label="Remove from frame" onClick={() => remove(p.asset_id)}>
                 ✕
               </IconBtn>
@@ -219,6 +254,28 @@ export function LibraryTab({ frameId }: { frameId: string }) {
 
       <FrameFolders frameId={frameId} connected={connected} />
     </div>
+  );
+}
+
+function FolderChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full px-3 py-1 text-xs transition ${
+        active ? "bg-accent text-white" : "bg-edge text-slate-200 hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

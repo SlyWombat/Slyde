@@ -60,7 +60,7 @@ async def import_frame_photos(
                 names.append(img)
     result.total = len(names)
 
-    already = {dest for _aid, dest, _src in store.list_library(frame.id)}
+    already = {dest for _aid, dest, _src, _folder in store.list_library(frame.id)}
     profile = profile_for(frame, settings, canvas=settings.canvas)
     for name in names:
         if name in already:

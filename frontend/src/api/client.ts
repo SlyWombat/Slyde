@@ -78,7 +78,7 @@ export const api = {
   // canonical name #61). Non-blocking: queues + reconciles.
   setLibrary: (
     id: string,
-    items: { asset_id: string; dest_name?: string; file_name?: string }[],
+    items: { asset_id: string; dest_name?: string; file_name?: string; folder?: string }[],
   ) =>
     request<Record<string, number>>(`/frames/${enc(id)}/library`, {
       method: "PUT",

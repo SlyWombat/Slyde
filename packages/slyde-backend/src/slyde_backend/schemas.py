@@ -79,6 +79,7 @@ class LibraryItemModel(BaseModel):
     asset_id: str
     dest_name: str | None = None
     file_name: str | None = None
+    folder: str | None = None  # None = grandfather the asset's existing folder (#61)
 
 
 class DeliverySummary(BaseModel):
@@ -94,6 +95,7 @@ class LibraryPhoto(BaseModel):
 
     asset_id: str
     dest_name: str
+    folder: str = ""  # Phase 2 (#61): folder grouping; "" = the flat "All" view
     state: str  # "delivered" | "pending" | "failed" | "unknown"
 
 

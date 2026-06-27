@@ -56,13 +56,13 @@ def test_store_rekey_moves_library_and_delivery(tmp_path: Path) -> None:
 
     store = Store(str(tmp_path / "rk.db"))
     store.upsert_frame(Frame.connected("10.0.0.9", backend="memento-lan"))  # legacy IP-keyed
-    store.set_library("10.0.0.9", [("a1", "one.jpg")])
+    store.set_library("10.0.0.9", [("a1", "one.jpg", "")])
     enqueue(store, "10.0.0.9", "one.jpg", now=datetime(2026, 1, 1))
     assert store.get_frame_by_address("10.0.0.9").id == "10.0.0.9"
 
     store.rekey_frame("10.0.0.9", "guid-xyz")
     store.upsert_frame(Frame.connected("10.0.0.9", backend="memento-lan", guid="guid-xyz"))
-    assert store.list_library("guid-xyz") == [("a1", "one.jpg", "immich")]  # library followed
+    assert store.list_library("guid-xyz") == [("a1", "one.jpg", "immich", "")]  # library followed
     assert [d.frame_id for d in store.list_deliveries("guid-xyz")] == ["guid-xyz"]  # delivery too
     assert store.list_library("10.0.0.9") == []  # old key emptied
 
@@ -82,7 +82,7 @@ def test_discovery_keys_by_guid_and_survives_dhcp_change(tmp_path: Path) -> None
     asyncio.run(svc.discover_frames())
     f = store.get_frame(g)
     assert f is not None and f.address == "192.168.10.69" and f.name == "Living Room"
-    store.set_library(g, [("a1", "one.jpg")])  # curate to the stable GUID
+    store.set_library(g, [("a1", "one.jpg", "")])  # curate to the stable GUID
 
     svc._backend.discover = lambda **kw: [
         FrameInfo(ip="192.168.10.142", name="Living Room", guid=g)
@@ -90,7 +90,7 @@ def test_discovery_keys_by_guid_and_survives_dhcp_change(tmp_path: Path) -> None
     asyncio.run(svc.discover_frames())
     f2 = store.get_frame(g)
     assert f2.id == g and f2.address == "192.168.10.142"  # same identity, new address
-    assert store.list_library(g) == [("a1", "one.jpg", "immich")]  # curation followed the frame
+    assert store.list_library(g) == [("a1", "one.jpg", "immich", "")]  # curation followed the frame
     assert len(store.list_frames()) == 1  # no duplicate from the IP change
     assert asyncio.run(svc.resolve_host(g)) == "192.168.10.142"  # resolves to the current IP
 

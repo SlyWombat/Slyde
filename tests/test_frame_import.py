@@ -62,7 +62,7 @@ def test_import_pulls_on_frame_photos_into_library(frame: EmulatedFrame, tmp_pat
     result = _run_import(f, svc, settings, store, tmp_path)
     assert result.total == 2 and result.uploaded == 2 and result.failed == 0
 
-    lib = {dest: src for _aid, dest, src in store.list_library(f.id)}
+    lib = {dest: src for _aid, dest, src, _folder in store.list_library(f.id)}
     assert lib == {"a.jpg": "frame", "b.jpg": "frame"}
     # recorded as already on the frame (delivered) so the delivery loop never re-sends them
     assert set(store.delivered_payloads(f.id)) == {"a.jpg", "b.jpg"}

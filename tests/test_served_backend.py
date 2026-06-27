@@ -242,26 +242,30 @@ def test_frame_list_is_account_scoped_and_never_401s(served: ServedHarness) -> N
     }  # token-only lists all served frames
 
 
-def test_curate_grandfathers_existing_dest_names(served: ServedHarness) -> None:
-    """Re-curating an asset already in the library keeps its existing dest_name (no re-key, no
-    re-push); only a genuinely new asset gets the canonical readable slug (#61)."""
+def test_curate_grandfathers_existing_dest_names_and_folders(served: ServedHarness) -> None:
+    """Re-curating an asset already in the library keeps its existing dest_name AND folder (no
+    re-key/re-push); a genuinely new asset gets the canonical slug + its requested folder (#61)."""
     served.request("POST", "/api/frames/register", json={"frame_code": "EF-GF"})
     served.app.state.store.set_library(
-        "EF-GF", [("old1", "legacy-name.jpg")]
-    )  # a pre-existing name
+        "EF-GF", [("old1", "legacy-name.jpg", "Family")]
+    )  # a pre-existing name + folder
 
     put = served.request(
         "PUT",
         "/api/frames/EF-GF/library",
-        json=[{"asset_id": "old1"}, {"asset_id": "new2", "file_name": "Sunset.jpg"}],
+        json=[
+            {"asset_id": "old1"},  # no dest_name/folder -> grandfathered
+            {"asset_id": "new2", "file_name": "Sunset.jpg", "folder": "Italy"},
+        ],
     )
     assert put.status_code == 202
-    dests = {
-        i["asset_id"]: i["dest_name"]
-        for i in served.request("GET", "/api/frames/EF-GF/library").json()["items"]
+    items = {
+        i["asset_id"]: i for i in served.request("GET", "/api/frames/EF-GF/library").json()["items"]
     }
-    assert dests["old1"] == "legacy-name.jpg"  # grandfathered — kept its name, no re-key
-    assert dests["new2"] == "sunset-new2.jpg"  # new asset gets the canonical slug
+    assert items["old1"]["dest_name"] == "legacy-name.jpg"  # grandfathered — kept its name
+    assert items["old1"]["folder"] == "Family"  # grandfathered — kept its folder
+    assert items["new2"]["dest_name"] == "sunset-new2.jpg"  # new asset gets the canonical slug
+    assert items["new2"]["folder"] == "Italy"  # new asset lands in its requested folder
 
 
 def test_album_detail_lists_photos_with_path_and_thumb(served: ServedHarness) -> None:

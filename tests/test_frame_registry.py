@@ -175,3 +175,36 @@ def test_frame_service_served_backend_rejects_direct_ops() -> None:
         assert "served" in str(exc)
     else:
         raise AssertionError("expected FrameUnavailable for a served backend")
+
+
+def test_control_protocol_timeout_surfaces_as_frame_unavailable(tmp_path: Path) -> None:
+    """A frame that accepts a socket but never answers the control protocol (asleep) must surface
+    as FrameUnavailable — a clean 503/offline for the UI, not an uncaught 500."""
+    import asyncio
+    from contextlib import contextmanager
+
+    import pytest
+
+    from slyde_backend.backends import ConnectedFrameBackend, get_backend
+    from slyde_backend.frames import FrameUnavailable
+
+    class _AsleepBackend(ConnectedFrameBackend):
+        name = "memento-lan"
+        capabilities = get_backend("memento-lan").capabilities
+
+        def discover(self, *, timeout: float = 4.0, ports: object | None = None) -> list:  # type: ignore[type-arg,override]
+            return []
+
+        @contextmanager
+        def session(self, host: str, *, ports: object | None = None):  # type: ignore[override]
+            raise TimeoutError("timed out")  # the frame's app never answers
+            yield  # pragma: no cover
+
+    svc = FrameService(
+        Settings(frame_backend="memento-lan", frame_host=HOST, frame_discovery=False),
+        ports=PORTS,
+        store=Store(str(tmp_path / "asleep.db")),
+    )
+    svc._backend = _AsleepBackend()  # type: ignore[assignment]
+    with pytest.raises(FrameUnavailable):
+        asyncio.run(svc.get_config(HOST))

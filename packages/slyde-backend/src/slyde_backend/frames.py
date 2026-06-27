@@ -182,8 +182,16 @@ class FrameService:
             )
 
         def run() -> T:
-            with backend.session(resolved, ports=self._ports) as conn:
-                return fn(conn)
+            try:
+                with backend.session(resolved, ports=self._ports) as conn:
+                    return fn(conn)
+            except (TimeoutError, OSError) as exc:
+                # The frame accepts a socket but doesn't answer the control protocol (asleep) or is
+                # unreachable — a normal state, not a server error. Surface it as FrameUnavailable
+                # so callers get a clean 503/"offline", not an uncaught 500 (offline is not a fail).
+                raise FrameUnavailable(
+                    f"frame {resolved} did not respond (asleep?): {exc}"
+                ) from exc
 
         try:
             result = await asyncio.to_thread(run)

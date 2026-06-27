@@ -98,7 +98,7 @@ export function LibraryTab({ frameId }: { frameId: string }) {
             className="group relative overflow-hidden rounded-lg border border-edge bg-ink"
           >
             <img
-              src={api.immichThumbUrl(p.asset_id)}
+              src={api.assetPreviewUrl(p.asset_id)}
               alt={p.dest_name}
               loading="lazy"
               className="aspect-square w-full object-cover"

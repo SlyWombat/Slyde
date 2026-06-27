@@ -71,6 +71,9 @@ export const api = {
   // How an Immich asset renders on this frame's panel (LCD JPEG vs e-ink palette PNG) (#30/#39).
   framePreviewUrl: (id: string, assetId: string) =>
     `${BASE}/frames/${enc(id)}/preview/${enc(assetId)}`,
+  // Slyde's canonical, frame-independent preview for an asset — works for uploads (not in Immich)
+  // and Immich assets alike, so library thumbnails render for every source.
+  assetPreviewUrl: (assetId: string) => `${BASE}/assets/${enc(assetId)}/preview`,
   // Curate by asset id alone (dest_name derived server-side). Non-blocking: queues + reconciles.
   setLibrary: (id: string, items: { asset_id: string; dest_name?: string }[]) =>
     request<Record<string, number>>(`/frames/${enc(id)}/library`, {

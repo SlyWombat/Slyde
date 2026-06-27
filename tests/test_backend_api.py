@@ -412,16 +412,21 @@ def _cat(n: int) -> ImmichAsset:
     return ImmichAsset(id=f"c{n}", file_name=f"cat{n}.jpg", type="IMAGE")
 
 
-def _cats_count(client: ApiHarness) -> int:
-    albums = client.get(f"{F}/albums").json()
-    cats = next((a for a in albums if a["name"] == "Cats"), None)
-    return cats["image_count"] if cats else 0
+def test_keep_in_sync_binding_reconciles_into_the_library(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    """#62: binding a Library FOLDER to an Immich album keeps that folder's source='sync' rows
+    mirrored to the album (add new / drop departed), on the delivery queue (not the device)."""
+    from slyde_backend.frame import Frame
 
+    client.app.state.store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
+    client.app.state.folder_sync._immich_factory = MutableImmich
 
-def test_subscription_mirror_lifecycle(client: ApiHarness, frame: EmulatedFrame) -> None:
-    client.app.state.sync._immich_factory = MutableImmich
+    def cats() -> set[str]:
+        items = client.get(f"{F}/library").json()["items"]
+        return {i["asset_id"] for i in items if i["folder"] == "Cats" and i["dest_name"]}
 
-    def subscribe() -> dict:
+    def bind() -> dict:
         started = client.post(
             f"{F}/subscriptions", json={"album_id": "a1", "target_album": "Cats"}
         ).json()
@@ -429,24 +434,23 @@ def test_subscription_mirror_lifecycle(client: ApiHarness, frame: EmulatedFrame)
         assert job["status"] == "done", job
         return job["result"]
 
-    # Subscribe: mirrors the Immich album onto a frame album and syncs now (in the background).
+    # Bind: the folder's library rows mirror the Immich album.
     MutableImmich.assets = [_cat(1)]
-    assert subscribe()["uploaded"] == 1
+    bind()
+    assert cats() == {"c1"}
     subs = client.get(f"{F}/subscriptions").json()
     assert len(subs) == 1 and subs[0]["target_album"] == "Cats"
-    assert _cats_count(client) == 1
 
-    # A new Immich item is mirrored in (existing one is skipped, not re-uploaded).
+    # A new Immich item is added to the folder.
     MutableImmich.assets = [_cat(1), _cat(2)]
-    res = subscribe()
-    assert res["uploaded"] == 1 and res["skipped"] == 1
-    assert _cats_count(client) == 2
+    bind()
+    assert cats() == {"c1", "c2"}
 
-    # A removed Immich item is dropped from the frame album (1:1 mirror).
+    # A removed Immich item is dropped from the folder.
     MutableImmich.assets = [_cat(2)]
-    assert subscribe()["removed"] == 1
-    assert _cats_count(client) == 1
+    assert bind()["removed"] == 1
+    assert cats() == {"c2"}
 
-    # Unsubscribe stops syncing.
+    # Unbinding stops syncing (the library rows it placed remain).
     assert client.delete(f"{F}/subscriptions/a1").status_code == 204
     assert client.get(f"{F}/subscriptions").json() == []

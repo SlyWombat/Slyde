@@ -15,6 +15,7 @@ from .backends import ServedFrameBackend, get_backend
 from .config import Settings, get_settings
 from .delivery_service import DeliveryService
 from .firmware import FirmwareService
+from .folder_sync import FolderSyncService
 from .frames import FrameService, FrameUnavailable
 from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
@@ -53,8 +54,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         delivery_service = DeliveryService(
             store, library, image_cache, frame_service, immich_factory, settings, uploads
         )
+        # Keep-in-sync as per-folder bindings reconciled onto the delivery queue (#62).
+        folder_sync = FolderSyncService(settings, store, library, delivery_service, immich_factory)
         scheduler = SyncScheduler(
-            sync_service,
+            folder_sync,
             settings.sync_interval_minutes,
             delivery_service,
             settings.delivery_interval_seconds,
@@ -65,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.frame = frame_service
         app.state.immich_factory = immich_factory
         app.state.sync = sync_service
+        app.state.folder_sync = folder_sync
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()
         app.state.firmware = FirmwareService(settings)

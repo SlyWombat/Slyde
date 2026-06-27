@@ -166,6 +166,12 @@ export function LibraryTab({ frameId }: { frameId: string }) {
   const refetchInterval = usePoll(5000);
   const key = ["frame-library", frameId];
   const lib = useQuery({ queryKey: key, queryFn: () => api.frameLibrary(frameId), refetchInterval });
+  // Keep-in-sync bindings (#62) — folders mirrored from an Immich album show a ⟳ on their chip.
+  const bindings = useQuery({
+    queryKey: ["subscriptions", frameId],
+    queryFn: () => api.subscriptions(frameId),
+  });
+  const synced = new Set((bindings.data ?? []).map((b) => b.target_album));
 
   // Re-PUT the whole ordered set; dest_name is preserved so positions/names stay stable.
   const write = useMutation({
@@ -248,6 +254,12 @@ export function LibraryTab({ frameId }: { frameId: string }) {
           {folders.map((f) => (
             <FolderChip key={f} active={folder === f} onClick={() => setFolder(f)}>
               {f || "Ungrouped"} {items.filter((p) => p.folder === f).length}
+              {synced.has(f) && (
+                <span title="Kept in sync from an Immich album" aria-label="kept in sync">
+                  {" "}
+                  ⟳
+                </span>
+              )}
             </FolderChip>
           ))}
         </div>

@@ -50,6 +50,20 @@ class FrameLibrary:
                 self._store.delete_delivery(frame_id, old.dest_name)
         self._store.set_library(frame_id, [(i.asset_id, i.dest_name, i.folder) for i in items])
 
+    def set_folder_sync(self, frame_id: str, folder: str, items: list[LibraryItem]) -> None:
+        """Replace a folder's keep-in-sync set (``source='sync'``) with ``items``, evicting the
+        cached image + queued delivery for any photo that left the bound Immich album (#62). Mirrors
+        ``set_desired`` but scoped to one folder + the sync source, so curated/uploaded rows and
+        other folders are untouched."""
+        new_dests = {i.dest_name for i in items}
+        for old in self.desired(frame_id):
+            if old.source == "sync" and old.folder == folder and old.dest_name not in new_dests:
+                self._cache.delete(frame_id, old.dest_name)
+                self._store.delete_delivery(frame_id, old.dest_name)
+        self._store.set_folder_sync_library(
+            frame_id, folder, [(i.asset_id, i.dest_name) for i in items]
+        )
+
     def add(self, frame_id: str, item: LibraryItem) -> None:
         """Add a single photo to the frame's library (e.g. an app upload), without disturbing the
         rest of the curated set. The prepared image is cached separately by the caller."""

@@ -608,38 +608,37 @@ async def update_frame(
     return FrameUpdate(sent=True, track=track, version=entry.version, url=url)
 
 
-# -- subscriptions (keep an Immich album mirrored 1:1 to a frame album) --------
-@router.get("/{host}/subscriptions", response_model=list[Subscription])
-async def list_subscriptions(host: str, syncer: SyncDep) -> list[Subscription]:
+# -- keep-in-sync: bind a Library FOLDER to an Immich album, on the delivery queue (#62) --------
+@router.get("/{frame_id}/subscriptions", response_model=list[Subscription])
+async def list_subscriptions(frame_id: str, request: Request) -> list[Subscription]:
     return [
         Subscription(
             immich_album_id=s.immich_album_id,
-            target_album=s.target_album,
+            target_album=s.target_album,  # the bound Library folder
             last_synced_at=s.last_synced_at,
             last_result=s.last_result,
         )
-        for s in syncer.list_subscriptions(host)
+        for s in request.app.state.folder_sync.list_bindings(frame_id)
     ]
 
 
-@router.post("/{host}/subscriptions", response_model=SyncJobInfo, status_code=202)
+@router.post("/{frame_id}/subscriptions", response_model=SyncJobInfo, status_code=202)
 async def subscribe(
-    host: str, body: SubscribeRequest, syncer: SyncDep, jobs: JobsDep
+    frame_id: str, body: SubscribeRequest, request: Request, jobs: JobsDep
 ) -> SyncJobInfo:
-    """Mirror an Immich album to a frame album and keep it in sync.
-
-    The initial mirror runs as a background job (poll the sync-job endpoint for progress); the
-    subscription itself is recorded as part of that job.
-    """
+    """Bind a Library folder (``target_album``) to an Immich album and keep it in sync — works for
+    connected AND served frames (#62). The first reconcile runs as a background job (poll the
+    sync-job endpoint); it sets the folder's library rows and queues the delta for delivery."""
+    folder_sync = request.app.state.folder_sync
     job = jobs.start(
-        host,
+        frame_id,
         body.target_album,
-        lambda result: syncer.subscribe(host, body.album_id, body.target_album, result=result),
+        lambda result: folder_sync.bind(frame_id, body.album_id, body.target_album, result=result),
     )
     return _job_info(job)
 
 
-@router.delete("/{host}/subscriptions/{album_id}", status_code=204)
-async def unsubscribe(host: str, album_id: str, syncer: SyncDep) -> None:
-    if not syncer.unsubscribe(host, album_id):
-        raise HTTPException(status_code=404, detail="not a subscription")
+@router.delete("/{frame_id}/subscriptions/{album_id}", status_code=204)
+async def unsubscribe(frame_id: str, album_id: str, request: Request) -> None:
+    if not request.app.state.folder_sync.unbind(frame_id, album_id):
+        raise HTTPException(status_code=404, detail="not a binding")

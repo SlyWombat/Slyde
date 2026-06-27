@@ -419,6 +419,28 @@ class Store:
                 (frame_id, asset_id, dest_name, nxt, source, folder),
             )
 
+    def set_folder_sync_library(
+        self, frame_id: str, folder: str, items: list[tuple[str, str]]
+    ) -> None:
+        """Replace a folder's keep-in-sync rows (``source='sync'``) with ``items`` (asset_id,
+        dest_name), order preserved (#62). Other folders, other sources, and manually-curated rows
+        are untouched. OR REPLACE folds in an asset that was manually curated elsewhere."""
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM library_item WHERE frame_id = ? AND source = 'sync' AND folder = ?",
+                (frame_id, folder),
+            )
+            nxt = conn.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM library_item WHERE frame_id = ?",
+                (frame_id,),
+            ).fetchone()[0]
+            conn.executemany(
+                "INSERT OR REPLACE INTO library_item "
+                "(frame_id, asset_id, dest_name, position, source, folder) "
+                "VALUES (?, ?, ?, ?, 'sync', ?)",
+                [(frame_id, aid, dest, nxt + i, folder) for i, (aid, dest) in enumerate(items)],
+            )
+
     def list_library(self, frame_id: str) -> list[tuple[str, str, str, str]]:
         """The frame's desired photos as (asset_id, dest_name, source, folder), in order."""
         with self._conn() as conn:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .delivery_service import DeliveryService
-from .sync import SyncService
+from .folder_sync import FolderSyncService
 
 _log = logging.getLogger(__name__)
 
@@ -31,12 +31,12 @@ class SchedulerStatus:
 class SyncScheduler:
     def __init__(
         self,
-        sync: SyncService,
+        folder_sync: FolderSyncService,
         interval_minutes: int,
         delivery: DeliveryService | None = None,
         delivery_interval_seconds: int = 0,
     ) -> None:
-        self._sync = sync
+        self._folder_sync = folder_sync
         self._delivery = delivery
         self._interval = max(0, interval_minutes) * 60
         self._delivery_interval = max(0, delivery_interval_seconds)
@@ -63,11 +63,11 @@ class SyncScheduler:
         while True:
             await asyncio.sleep(self._interval)
             try:
-                summary = await self._sync.run_due_subscriptions()
+                summary = await self._folder_sync.run_due()
                 delivered = await self._run_delivery()
                 self._last_ok = True
                 self._last_message = (
-                    f"{summary['subscriptions']} albums: +{summary['added']} added, "
+                    f"{summary['subscriptions']} folders: +{summary['added']} added, "
                     f"-{summary['removed']} removed, {summary['failed']} failed; "
                     f"delivery {delivered}"
                 )

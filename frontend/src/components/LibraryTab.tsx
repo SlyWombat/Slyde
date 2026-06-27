@@ -2,10 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { LibraryPhoto, LibraryView } from "../api/types";
+import type { LibraryPhoto, LibraryView, Subscription } from "../api/types";
 import { useFrame } from "../lib/frames";
 import { useSyncJob } from "../lib/useSyncJob";
-import { EmptyState, ErrorState, Pill, Skeleton, StatusDot, useToast, usePoll, type Tone } from "../ui";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Pill,
+  Skeleton,
+  StatusDot,
+  useToast,
+  usePoll,
+  type Tone,
+} from "../ui";
 import { AlbumsTab } from "./albums/AlbumsTab";
 
 /** Unified "Add photos" menu — the single entry point for filling a frame (#60). From Immich
@@ -265,6 +275,14 @@ export function LibraryTab({ frameId }: { frameId: string }) {
         </div>
       )}
 
+      {folder !== null && folder !== "" && (
+        <FolderSync
+          frameId={frameId}
+          folder={folder}
+          binding={bindings.data?.find((b) => b.target_album === folder)}
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
         {shown.map((p, i) => (
           <figure
@@ -314,6 +332,80 @@ export function LibraryTab({ frameId }: { frameId: string }) {
       </div>
 
       <FrameFolders frameId={frameId} connected={connected} />
+    </div>
+  );
+}
+
+/** Bind/unbind a selected folder to an Immich album (keep-in-sync, #62). Works for any frame type —
+ *  this is how served frames get keep-in-sync, not just connected ones. */
+function FolderSync({
+  frameId,
+  folder,
+  binding,
+}: {
+  frameId: string;
+  folder: string;
+  binding?: Subscription;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const albums = useQuery({
+    queryKey: ["immich-albums"],
+    queryFn: api.immichAlbums,
+    enabled: !binding,
+  });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["subscriptions", frameId] });
+    qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
+  };
+  const bind = useMutation({
+    mutationFn: (albumId: string) => api.subscribe(frameId, albumId, folder),
+    onSuccess: () => {
+      invalidate();
+      toast(`Keeping “${folder}” in sync with Immich.`);
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+  const stop = useMutation({
+    mutationFn: () => api.unsubscribe(frameId, binding!.immich_album_id),
+    onSuccess: () => {
+      invalidate();
+      toast(`Stopped syncing “${folder}”.`);
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+
+  if (binding) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-slate-300">
+        <StatusDot tone="active" />
+        <span>⟳ Kept in sync from Immich{binding.last_result ? ` · ${binding.last_result}` : ""}</span>
+        <Button
+          className="ml-auto px-2 py-0.5 text-xs"
+          disabled={stop.isPending}
+          onClick={() => stop.mutate()}
+        >
+          {stop.isPending ? "Stopping…" : "Stop sync"}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+      <span>Keep “{folder}” in sync with an Immich album:</span>
+      <select
+        className="rounded bg-ink px-2 py-1 text-slate-200"
+        disabled={bind.isPending}
+        defaultValue=""
+        onChange={(e) => e.target.value && bind.mutate(e.target.value)}
+      >
+        <option value="">{bind.isPending ? "Binding…" : "Choose album…"}</option>
+        {(albums.data ?? []).map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

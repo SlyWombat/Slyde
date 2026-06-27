@@ -29,6 +29,7 @@ from ..jobs import SyncJob
 from ..library import LibraryItem
 from ..processing import prepare, profile_for
 from ..schemas import (
+    AddFrameRequest,
     CapabilitiesInfo,
     ConfigPatch,
     CreateAlbumRequest,
@@ -99,8 +100,9 @@ def _to_float(value: object) -> float:
 
 @router.get("", response_model=list[FrameSummary])
 async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSummary]:
-    """Discover frames on the LAN (the start screen). Includes a configured FRAME_HOST if set."""
-    found = await frame.discover_frames()
+    """List frames on the LAN (the onboarding picker). Discover-only — nothing is added to the
+    registry here; the user adds a frame explicitly via POST /add. Includes a configured host."""
+    found = await frame.discover_frames(register=False)
     summaries = [
         FrameSummary(
             name=f.name,
@@ -119,7 +121,7 @@ async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSumma
         if host in have:
             continue
         try:
-            cfg = await frame.get_config(host)
+            cfg = await frame.get_config(host, register=False)
         except (FrameUnavailable, OSError):
             continue
         summaries.append(
@@ -161,23 +163,41 @@ def _served_backends() -> list[str]:
     return [n for n in available_backends() if get_backend(n).capabilities.interaction == "served"]
 
 
-@router.post("/scan", response_model=list[FrameStatus])
-async def scan_frames(frame: FrameDep, store: StoreDep) -> list[FrameStatus]:
+@router.post("/scan", response_model=list[FrameSummary])
+async def scan_frames(frame: FrameDep) -> list[FrameSummary]:
     """Actively scan the LAN for connected frames (the manual 'Scan' button) — TCP-probe the control
-    port across the subnet, then register each responder by its GUID. Use where UDP discovery can't
-    run (containerised hub) or to relocate a frame after a DHCP change (#58). Manual-only."""
-    found = await frame.scan_for_frames()
+    port across the subnet and read each responder's config. **Discover-only**: returns candidates
+    and adds nothing; the user adds one explicitly via POST /add. Manual-only (#58)."""
     return [
-        FrameStatus(
-            id=f.id,
-            backend=f.backend,
-            interaction=f.interaction,
+        FrameSummary(
             name=f.name,
-            last_seen=f.last_seen,
-            deliveries=DeliverySummary(**store.delivery_summary(f.id)),
+            ip=f.ip,
+            mac=f.mac,
+            softver=f.softver,
+            hardver=f.hardver,
+            size=f.size,
+            orientation=f.orientation,
+            guid=f.guid,
         )
-        for f in found
+        for f in await frame.scan_for_frames()
     ]
+
+
+@router.post("/add", response_model=FrameStatus, status_code=201)
+async def add_frame(body: AddFrameRequest, frame: FrameDep, store: StoreDep) -> FrameStatus:
+    """Add a discovered/scanned connected frame to the registry by its host/IP — the explicit
+    "Add" the onboarding picker calls (discovery itself no longer auto-adds)."""
+    added = await frame.add_frame(body.host)
+    if added is None:
+        raise HTTPException(status_code=404, detail="frame not reachable at that host")
+    return FrameStatus(
+        id=added.id,
+        backend=added.backend,
+        interaction=added.interaction,
+        name=added.name,
+        last_seen=added.last_seen,
+        deliveries=DeliverySummary(**store.delivery_summary(added.id)),
+    )
 
 
 @router.post("/register", response_model=FrameStatus, status_code=201)

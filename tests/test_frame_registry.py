@@ -145,16 +145,21 @@ def test_frame_service_registers_connected_frame_on_contact(
     assert known[0].interaction == "connected" and known[0].last_seen is not None
 
 
-def test_scan_finds_and_registers_frame(frame: EmulatedFrame, tmp_path: Path) -> None:
-    """#58: the manual LAN scan TCP-probes the subnet, finds the frame on its control port, and
-    reads its config to register it (by GUID where reported) — without UDP broadcast discovery."""
+def test_scan_lists_candidates_without_registering_then_add(
+    frame: EmulatedFrame, tmp_path: Path
+) -> None:
+    """#58: the manual LAN scan TCP-probes the subnet and reads each responder's config, but it is
+    discover-only — it returns candidates and registers nothing; the user adds one explicitly."""
     import asyncio
 
     store = Store(str(tmp_path / "scan.db"))
     svc = FrameService(Settings(frame_scan_cidr=f"{HOST}/32"), ports=PORTS, store=store)
     found = asyncio.run(svc.scan_for_frames())
-    assert len(found) == 1 and found[0].address == HOST
-    assert store.get_frame_by_address(HOST) is not None  # now in the registry
+    assert len(found) == 1 and found[0].ip == HOST  # a candidate (FrameInfo), by ip
+    assert store.list_frames() == []  # discover-only: nothing added to the registry
+
+    added = asyncio.run(svc.add_frame(HOST))  # explicit add registers it
+    assert added is not None and store.get_frame_by_address(HOST) is not None
 
 
 def test_frame_service_served_backend_rejects_direct_ops() -> None:

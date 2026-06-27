@@ -31,22 +31,6 @@ export function FramesList() {
   const [kind, setKind] = useState<KindFilter>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(params.get("add") != null);
-  const qc = useQueryClient();
-  const toast = useToast();
-  // Manual active LAN scan — finds connected frames (and relocates one after a DHCP change) where
-  // UDP discovery can't run. User-triggered only (#58).
-  const scan = useMutation({
-    mutationFn: api.scanFrames,
-    onSuccess: (found) => {
-      qc.invalidateQueries({ queryKey: ["frames-status"] });
-      toast(
-        found.length
-          ? `Found ${found.length} frame${found.length === 1 ? "" : "s"} on the network.`
-          : "No frames found on the network.",
-      );
-    },
-    onError: (e) => toast((e as Error).message, "fail"),
-  });
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,13 +52,6 @@ export function FramesList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            onClick={() => scan.mutate()}
-            disabled={scan.isPending}
-            title="Actively probe the LAN for frames (finds them at any IP)"
-          >
-            {scan.isPending ? "Scanning…" : "Scan LAN"}
-          </Button>
           <Button variant={adding ? "default" : "accent"} onClick={() => setAdding((v) => !v)}>
             {adding ? "Close" : "+ Add frame"}
           </Button>
@@ -206,44 +183,82 @@ function PathTab({
   );
 }
 
-/** Connected path: scan the LAN (+ configured hosts) and open a host to manage it (FramePicker parity). */
+/** Connected path: list frames on the LAN (UDP discover + optional TCP probe) and add one
+ *  explicitly. Discover-only — nothing is registered until the user clicks "+ Add" (the backend no
+ *  longer auto-adds on a scan). */
 function ConnectedOnboard() {
   const navigate = useNavigate();
-  const scan = useQuery({ queryKey: ["frames"], queryFn: api.frames });
-  const found: FrameSummary[] = scan.data ?? [];
+  const qc = useQueryClient();
+  const toast = useToast();
+  const discover = useQuery({ queryKey: ["frames"], queryFn: api.frames });
+  const [scanned, setScanned] = useState<FrameSummary[]>([]);
+
+  const probe = useMutation({
+    mutationFn: api.scanFrames,
+    onSuccess: (found) => {
+      setScanned(found);
+      toast(found.length ? `Found ${found.length} on the scanned IPs.` : "No frames on the scanned IPs.");
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+
+  const add = useMutation({
+    mutationFn: (host: string) => api.addFrame(host),
+    onSuccess: (f) => {
+      qc.invalidateQueries({ queryKey: ["frames-status"] });
+      toast(`Added ${f.name || f.id}.`);
+      navigate(`/frames/${encodeURIComponent(f.id)}`);
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+
+  // Merge UDP-announced frames with any TCP-probed ones, de-duped by IP.
+  const candidates = useMemo(() => {
+    const byIp = new Map<string, FrameSummary>();
+    for (const f of discover.data ?? []) byIp.set(f.ip, f);
+    for (const f of scanned) if (!byIp.has(f.ip)) byIp.set(f.ip, f);
+    return [...byIp.values()];
+  }, [discover.data, scanned]);
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <p className="text-sm text-slate-400">
-          Memento / Pi soft-frames on your network announce themselves.
+          Frames on your network are listed below — nothing is added until you click Add.
         </p>
-        <Button
-          className="ml-auto px-2 py-1 text-xs"
-          disabled={scan.isFetching}
-          onClick={() => scan.refetch()}
-        >
-          {scan.isFetching ? "Scanning…" : "Rescan"}
-        </Button>
+        <div className="ml-auto flex gap-1">
+          <Button
+            className="px-2 py-1 text-xs"
+            disabled={discover.isFetching}
+            onClick={() => discover.refetch()}
+          >
+            {discover.isFetching ? "Scanning…" : "Rescan"}
+          </Button>
+          <Button
+            className="px-2 py-1 text-xs"
+            disabled={probe.isPending}
+            onClick={() => probe.mutate()}
+            title="Probe every IP on the subnet — finds frames UDP discovery can't reach"
+          >
+            {probe.isPending ? "Probing…" : "Probe IPs"}
+          </Button>
+        </div>
       </div>
 
-      {scan.isLoading && <Skeleton className="h-20 w-full" />}
-      {scan.error && <Banner tone="fail">{(scan.error as Error).message}</Banner>}
+      {discover.isLoading && <Skeleton className="h-20 w-full" />}
+      {discover.error && <Banner tone="fail">{(discover.error as Error).message}</Banner>}
 
-      {scan.data && found.length === 0 && (
+      {!discover.isLoading && candidates.length === 0 && (
         <Banner tone="idle">
-          No frames found on the LAN. Make sure the frame is powered on and on this network (or set
-          FRAME_HOST).
+          No frames found on the LAN. Make sure the frame is powered on and on this network, then
+          Rescan or Probe IPs (or set FRAME_HOST).
         </Banner>
       )}
 
       <ul className="space-y-2">
-        {found.map((f) => (
+        {candidates.map((f) => (
           <li key={f.ip}>
-            <button
-              onClick={() => navigate(`/frames/${encodeURIComponent(f.ip)}`)}
-              className="card flex w-full items-center justify-between text-left hover:border-accent"
-            >
+            <div className="card flex w-full items-center justify-between">
               <div className="min-w-0">
                 <div className="truncate font-semibold">{f.name || f.ip}</div>
                 <div className="text-xs text-slate-400">
@@ -253,8 +268,15 @@ function ConnectedOnboard() {
                   {f.softver ? ` · fw ${f.softver}` : ""}
                 </div>
               </div>
-              <span className="shrink-0 text-accent">Manage ›</span>
-            </button>
+              <Button
+                variant="accent"
+                className="shrink-0"
+                disabled={add.isPending}
+                onClick={() => add.mutate(f.ip)}
+              >
+                {add.isPending ? "Adding…" : "+ Add"}
+              </Button>
+            </div>
           </li>
         ))}
       </ul>

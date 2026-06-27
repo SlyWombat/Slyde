@@ -23,6 +23,25 @@ from .store import Store
 T = TypeVar("T")
 
 
+def _candidate_from_config(ip: str, cfg: dict[str, Any]) -> FrameInfo:
+    """Describe a scanned frame from its config read, for the onboarding picker (not registered)."""
+
+    def fnum(v: object) -> float:
+        try:
+            return float(str(v).replace(",", "."))
+        except (TypeError, ValueError):
+            return 0.0
+
+    return FrameInfo(
+        name=str(cfg.get("Name", "")),
+        ip=ip,
+        guid=str(cfg.get("GUID", "")).strip(),
+        size=int(str(cfg.get("ScreenSize", "0")) or 0),
+        orientation=str(cfg.get("Orientation", "")),
+        softver=fnum(cfg.get("SoftwareVersion", 0)),
+    )
+
+
 class FrameUnavailable(RuntimeError):
     """Raised when no frame can be resolved or reached."""
 
@@ -38,9 +57,13 @@ class FrameService:
         # Optional registry of known frames (transport-independent). None disables registration.
         self._store = store
 
-    async def discover_frames(self, timeout: float = 4.0) -> list[FrameInfo]:
+    async def discover_frames(
+        self, timeout: float = 4.0, *, register: bool = True
+    ) -> list[FrameInfo]:
+        # register=False just lists what's on the LAN (the onboarding picker) without adding
+        # anything; internal auto-pick callers keep register=True.
         frames = await asyncio.to_thread(self._backend.discover, timeout=timeout, ports=self._ports)
-        if self._store is not None:
+        if register and self._store is not None:
             for fi in frames:
                 self._register_discovered(fi)
         return frames
@@ -78,12 +101,12 @@ class FrameService:
             return ".".join(base.split(".")[:3]) + ".0/24"
         return ""
 
-    async def scan_for_frames(self, cidr: str | None = None) -> list[Frame]:
+    async def scan_for_frames(self, cidr: str | None = None) -> list[FrameInfo]:
         """Actively find connected frames by TCP-probing the control port across the subnet, then
-        reading each responder's config to register it by GUID (#58). Works from a bridged container
-        where UDP broadcast discovery can't. Manual/user-triggered only — never run on a timer."""
+        reading each responder's config. **Discover-only**: returns candidates and registers nothing
+        — the user adds one explicitly (``add_frame``). Manual/user-triggered only."""
         cidr = cidr or self._scan_cidr()
-        if cidr == "" or self._store is None:
+        if cidr == "":
             return []
         port = self._ports.control
         hosts = [str(ip) for ip in ipaddress.ip_network(cidr, strict=False).hosts()]
@@ -103,18 +126,25 @@ class FrameService:
                     return None
 
         live = [ip for ip in await asyncio.gather(*(probe(h) for h in hosts)) if ip]
-        registered: list[Frame] = []
-        for ip in live:  # read config -> captures GUID identity + name (#51/#58)
+        candidates: list[FrameInfo] = []
+        for ip in live:  # read config (without registering) to describe each candidate
             for _ in range(4):  # the Memento control protocol is flaky; retry the config read
                 try:
-                    await self.get_config(ip)
+                    cfg = await self.get_config(ip, register=False)
                 except Exception:
                     continue
-                f = self._store.get_frame_by_address(ip)
-                if f is not None:
-                    registered.append(f)
+                candidates.append(_candidate_from_config(ip, cfg))
                 break
-        return registered
+        return candidates
+
+    async def add_frame(self, host: str) -> Frame | None:
+        """Explicitly add a discovered/scanned frame: read its config (which registers it by GUID,
+        #51/#58) and return the registered frame."""
+        if self._store is None:
+            return None
+        await self.get_config(host, register=True)
+        resolved = await self.resolve_host(host)
+        return self._store.get_frame_by_address(resolved) or self._store.get_frame(host)
 
     def list_known_frames(self) -> list[Frame]:
         """Every frame the registry has seen (across backends). Empty if no registry is attached."""
@@ -138,7 +168,9 @@ class FrameService:
             raise FrameUnavailable("no frame found via discovery")
         return frames[0].ip
 
-    async def _with_client(self, host: str, fn: Callable[[FrameConnection], T]) -> T:
+    async def _with_client(
+        self, host: str, fn: Callable[[FrameConnection], T], *, register: bool = True
+    ) -> T:
         resolved = await self.resolve_host(host)
         backend = self._backend
         if not isinstance(backend, ConnectedFrameBackend):
@@ -159,7 +191,13 @@ class FrameService:
             # The frame may have moved (DHCP) since we last knew its address. Re-discover and if its
             # address changed, retry once at the new one — so management never assumes a fixed IP
             # (#58). ``run`` reads ``resolved`` from this scope, so reassigning it is enough.
-            if self._store is None or not host or not self._settings.frame_discovery:
+            # Skipped for discover-only reads (register=False) — those never touch the registry.
+            if (
+                not register
+                or self._store is None
+                or not host
+                or not self._settings.frame_discovery
+            ):
                 raise
             await self.discover_frames()
             new_address = await self.resolve_host(host)
@@ -167,7 +205,7 @@ class FrameService:
                 raise
             resolved = new_address
             result = await asyncio.to_thread(run)
-        if self._store is not None:  # we just reached this frame — record it as seen
+        if register and self._store is not None:  # we just reached this frame — record it as seen
             existing = self._store.get_frame_by_address(resolved)
             if existing is not None:  # touch the (GUID) entry, don't make an IP duplicate (#58)
                 self._store.touch_frame(existing.id)
@@ -196,9 +234,11 @@ class FrameService:
             self._store.capture_name(target, name)
 
     # -- config / display -----------------------------------------------------
-    async def get_config(self, host: str) -> dict[str, Any]:
-        config = await self._with_client(host, lambda c: c.get_config())
-        if self._store is not None:
+    async def get_config(self, host: str, *, register: bool = True) -> dict[str, Any]:
+        # register=False reads the config WITHOUT adding the frame to the registry — for discovery/
+        # scan, which only list candidates; the user adds one explicitly (see add_frame).
+        config = await self._with_client(host, lambda c: c.get_config(), register=register)
+        if register and self._store is not None:
             self._capture_identity(
                 await self.resolve_host(host),
                 guid=str(config.get("GUID") or "").strip(),

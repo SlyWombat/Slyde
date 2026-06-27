@@ -132,6 +132,12 @@ class RenameFrameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
 
 
+class AddFrameRequest(BaseModel):
+    """Add a discovered/scanned connected frame to the registry by host/IP (explicit onboarding)."""
+
+    host: str = Field(min_length=1)
+
+
 class FrameCounts(BaseModel):
     total: int = 0
     connected: int = 0

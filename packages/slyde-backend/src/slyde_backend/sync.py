@@ -13,17 +13,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import re
 from collections.abc import Callable
 
 from .config import Settings
 from .frames import FrameService
 from .imaging import prepare_for_frame
 from .immich import ImmichAsset, ImmichClient
+from .naming import dest_name_for  # canonical Immich dest_name (#61), used below
 from .schemas import SyncItem, SyncRequest, SyncResult
 from .store import Store, Subscription, SyncedPhoto
 
-_MAX_NAME = 64  # frame filename limit (Cadre.Utils.VerifyFilename)
 _log = logging.getLogger(__name__)
 
 
@@ -31,13 +30,6 @@ def _chunked(items: list[ImmichAsset], size: int) -> list[list[ImmichAsset]]:
     """Split ``items`` into chunks of ``size`` (so a large album streams with bounded memory)."""
     size = max(1, size)
     return [items[i : i + size] for i in range(0, len(items), size)]
-
-
-def dest_name_for(file_name: str, unique: str) -> str:
-    """A frame-safe, unique .jpg filename (<= 64 chars) from a source name + a unique suffix."""
-    stem = re.sub(r"[^a-z0-9]+", "-", file_name.rsplit(".", 1)[0].lower()).strip("-")
-    suffix = f"-{unique[:8]}.jpg"
-    return (stem[: _MAX_NAME - len(suffix)] or "photo") + suffix
 
 
 class SyncService:

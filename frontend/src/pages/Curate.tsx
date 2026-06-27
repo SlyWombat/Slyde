@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -22,6 +22,7 @@ export function Curate() {
     () => new Set(preTarget ? [preTarget] : []),
   );
   const [previewId, setPreviewId] = useState<string | null>(null); // asset shown in the panel preview
+  const fileNames = useRef(new Map<string, string>()); // asset id -> Immich filename, for #61 names
   const toast = useToast();
 
   const toggleAsset = (id: string) =>
@@ -58,7 +59,9 @@ export function Curate() {
           const have = new Set(cur.items.map((i) => i.asset_id));
           const merged = [
             ...cur.items.map((i) => ({ asset_id: i.asset_id, dest_name: i.dest_name })),
-            ...ids.filter((a) => !have.has(a)).map((a) => ({ asset_id: a })),
+            ...ids
+              .filter((a) => !have.has(a))
+              .map((a) => ({ asset_id: a, file_name: fileNames.current.get(a) })),
           ];
           await api.setLibrary(fid, merged);
         }),
@@ -99,6 +102,7 @@ export function Curate() {
           onToggle={toggleAsset}
           onBulk={setMany}
           onPick={setPreviewId}
+          fileNames={fileNames}
         />
 
         {/* Selection + targets + commit (sticky on desktop) */}
@@ -237,11 +241,13 @@ function ImmichBrowser({
   onToggle,
   onBulk,
   onPick,
+  fileNames,
 }: {
   selected: Set<string>;
   onToggle: (id: string) => void;
   onBulk: (ids: string[], on: boolean) => void;
   onPick: (id: string) => void;
+  fileNames: React.MutableRefObject<Map<string, string>>;
 }) {
   const [query, setQuery] = useState("");
   const [album, setAlbum] = useState<Album | null>(null);
@@ -265,6 +271,10 @@ function ImmichBrowser({
     () => (assets.data ?? []).filter((a) => a.type === "IMAGE"),
     [assets.data],
   );
+  // Remember each loaded asset's filename so a commit can send it for the canonical name (#61).
+  useEffect(() => {
+    images.forEach((a) => fileNames.current.set(a.id, a.file_name));
+  }, [images, fileNames]);
   const imageIds = images.map((a) => a.id);
   const allSelected = imageIds.length > 0 && imageIds.every((id) => selected.has(id));
 

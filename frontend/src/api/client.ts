@@ -74,8 +74,12 @@ export const api = {
   // Slyde's canonical, frame-independent preview for an asset — works for uploads (not in Immich)
   // and Immich assets alike, so library thumbnails render for every source.
   assetPreviewUrl: (assetId: string) => `${BASE}/assets/${enc(assetId)}/preview`,
-  // Curate by asset id alone (dest_name derived server-side). Non-blocking: queues + reconciles.
-  setLibrary: (id: string, items: { asset_id: string; dest_name?: string }[]) =>
+  // Curate by asset id (dest_name derived server-side; file_name lets it build the readable
+  // canonical name #61). Non-blocking: queues + reconciles.
+  setLibrary: (
+    id: string,
+    items: { asset_id: string; dest_name?: string; file_name?: string }[],
+  ) =>
     request<Record<string, number>>(`/frames/${enc(id)}/library`, {
       method: "PUT",
       body: JSON.stringify(items),

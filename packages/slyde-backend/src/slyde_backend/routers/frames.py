@@ -28,6 +28,7 @@ from ..frames import FrameUnavailable
 from ..immich import ImmichError
 from ..jobs import SyncJob
 from ..library import LibraryItem
+from ..naming import dest_name_for
 from ..processing import prepare, profile_for
 from ..schemas import (
     AddFrameRequest,
@@ -254,7 +255,20 @@ async def set_library(
     """
     library = request.app.state.library
     delivery = request.app.state.delivery_service
-    desired = [LibraryItem(i.asset_id, i.dest_name or f"{i.asset_id}.jpg") for i in items]
+    store = request.app.state.store
+    # Canonical dest_name (#61), grandfathered: an explicit dest_name wins; else an asset already
+    # in the library keeps its name (no re-key/re-push); else a new asset gets the readable slug
+    # from its Immich filename (asset id as fallback).
+    existing = {aid: dest for aid, dest, _src in store.list_library(frame_id)}
+
+    def _dest(i: LibraryItemModel) -> str:
+        return (
+            i.dest_name
+            or existing.get(i.asset_id)
+            or dest_name_for(i.file_name or i.asset_id, i.asset_id)
+        )
+
+    desired = [LibraryItem(i.asset_id, _dest(i)) for i in items]
     library.set_desired(frame_id, desired)
     queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC))
     background.add_task(_drain_delivery, delivery)  # kick delivery without blocking the response

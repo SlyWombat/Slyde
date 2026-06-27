@@ -71,11 +71,14 @@ class FrameSummary(BaseModel):
 
 
 class LibraryItemModel(BaseModel):
-    """One curated photo for a frame. ``dest_name`` is derived from the asset id if omitted, so the
-    UI can curate by asset id alone."""
+    """One curated photo for a frame. ``dest_name`` is derived server-side if omitted (#61): an
+    asset already in the library keeps its name (grandfathered, no re-key); a new asset gets the
+    canonical readable slug from ``file_name`` (the Immich original filename), falling back to the
+    asset id when no filename is supplied."""
 
     asset_id: str
     dest_name: str | None = None
+    file_name: str | None = None
 
 
 class DeliverySummary(BaseModel):

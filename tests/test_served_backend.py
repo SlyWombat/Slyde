@@ -242,6 +242,28 @@ def test_frame_list_is_account_scoped_and_never_401s(served: ServedHarness) -> N
     }  # token-only lists all served frames
 
 
+def test_curate_grandfathers_existing_dest_names(served: ServedHarness) -> None:
+    """Re-curating an asset already in the library keeps its existing dest_name (no re-key, no
+    re-push); only a genuinely new asset gets the canonical readable slug (#61)."""
+    served.request("POST", "/api/frames/register", json={"frame_code": "EF-GF"})
+    served.app.state.store.set_library(
+        "EF-GF", [("old1", "legacy-name.jpg")]
+    )  # a pre-existing name
+
+    put = served.request(
+        "PUT",
+        "/api/frames/EF-GF/library",
+        json=[{"asset_id": "old1"}, {"asset_id": "new2", "file_name": "Sunset.jpg"}],
+    )
+    assert put.status_code == 202
+    dests = {
+        i["asset_id"]: i["dest_name"]
+        for i in served.request("GET", "/api/frames/EF-GF/library").json()["items"]
+    }
+    assert dests["old1"] == "legacy-name.jpg"  # grandfathered — kept its name, no re-key
+    assert dests["new2"] == "sunset-new2.jpg"  # new asset gets the canonical slug
+
+
 def test_album_detail_lists_photos_with_path_and_thumb(served: ServedHarness) -> None:
     # The app fetches a frame's photos via album/detail?album_id=<frame id we minted in frame/list>.
     served.app.state.image_cache.put("AS99", "p1.jpg", b"\xff\xd8\xff1\xff\xd9")
@@ -303,13 +325,16 @@ def test_uploaded_photo_joins_the_library_and_survives_immich_recuration(
     assert len(lib["items"]) == 1
     upload_dest = lib["items"][0]["dest_name"]
 
-    # The UI now sets the Immich-curated library — the upload must remain.
-    put = served.request("PUT", "/api/frames/EF-MIX/library", json=[{"asset_id": "imm1"}])
+    # The UI now sets the Immich-curated library — the upload must remain. A new Immich asset gets
+    # the canonical readable slug from its filename (#61).
+    put = served.request(
+        "PUT", "/api/frames/EF-MIX/library", json=[{"asset_id": "imm1", "file_name": "Beach.JPG"}]
+    )
     assert put.status_code == 202
     dests = {
         i["dest_name"] for i in served.request("GET", "/api/frames/EF-MIX/library").json()["items"]
     }
-    assert upload_dest in dests and "imm1.jpg" in dests  # upload kept alongside the curated photo
+    assert upload_dest in dests and "beach-imm1.jpg" in dests  # upload kept + readable curated name
 
 
 def test_frame_wake_sequence_status_playlist_ack(served: ServedHarness) -> None:
@@ -583,7 +608,8 @@ def test_library_readback_and_detail(served: ServedHarness) -> None:
 
     lib = served.request("GET", f"/api/frames/{code}/library").json()
     assert [i["asset_id"] for i in lib["items"]] == ["a1", "a2"]
-    assert [i["dest_name"] for i in lib["items"]] == ["a1.jpg", "a2.jpg"]  # derived from asset id
+    # no file_name supplied -> the canonical slug falls back to the asset id (#61)
+    assert [i["dest_name"] for i in lib["items"]] == ["a1-a1.jpg", "a2-a2.jpg"]
     assert all(i["state"] in {"pending", "delivered", "failed", "unknown"} for i in lib["items"])
     assert "pending" in lib["deliveries"]
 

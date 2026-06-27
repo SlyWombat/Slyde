@@ -35,7 +35,7 @@ from memento_core import FrameInfo, Ports
 
 from ..frame import Frame
 from ..imagecache import ImageCache
-from ..serving import resolve_or_register_served_frame
+from ..serving import resolve_or_register_served_frame, resolve_served_frame
 from ..uploads import ingest_upload
 from .base import FrameCapabilities, ServedFrameBackend
 
@@ -153,41 +153,51 @@ class SungaleCloudBackend(ServedFrameBackend):
         # Cloud frames are not discoverable on the LAN; they reach out to the cloud themselves.
         return []
 
-    def identify(self, request: Request) -> str | None:
-        """Resolve the polling frame's stable key (its serial), independent of the account token.
+    def _candidate_ids(self, request: Request) -> list[str]:
+        """Every id a request carries for its frame, in canonical-preference order (device_id 1st).
 
-        The ``access_token`` query param is account-wide (shared across an owner's frames), so it is
-        NOT the frame key. We key by the frame's serial / device id, accepting it from a query param
-        or header. ``X-Frame-Code`` / bearer are kept so onboarding + tests can name a frame.
+        The app refers to one frame by several ids depending on the endpoint — numeric frame id
+        (``frame_id``/``setting_id``), ``device_id``, serial — while the frame uses ``device_id``.
+        The ``access_token`` is account-wide, NOT a frame key, so it's excluded. Passing all of them
+        to ``resolve_served_frame`` lets a request carrying two ids link them to one frame.
         """
-        # NOTE: the app refers to one frame by THREE ids depending on endpoint — numeric frame id
-        # (frame_id / setting_id), device_id, and serial — while the frame uses device_id. Until a
-        # canonical identity map unifies them, we accept whichever is present (device_id preferred).
         q = request.query_params
-        for key in (
-            "serial",
-            "sn",
-            "serialNumber",
-            "device_id",
-            "deviceId",
-            "frame_id",
-            "setting_id",
-        ):
-            if q.get(key):
-                return q[key]
-        code = request.headers.get("x-frame-code")
-        if code:
-            return code
+        ids = [
+            q[k]
+            for k in (
+                "device_id",
+                "deviceId",
+                "serial",
+                "sn",
+                "serialNumber",
+                "frame_id",
+                "setting_id",
+                "album_id",
+            )
+            if q.get(k)
+        ]
+        header = request.headers.get("x-frame-code")
+        if header:
+            ids.append(header)
         auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer "):
-            return auth[7:].strip() or None
-        return None
+        if auth.lower().startswith("bearer ") and auth[7:].strip():
+            ids.append(auth[7:].strip())
+        out: list[str] = []
+        for i in ids:  # de-dup, preserve order
+            if i not in out:
+                out.append(i)
+        return out
+
+    def identify(self, request: Request) -> str | None:
+        """The single best id a request presents (highest-priority candidate), or None."""
+        ids = self._candidate_ids(request)
+        return ids[0] if ids else None
 
     def _frame_from(self, request: Request, *, code: str | None = None) -> Frame:
-        code = code or self.identify(request)
-        if not code:
+        candidates = [code] if code else self._candidate_ids(request)
+        if not candidates:
             raise HTTPException(status_code=401, detail="frame not identified")
-        return resolve_or_register_served_frame(request.app.state.store, self.name, code)
+        return resolve_served_frame(request.app.state.store, self.name, *candidates)
 
     def _frame_record(
         self, frame: Frame, cache: ImageCache, setting: dict[str, str]

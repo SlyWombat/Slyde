@@ -153,12 +153,14 @@ Driving the app's settings revealed the rest of the app→cloud surface (all ret
 - `POST schedule/status?schedule_id=&status=` → `{"code":"ok","message":"update schedule successfully."}`
 - `GET setting/detail?frame_id=`
 
-**Identity caveat (important):** the app refers to ONE frame by **three different ids** depending on
-the endpoint — the **numeric frame id** (`frame_id` / `setting_id`, e.g. `753`), the **`device_id`**
-(`42ce…`), and the **serial** (`AS54…` in image paths) — while the **frame** identifies itself only by
-`device_id`. Our backend keys served frames by whatever id an endpoint presents, so against our cloud
-these would fragment into separate Frame records. A **canonical identity map** (numeric id ↔ device_id
-↔ serial → one Frame) is the next design task before the app↔our-cloud path is fully coherent.
+**Identity unification (implemented):** the app refers to ONE frame by **three different ids**
+depending on the endpoint — the **numeric frame id** (`frame_id` / `setting_id`, e.g. `753`), the
+**`device_id`** (`42ce…`), and the **serial** (`AS54…` in image paths) — while the **frame**
+identifies itself only by `device_id`. A **`frame_alias`** table now maps every presented id to one
+canonical Frame: each request's ids are gathered (`_candidate_ids`, device_id preferred) and linked
+via `resolve_served_frame`, so a request carrying two ids opportunistically links them, and if a
+device fragmented into two Frames they are **merged** (`rekey_frame`). App and frame now resolve to a
+single Frame regardless of which id they present.
 
 `setting/update`, `setting/update_display_orientation`, `setting/update_timing_type` are implemented
 (persisted per frame; drive `wakeUpSchedule` + the setting block). `schedule/*` is currently handled

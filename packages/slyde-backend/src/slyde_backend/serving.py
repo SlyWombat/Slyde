@@ -75,16 +75,49 @@ class CachedImageDelivery:
         return await self._fallback.image_for(frame) if self._fallback is not None else None
 
 
+def resolve_served_frame(store: Store, backend_name: str, *ids: str) -> Frame:
+    """Resolve one served `Frame` from any of the ids a device is known by, registering on first
+    contact and unifying its identities.
+
+    The app refers to one frame by several ids depending on the endpoint (numeric frame_id /
+    setting_id, device_id, serial), while the frame uses device_id — so a request may carry one or
+    more. We map every id to a single canonical frame via the alias table:
+
+    - if any id already resolves to a frame, that's the canonical one (the first, by caller order);
+    - if several ids resolve to *different* frames, they're the same device under different ids, so
+      we merge the rest into the first (``rekey_frame`` moves their library/queue/settings);
+    - all presented ids are then linked to the canonical frame, so a future request using *any* of
+      them resolves here — this opportunistically harvests linkage from requests carrying two ids.
+    """
+    candidates = [str(i) for i in ids if i]
+    if not candidates:
+        raise ValueError("no identifier presented")
+
+    canonicals: list[str] = []
+    for i in candidates:
+        c = store.resolve_alias(i) or (i if store.get_frame(i) is not None else None)
+        if c and c not in canonicals:
+            canonicals.append(c)
+
+    if not canonicals:
+        canonical = candidates[0]  # new device — its first (highest-priority) id is canonical
+        store.upsert_frame(Frame.served(canonical, backend=backend_name))
+    else:
+        canonical = canonicals[0]
+        for other in canonicals[1:]:  # the same device under different ids -> merge into one
+            store.rekey_frame(other, canonical)
+
+    for i in candidates:
+        store.link_alias(i, canonical)
+    store.touch_frame(canonical)
+    frame = store.get_frame(canonical)
+    assert frame is not None  # just registered/looked up
+    return frame
+
+
 def resolve_or_register_served_frame(store: Store, backend_name: str, frame_code: str) -> Frame:
-    """Map an identified frame-code to a registered `Frame`, registering it on first contact."""
-    existing = store.get_frame(frame_code)
-    if existing is not None:
-        store.touch_frame(frame_code)
-        return existing
-    frame = Frame.served(frame_code, backend=backend_name)
-    store.upsert_frame(frame)
-    store.touch_frame(frame_code)
-    return store.get_frame(frame_code) or frame
+    """Map a single identified frame-code to a registered `Frame` (see ``resolve_served_frame``)."""
+    return resolve_served_frame(store, backend_name, frame_code)
 
 
 def mount_served_backends(app: FastAPI, backends: list[ServedFrameBackend]) -> None:

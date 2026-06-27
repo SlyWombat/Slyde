@@ -114,6 +114,49 @@ def test_identify_by_serial_query_param_registers_by_serial(served: ServedHarnes
     assert [f.id for f in served.app.state.store.list_frames()] == ["AS54S44600647"]
 
 
+def test_identity_aliases_unify_app_and_frame_ids(served: ServedHarness) -> None:
+    """One device referred to by device_id (frame) and a numeric setting_id (app) is ONE frame: a
+    request carrying both links them, so a later numeric-id-only call resolves to the same frame."""
+    store = served.app.state.store
+    served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": "DEV42"})  # frame wakes
+    assert [f.id for f in store.list_frames()] == ["DEV42"]
+
+    # app sets the wake interval referencing the frame by BOTH ids -> links 753 -> DEV42
+    served.request(
+        "GET", f"{BASE}/setting/update?device_id=DEV42&setting_id=753&wake_up_interval=900"
+    )
+    assert [f.id for f in store.list_frames()] == ["DEV42"]  # still one frame, no fragmentation
+
+    # a later call using ONLY the numeric id resolves to DEV42 (orientation applies to the frame)
+    served.request(
+        "POST", f"{BASE}/setting/update_display_orientation?setting_id=753&display_orientation=2"
+    )
+    st = served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": "DEV42"}).json()
+    assert st["wakeUpSchedule"] == [900, 0]  # interval set via the numeric-id path reached DEV42
+    assert store.get_frame_setting("DEV42")["display_orientation"] == "2"
+
+
+def test_distinct_frames_merge_when_a_request_links_their_ids(served: ServedHarness) -> None:
+    store = served.app.state.store
+    # app contacts FIRST by numeric id (before the frame ever wakes) -> a frame keyed "753"
+    served.request(
+        "POST", f"{BASE}/setting/update_display_orientation?setting_id=753&display_orientation=2"
+    )
+    served.request(
+        "POST", f"{BASE}/dev/frame/status", data={"device_id": "DEV42"}
+    )  # separate frame
+    assert sorted(f.id for f in store.list_frames()) == ["753", "DEV42"]  # fragmented (two)
+
+    # a request carrying BOTH ids merges them into one (device_id is canonical)
+    served.request(
+        "GET", f"{BASE}/setting/update?device_id=DEV42&setting_id=753&wake_up_interval=900"
+    )
+    assert [f.id for f in store.list_frames()] == ["DEV42"]  # merged
+    assert store.get_frame_setting("DEV42")["display_orientation"] == "2"  # 753's setting survived
+    # the numeric id still resolves to the merged frame
+    assert store.resolve_alias("753") == "DEV42"
+
+
 def test_image_library_list_returns_top_level_list(served: ServedHarness) -> None:
     # No cached images -> empty list at the top level (the observed shape, not data-wrapped).
     resp = served.request(

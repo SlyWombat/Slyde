@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS frame_setting (
     display_orientation TEXT NOT NULL DEFAULT '1',
     timing_type         TEXT NOT NULL DEFAULT '0'
 );
+CREATE TABLE IF NOT EXISTS frame_alias (
+    -- Maps every id the app/frame presents for one device (numeric frame_id/setting_id, device_id,
+    -- serial, …) to the single canonical frame.id, so the same device resolves to one Frame.
+    alias    TEXT PRIMARY KEY,
+    frame_id TEXT NOT NULL
+);
 """
 
 # Per-frame setting fields + their defaults (the observed Sungale family values).
@@ -290,12 +296,40 @@ class Store:
         if old_id == new_id:
             return
         with self._conn() as conn:
-            for tbl in ("library_item", "delivery"):
+            for tbl in (
+                "library_item",
+                "delivery",
+                "frame_display",
+                "frame_setting",
+                "frame_alias",
+            ):
                 conn.execute(
                     f"UPDATE OR IGNORE {tbl} SET frame_id=? WHERE frame_id=?", (new_id, old_id)
                 )
                 conn.execute(f"DELETE FROM {tbl} WHERE frame_id=?", (old_id,))
+            # keep the old id resolvable -> the merged frame (so cached app/device ids still work)
+            conn.execute(
+                "INSERT OR REPLACE INTO frame_alias (alias, frame_id) VALUES (?, ?)",
+                (old_id, new_id),
+            )
             conn.execute("DELETE FROM frame WHERE id=?", (old_id,))
+
+    def resolve_alias(self, alias: str) -> str | None:
+        """The canonical frame.id an alternate id maps to, or None if unknown."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT frame_id FROM frame_alias WHERE alias = ?", (alias,)
+            ).fetchone()
+        return row["frame_id"] if row else None
+
+    def link_alias(self, alias: str, frame_id: str) -> None:
+        """Record that ``alias`` refers to the canonical ``frame_id`` (idempotent)."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame_alias (alias, frame_id) VALUES (?, ?) "
+                "ON CONFLICT(alias) DO UPDATE SET frame_id=excluded.frame_id",
+                (alias, frame_id),
+            )
 
     def list_frames(self) -> list[Frame]:
         with self._conn() as conn:
@@ -336,6 +370,9 @@ class Store:
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_display WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_setting WHERE frame_id = ?", (frame_id,))
+            conn.execute(
+                "DELETE FROM frame_alias WHERE frame_id = ? OR alias = ?", (frame_id, frame_id)
+            )
             conn.execute("DELETE FROM synced_photo WHERE host = ?", (frame_id,))
             conn.execute("DELETE FROM album_sync WHERE host = ?", (frame_id,))
         return existed

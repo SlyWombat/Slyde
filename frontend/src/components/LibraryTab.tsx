@@ -5,12 +5,13 @@ import { api } from "../api/client";
 import type { LibraryPhoto, LibraryView } from "../api/types";
 import { useFrame } from "../lib/frames";
 import { useSyncJob } from "../lib/useSyncJob";
-import { Button, EmptyState, ErrorState, Pill, Skeleton, StatusDot, usePoll, type Tone } from "../ui";
+import { EmptyState, ErrorState, Pill, Skeleton, StatusDot, usePoll, type Tone } from "../ui";
+import { AlbumsTab } from "./albums/AlbumsTab";
 
-/** Pull the photos already ON a connected frame into the library (gentle background job). Only
- *  meaningful for connected frames; renders nothing otherwise. */
-function ImportFromFrame({ frameId }: { frameId: string }) {
-  const { frame } = useFrame(frameId);
+/** Unified "Add photos" menu — the single entry point for filling a frame (#60). From Immich
+ *  (curate, any frame) + Import from frame (connected). Folder-scoped uploads + keep-in-sync live in
+ *  the Folders section below. */
+function AddPhotos({ frameId, connected }: { frameId: string; connected: boolean }) {
   const qc = useQueryClient();
   const { info, start, running } = useSyncJob(frameId);
   const status = info?.status;
@@ -18,17 +19,45 @@ function ImportFromFrame({ frameId }: { frameId: string }) {
     if (status && status !== "running")
       qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
   }, [status, frameId, qc]);
-
-  if (!frame || frame.interaction !== "connected") return null;
   const r = info?.result;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button disabled={running} onClick={() => start(() => api.startFrameImport(frameId))}>
-        {running ? "Importing…" : "Import photos on the frame"}
-      </Button>
+    <div className="flex flex-col items-end gap-1">
+      <details className="relative">
+        <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+          + Add photos
+          <span aria-hidden className="text-xs opacity-80">
+            ▾
+          </span>
+        </summary>
+        <div className="absolute right-0 z-20 mt-1 w-64 overflow-hidden rounded-lg border border-edge bg-ink shadow-xl">
+          <Link
+            to={`/curate?target=${encodeURIComponent(frameId)}`}
+            className="block px-3 py-2 hover:bg-edge"
+          >
+            <div className="text-sm font-medium">From Immich…</div>
+            <div className="text-xs text-slate-400">Pick photos to curate to this frame</div>
+          </Link>
+          {connected && (
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => start(() => api.startFrameImport(frameId))}
+              className="block w-full px-3 py-2 text-left hover:bg-edge disabled:opacity-50"
+            >
+              <div className="text-sm font-medium">{running ? "Importing…" : "Import from frame"}</div>
+              <div className="text-xs text-slate-400">Pull the photos already on the frame</div>
+            </button>
+          )}
+          {connected && (
+            <div className="border-t border-edge px-3 py-2 text-xs text-slate-500">
+              Upload files &amp; keep-in-sync are per-folder — in Folders below ↓
+            </div>
+          )}
+        </div>
+      </details>
       {running && r && (
         <span className="text-xs text-slate-400">
-          {r.uploaded + r.skipped + r.failed}/{r.total}
+          Importing {r.uploaded + r.skipped + r.failed}/{r.total}…
         </span>
       )}
       {status === "done" && r && (
@@ -39,6 +68,25 @@ function ImportFromFrame({ frameId }: { frameId: string }) {
         </span>
       )}
     </div>
+  );
+}
+
+/** Connected-frame device-folder surface, re-homed from the retired Albums tab into Library (#60):
+ *  folders + per-folder From-Immich (once / keep-in-sync) + upload. Reads Engine B live, so it's
+ *  unavailable when the frame is asleep — the curated set above is unaffected. */
+function FrameFolders({ frameId, connected }: { frameId: string; connected: boolean }) {
+  if (!connected) return null;
+  return (
+    <section className="space-y-3 border-t border-edge pt-5">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-200">Folders on the frame</h3>
+        <p className="text-xs text-slate-400">
+          Organise photos into folders on the device and fill them from Immich (once or kept in
+          sync) or by upload. Needs the frame reachable.
+        </p>
+      </div>
+      <AlbumsTab host={frameId} />
+    </section>
   );
 }
 
@@ -64,6 +112,8 @@ const STATE_LABEL: Record<LibraryPhoto["state"], string> = {
  */
 export function LibraryTab({ frameId }: { frameId: string }) {
   const qc = useQueryClient();
+  const { frame } = useFrame(frameId);
+  const connected = frame?.interaction === "connected";
   const refetchInterval = usePoll(5000);
   const key = ["frame-library", frameId];
   const lib = useQuery({ queryKey: key, queryFn: () => api.frameLibrary(frameId), refetchInterval });
@@ -94,19 +144,15 @@ export function LibraryTab({ frameId }: { frameId: string }) {
 
   if (items.length === 0) {
     return (
-      <EmptyState
-        icon="✦"
-        title="No photos curated yet"
-        desc="Pick photos from Immich to build this frame's set, or pull in the photos already on the frame. They deliver automatically — even if the frame is asleep."
-        action={
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Link to={`/curate?target=${encodeURIComponent(frameId)}`}>
-              <Button variant="accent">Curate photos</Button>
-            </Link>
-            <ImportFromFrame frameId={frameId} />
-          </div>
-        }
-      />
+      <div className="space-y-4">
+        <EmptyState
+          icon="✦"
+          title="No photos curated yet"
+          desc="Add photos from Immich, or pull in the photos already on the frame. They deliver automatically — even if the frame is asleep."
+          action={<AddPhotos frameId={frameId} connected={connected} />}
+        />
+        <FrameFolders frameId={frameId} connected={connected} />
+      </div>
     );
   }
 
@@ -127,11 +173,8 @@ export function LibraryTab({ frameId }: { frameId: string }) {
         {d && d.delivered > 0 && <Pill tone="ok">{d.delivered} on frame</Pill>}
         {d && d.pending > 0 && <Pill tone="pending">{d.pending} delivering</Pill>}
         {d && d.failed > 0 && <Pill tone="fail">{d.failed} failed</Pill>}
-        <div className="ml-auto flex items-center gap-2">
-          <ImportFromFrame frameId={frameId} />
-          <Link to={`/curate?target=${encodeURIComponent(frameId)}`}>
-            <Button variant="accent">+ Add photos</Button>
-          </Link>
+        <div className="ml-auto">
+          <AddPhotos frameId={frameId} connected={connected} />
         </div>
       </div>
 
@@ -173,6 +216,8 @@ export function LibraryTab({ frameId }: { frameId: string }) {
           </figure>
         ))}
       </div>
+
+      <FrameFolders frameId={frameId} connected={connected} />
     </div>
   );
 }

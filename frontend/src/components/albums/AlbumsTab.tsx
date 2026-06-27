@@ -15,10 +15,11 @@ import { AddToFolder } from "./AddToFolder";
 import { FolderSyncStatus } from "./FolderSyncStatus";
 
 /**
- * Frame detail → Albums tab (#56): the first-class home for the connected-frame FOLDER model —
- * folders on the LAN frame + filling them from Immich (add once / selected / keep-in-sync) + upload.
- * Distinct from the Library tab (frame-level desired set, any frame type). Folder data is live from
- * the device, so when the frame is asleep this errors → we show an honest offline state (not red).
+ * Connected-frame FOLDER model — folders on the LAN frame + filling them from Immich (add once /
+ * selected / keep-in-sync) + upload. As of #60 this is no longer a top-level tab; it renders inside
+ * the Library tab's "Folders on the frame" section (still Engine B under the hood until the unify
+ * phases #61-#63). Folder data is live from the device, so when the frame is asleep this errors →
+ * we show an honest offline state (not red).
  */
 export function AlbumsTab({ host }: { host: string }) {
   const qc = useQueryClient();
@@ -76,9 +77,8 @@ export function AlbumsTab({ host }: { host: string }) {
           </Button>
         }
       >
-        This frame is asleep or off the LAN — folder management needs it reachable. Photos you've
-        already curated still deliver when it's back, and you can curate the whole frame from the
-        Library tab now.
+        This frame is asleep or off the LAN — folder management needs it reachable. The curated set
+        above still delivers when it's back.
       </Banner>
     );
   }
@@ -89,11 +89,6 @@ export function AlbumsTab({ host }: { host: string }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400">
-        Folders organise photos on this LAN frame. To curate the whole frame (any frame type, even
-        offline), use the <span className="text-slate-200">Library</span> tab.
-      </p>
-
       {/* Folder rail + create */}
       <Card className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">

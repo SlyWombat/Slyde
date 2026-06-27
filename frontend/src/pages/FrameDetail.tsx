@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { AlbumsTab } from "../components/albums/AlbumsTab";
 import { LibraryTab } from "../components/LibraryTab";
 import { SettingsTab } from "../components/SettingsTab";
 import { frameHealth, isConnected, useFrame } from "../lib/frames";
@@ -22,7 +21,7 @@ import {
   usePoll,
 } from "../ui";
 
-type TabKey = "overview" | "library" | "albums" | "settings" | "firmware";
+type TabKey = "overview" | "library" | "settings" | "firmware";
 
 /** Tabbed, capability-gated frame detail (#36). Connected frames show every tab; served frames
  *  show only the transport-agnostic ones (no live albums/settings/firmware). Never a dead-end. */
@@ -68,7 +67,6 @@ export function FrameDetail() {
   const tabs: { key: TabKey; label: string; show: boolean }[] = [
     { key: "overview", label: "Overview", show: true },
     { key: "library", label: "Library", show: true },
-    { key: "albums", label: "Albums", show: caps?.albums ?? conn },
     { key: "settings", label: "Settings", show: true },
     { key: "firmware", label: "Firmware", show: caps?.ota ?? conn },
   ];
@@ -137,7 +135,6 @@ export function FrameDetail() {
       <div id="frame-tabpanel" role="tabpanel" className="mt-4">
         {active === "overview" && <OverviewTab frame={frame} />}
         {active === "library" && <LibraryTab frameId={frame.id} />}
-        {active === "albums" && <AlbumsTab host={frame.id} />}
         {active === "settings" && <SettingsTab frame={frame} />}
         {active === "firmware" && conn && <FirmwareTab host={frame.id} />}
       </div>

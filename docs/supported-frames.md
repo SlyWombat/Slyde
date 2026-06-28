@@ -14,9 +14,15 @@ forking. This page tracks which frames work today — and how to add yours.
 |---|---|---|---|
 | **Memento Smart Frame** (Electric Objects) | ✅ **Supported** | Reverse-engineered **LAN protocol** (connected backend) — no cloud, no account | Full-colour LCD |
 | **DIY Pi soft-frame** | ✅ **Supported** | The emulator run fullscreen on a Raspberry Pi (SDL/KMS); Slyde treats it like a real frame, incl. OTA | Any HDMI display |
-| **Aluratek 13.3" ePaper** (model `AEINK13F`, a **Sungale** white-label) | 🟡 **In progress** | **Cloud impersonation** (served backend) — the frame polls a server Slyde runs, fed from Immich | Colour e-paper (Spectra-6) |
+| **Aluratek 13.3" ePaper** (model `AEINK13F`, a **Sungale** white-label) | ✅ **Supported** | **Cloud impersonation** (served backend) — DNS-redirected off the vendor cloud; the frame polls a Slyde server and pulls **byte-exact panel images** from Immich. Cut over and running standalone | Colour e-paper (Spectra-6) |
 | **Other Sungale / "xiaowooya"-app frames** | 🟡 **Likely** | Same served backend, region/brand-parameterized | varies |
 | **Your frame?** | ⬜ **Wanted** | — | — |
+
+**Two discontinued frames, two revival techniques, one toolkit.** The Memento (reverse-engineered
+**LAN protocol**) and the Aluratek/Sungale eFrame (**cloud impersonation**) are both live — driven
+from one Slyde hub, one Immich library, one unified curation/delivery model. That's the
+differentiation: not another Pi slideshow, but a generic *frame-revival* layer where each new frame
+is a backend, not a fork.
 
 ## Is my frame revivable?
 

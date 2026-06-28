@@ -21,17 +21,17 @@
 
 When Memento's cloud was switched off, every frame people had paid for became a brick — it could no longer fetch a single photo. Slyde replaces that dead cloud with software **you** run: it speaks the frame's own protocol directly, so the hardware keeps working indefinitely, fed from a photo library you control. No subscription, no third party, nothing leaving your network.
 
-> 🧭 **Where this sits:** most self-hosted "photo frame" projects render a slideshow on a Pi or a browser. Slyde is one of the very few that **revives dedicated commercial frame hardware** over a reverse-engineered protocol — see the [competitive analysis](docs/competitive-analysis.html).
+> 🧭 **Where this sits:** most self-hosted "photo frame" projects render a slideshow on a Pi or a browser. Slyde is one of the very few that **revives dedicated commercial frame hardware** — and it now does so two ways: over a reverse-engineered **LAN protocol** (the Memento) *and* by **impersonating a dead vendor cloud** (the Aluratek/Sungale colour-e-paper frame, cut off its China cloud and running standalone). Each frame is a pluggable backend, not a fork. See **[supported frames](docs/supported-frames.md)** and the [competitive analysis](docs/competitive-analysis.html).
 
 ---
 
 ## Features
 
-- 🔎 **Zero-config discovery** — finds frames on the LAN (UDP broadcast), or target one by IP.
-- 🖼️ **Immich → frame sync** — browse albums, copy photos one-way to the frame ([read-only — your library is never touched](#read-only--one-way--your-library-is-never-touched)). Big albums run as **background jobs with a live progress bar**, so the browser never times out.
-- 🔁 **Keep-in-sync subscriptions** — mirror an Immich album to a frame folder 1:1; new photos are pushed and removed ones dropped, on a schedule.
-- 🎯 **Smart image fit** — each photo is prepared to the frame's *own reported resolution* and aspect: crop near-matches, blur-fill the sides for portraits (configurable: `contain` / `cover` / `blur` / `smart`).
-- 🗂️ **Folder & photo management** — create/delete folders, remove photos, pick the upload destination.
+- 🔌 **Multi-frame, pluggable backends** — revive different frames on one hub: a *connected* backend (LAN — Memento, Pi soft-frame) or a *served* backend (the frame polls a Slyde server — the Aluratek/Sungale colour-e-paper frame). [Supported frames →](docs/supported-frames.md)
+- 🖼️ **One Library, fed from Immich** — curate photos one-way from your [Immich](https://immich.app) library ([read-only — never touched](#read-only--one-way--your-library-is-never-touched)), upload your own, or pull in what's already on the frame — all into one per-frame Library, organised into **folders**. Everything rides a guaranteed-**delivery queue** with per-photo state, so it works the same for an asleep LAN frame or a cloud frame that polls once a day.
+- 🔁 **Keep a folder in sync** — bind a Library folder to an Immich album and it stays mirrored (new photos added, departed ones dropped) on a schedule — for LAN *and* cloud frames alike — or **add a whole album once** as a snapshot.
+- 🔎 **Zero-config discovery** — finds LAN frames (UDP broadcast) or scans the subnet; nothing is added until you pick it.
+- 🎯 **Smart image fit** — each photo is prepared to the frame's panel (resolution, aspect, and for e-paper the exact palette + dither): crop near-matches, blur-fill the sides for portraits (`contain` / `cover` / `blur` / `smart`).
 - 🎛️ **Live frame control** — current-image preview, next/previous, slide time, shuffle, night mode, orientation, rename.
 - 🧪 **Faithful emulator** — a full software frame for testing with no hardware (the whole test suite runs against it).
 - 🖥️ **Soft-frame mode** — run the emulator **fullscreen on a Raspberry Pi** (SDL/KMS, no desktop) as a DIY frame that the Manager treats like the real thing.
@@ -43,13 +43,13 @@ When Memento's cloud was switched off, every frame people had paid for became a 
 ## How it works
 
 ```
- Immich  ──►  Slyde (FastAPI + React)  ──►  Memento frame  (or emulator / Pi soft-frame)
-  read-only        sync · image pipeline · OTA            LAN protocol (UDP discovery + TCP control/file)
+ Immich  ──►  Slyde (FastAPI + React)  ──►  LAN frame (Memento / Pi soft-frame)   ·  cloud frame (Aluratek e-paper)
+  read-only    curation → delivery queue       connected: Slyde pushes over the LAN     served: the frame polls Slyde
 ```
 
 - **`packages/memento-core`** — the reverse-engineered protocol: UDP discovery, TCP control/file channels, the AES/DES crypto, and a sync `FrameClient`.
 - **`packages/memento-emulator`** — a faithful server-side emulator; also runs as a fullscreen **soft-frame** (`--mode display`).
-- **`packages/slyde-backend`** — FastAPI service: Immich client, image pipeline, sync engine + scheduler, firmware/OTA, and the REST API.
+- **`packages/slyde-backend`** — FastAPI service: Immich client, image pipeline, the curation/delivery queue + scheduler, pluggable frame backends (LAN + served-cloud), firmware/OTA, and the REST API.
 - **`frontend/`** — React + TypeScript + Vite + Tailwind web UI (served by the backend).
 - **`deploy/`** — portable `compose.yaml`, the emulator stack, the Pi **soft-frame** install, and example deployments.
 

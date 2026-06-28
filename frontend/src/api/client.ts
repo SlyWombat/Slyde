@@ -124,6 +124,13 @@ export const api = {
     }),
   unsubscribe: (host: string, albumId: string) =>
     request<void>(`/frames/${enc(host)}/subscriptions/${enc(albumId)}`, { method: "DELETE" }),
+  // One-time add of a whole Immich album's photos into a folder — no binding (#62). Background job;
+  // poll syncJob(host, job.id) for progress.
+  addAlbumOnce: (host: string, folder: string, albumId: string) =>
+    request<SyncJobInfo>(`/frames/${enc(host)}/folders/add-album`, {
+      method: "POST",
+      body: JSON.stringify({ album_id: albumId, folder }),
+    }),
 
   // -- firmware / updates --------------------------------------------------
   firmware: () => request<FirmwareInfo>("/firmware"),

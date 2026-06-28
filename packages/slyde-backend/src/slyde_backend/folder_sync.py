@@ -66,6 +66,35 @@ class FolderSyncService:
         )  # deliver the new photos now (interactive)
         return result
 
+    async def add_album_once(
+        self,
+        frame_id: str,
+        immich_album_id: str,
+        folder: str,
+        *,
+        result: SyncResult | None = None,
+    ) -> SyncResult:
+        """Add a whole Immich album's images into a Library folder ONCE — no binding (#62).
+
+        Unlike ``bind``, this creates no ``album_sync`` row: it merges the album's current images
+        into the folder as ordinary curated (``source='immich'``) rows and delivers them now. A
+        later change to the album does nothing — the folder is a snapshot, not a mirror.
+        """
+        result = result if result is not None else SyncResult()
+        async with self._immich_factory() as client:
+            assets = [a for a in await client.album_assets(immich_album_id) if a.type == "IMAGE"]
+        for a in assets:
+            dest = dest_name_for(a.file_name, a.id)
+            # MERGE (INSERT OR REPLACE) — never wipe this or other folders' existing items.
+            self._library.add(frame_id, LibraryItem(a.id, dest, source="immich", folder=folder))
+        result.total = len(assets)
+        result.prepared = len(assets)
+        now = datetime.now(UTC)
+        result.uploaded = self._delivery.enqueue_desired(frame_id, now=now)
+        result.skipped = result.total - result.uploaded
+        await self._delivery.drain(now=now)  # deliver the new photos now (interactive)
+        return result
+
     async def reconcile(
         self,
         frame_id: str,

@@ -248,6 +248,13 @@ class SubscribeRequest(BaseModel):
     target_album: str = Field(min_length=1, max_length=64)
 
 
+class AddAlbumOnceRequest(BaseModel):
+    """One-time add of a whole Immich album's images into a Library folder — no binding (#62)."""
+
+    album_id: str
+    folder: str = Field(min_length=1, max_length=64)
+
+
 class Subscription(BaseModel):
     immich_album_id: str
     target_album: str

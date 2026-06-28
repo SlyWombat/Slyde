@@ -373,3 +373,42 @@ def test_keep_in_sync_binding_reconciles_into_the_library(
     # Unbinding stops syncing (the library rows it placed remain).
     assert client.delete(f"{F}/subscriptions/a1").status_code == 204
     assert client.get(f"{F}/subscriptions").json() == []
+
+
+def test_add_album_once_drops_a_snapshot_with_no_binding(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    """#62: a one-time 'Add once' merges the album's images into a folder as curated rows, creates
+    NO subscription, and a later album change does NOT affect the folder without another call."""
+    from slyde_backend.frame import Frame
+
+    client.app.state.store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
+    client.app.state.folder_sync._immich_factory = MutableImmich
+
+    def cats() -> set[str]:
+        items = client.get(f"{F}/library").json()["items"]
+        return {i["asset_id"] for i in items if i["folder"] == "Cats" and i["dest_name"]}
+
+    def add_once() -> dict:
+        started = client.post(
+            f"{F}/folders/add-album", json={"album_id": "a1", "folder": "Cats"}
+        ).json()
+        job = _await_job(client, started)
+        assert job["status"] == "done", job
+        return job["result"]
+
+    # Add once: the album's current images land in the folder, and NO binding is created.
+    MutableImmich.assets = [_cat(1), _cat(2)]
+    result = add_once()
+    assert result["total"] == 2
+    assert cats() == {"c1", "c2"}
+    assert client.get(f"{F}/subscriptions").json() == []  # one-time: no binding
+
+    # A later album change does NOT touch the folder (no mirror) — it's a snapshot.
+    MutableImmich.assets = [_cat(3)]
+    assert cats() == {"c1", "c2"}
+
+    # Adding again MERGES the new album contents in (no wipe of the existing rows).
+    add_once()
+    assert cats() == {"c1", "c2", "c3"}
+    assert client.get(f"{F}/subscriptions").json() == []

@@ -325,6 +325,7 @@ function FolderSync({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const [albumId, setAlbumId] = useState("");
   const albums = useQuery({
     queryKey: ["immich-albums"],
     queryFn: api.immichAlbums,
@@ -335,13 +336,27 @@ function FolderSync({
     qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
   };
   const bind = useMutation({
-    mutationFn: (albumId: string) => api.subscribe(frameId, albumId, folder),
+    mutationFn: (id: string) => api.subscribe(frameId, id, folder),
     onSuccess: () => {
       invalidate();
       toast(`Keeping “${folder}” in sync with Immich.`);
     },
     onError: (e) => toast((e as Error).message, "fail"),
   });
+  // One-time add (no binding): drive the background job so it shows progress, then refresh + toast.
+  const { info: addInfo, start: startAdd, running: adding } = useSyncJob(frameId);
+  const addStatus = addInfo?.status;
+  useEffect(() => {
+    if (addStatus === "done") {
+      const r = addInfo?.result;
+      qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
+      toast(
+        `Added ${r?.uploaded ?? 0} to “${folder}”` +
+          (r && r.skipped > 0 ? ` · ${r.skipped} already there` : "") +
+          ".",
+      );
+    }
+  }, [addStatus, addInfo, frameId, folder, qc, toast]);
   const stop = useMutation({
     mutationFn: () => api.unsubscribe(frameId, binding!.immich_album_id),
     onSuccess: () => {
@@ -366,22 +381,39 @@ function FolderSync({
       </div>
     );
   }
+  const busy = bind.isPending || adding;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-      <span>Keep “{folder}” in sync with an Immich album:</span>
+      <span>“{folder}” from an Immich album:</span>
       <select
         className="rounded bg-ink px-2 py-1 text-slate-200"
-        disabled={bind.isPending}
-        defaultValue=""
-        onChange={(e) => e.target.value && bind.mutate(e.target.value)}
+        disabled={busy}
+        value={albumId}
+        onChange={(e) => setAlbumId(e.target.value)}
       >
-        <option value="">{bind.isPending ? "Binding…" : "Choose album…"}</option>
+        <option value="">Choose album…</option>
         {(albums.data ?? []).map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
           </option>
         ))}
       </select>
+      <Button
+        className="px-2 py-0.5 text-xs"
+        disabled={!albumId || busy}
+        onClick={() => albumId && bind.mutate(albumId)}
+        title="Mirror this folder to the album — later album changes sync automatically"
+      >
+        {bind.isPending ? "Binding…" : "Keep in sync"}
+      </Button>
+      <Button
+        className="px-2 py-0.5 text-xs"
+        disabled={!albumId || busy}
+        onClick={() => albumId && startAdd(() => api.addAlbumOnce(frameId, folder, albumId))}
+        title="Add the album's photos once — later album changes are ignored"
+      >
+        {adding ? "Adding…" : "Add once"}
+      </Button>
     </div>
   );
 }

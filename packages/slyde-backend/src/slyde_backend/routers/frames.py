@@ -31,6 +31,7 @@ from ..library import LibraryItem
 from ..naming import dest_name_for
 from ..processing import prepare, profile_for
 from ..schemas import (
+    AddAlbumOnceRequest,
     AddFrameRequest,
     CapabilitiesInfo,
     ConfigPatch,
@@ -572,6 +573,25 @@ async def subscribe(
         frame_id,
         body.target_album,
         lambda result: folder_sync.bind(frame_id, body.album_id, body.target_album, result=result),
+    )
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/folders/add-album", response_model=SyncJobInfo, status_code=202)
+async def add_album_once(
+    frame_id: str, body: AddAlbumOnceRequest, request: Request, jobs: JobsDep
+) -> SyncJobInfo:
+    """Add a whole Immich album's images into a Library folder ONCE, with NO binding (#62) — the
+    one-time counterpart to keep-in-sync. Merges the album's current photos into the folder and
+    delivers them; a later change to the album does nothing. Runs as a background job (poll the
+    sync-job endpoint), like ``subscribe``."""
+    folder_sync = request.app.state.folder_sync
+    job = jobs.start(
+        frame_id,
+        body.folder,
+        lambda result: folder_sync.add_album_once(
+            frame_id, body.album_id, body.folder, result=result
+        ),
     )
     return _job_info(job)
 

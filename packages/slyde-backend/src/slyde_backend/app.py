@@ -26,7 +26,6 @@ from .routers import assets, firmware, frames, health, immich
 from .scheduler import SyncScheduler
 from .serving import CachedImageDelivery, PlaceholderDelivery, mount_served_backends
 from .store import Store
-from .sync import SyncService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -40,7 +39,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         def immich_factory() -> ImmichClient:
             return ImmichClient(settings.immich_base_url, settings.immich_api_key)
 
-        sync_service = SyncService(settings, frame_service, store, immich_factory)
         # Cache of prepared (edited) images, ready to serve/push (#25). Served frames are handed a
         # cached image on poll; until the delivery service fills it, a placeholder is used.
         image_cache = ImageCache(settings.cache_dir)
@@ -67,7 +65,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.store = store
         app.state.frame = frame_service
         app.state.immich_factory = immich_factory
-        app.state.sync = sync_service
         app.state.folder_sync = folder_sync
         app.state.scheduler = scheduler
         app.state.jobs = JobManager()

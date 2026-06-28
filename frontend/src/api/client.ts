@@ -4,7 +4,6 @@ import type {
   ConfigPatch,
   CurrentImage,
   FirmwareInfo,
-  FrameAlbum,
   FrameDetailInfo,
   FrameInfo,
   FrameStatus,
@@ -14,7 +13,6 @@ import type {
   LibraryView,
   Subscription,
   SyncJobInfo,
-  SyncResult,
 } from "./types";
 
 const BASE = "/api";
@@ -96,34 +94,12 @@ export const api = {
   previous: (host: string) => request<void>(`/frames/${enc(host)}/previous`, { method: "POST" }),
   currentImage: (host: string) => request<CurrentImage>(`/frames/${enc(host)}/current`),
 
-  albums: (host: string) => request<FrameAlbum[]>(`/frames/${enc(host)}/albums`),
-  createAlbum: (host: string, name: string) =>
-    request<FrameAlbum[]>(`/frames/${enc(host)}/albums`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-  deleteAlbum: (host: string, name: string) =>
-    request<FrameAlbum[]>(`/frames/${enc(host)}/albums/${enc(name)}`, { method: "DELETE" }),
-  removeFromAlbum: (host: string, name: string, filename: string) =>
-    request<FrameAlbum[]>(`/frames/${enc(host)}/albums/${enc(name)}/images/${enc(filename)}`, {
-      method: "DELETE",
-    }),
   frameThumbUrl: (host: string, image: string) =>
     `${BASE}/frames/${enc(host)}/thumbnail/${enc(image)}`,
   deletePhoto: (host: string, filename: string) =>
     request<void>(`/frames/${enc(host)}/photos/${enc(filename)}`, { method: "DELETE" }),
 
-  sync: (host: string, body: { album_id?: string; asset_ids?: string[]; target_album?: string }) =>
-    request<SyncResult>(`/frames/${enc(host)}/sync`, { method: "POST", body: JSON.stringify(body) }),
-  // Background sync: start a job, then poll syncJob() until status != "running".
-  startSyncJob: (
-    host: string,
-    body: { album_id?: string; asset_ids?: string[]; target_album?: string },
-  ) =>
-    request<SyncJobInfo>(`/frames/${enc(host)}/sync/jobs`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+  // Poll a background job (frame-import / keep-in-sync bind) until status != "running".
   syncJob: (host: string, id: string) =>
     request<SyncJobInfo>(`/frames/${enc(host)}/sync/jobs/${enc(id)}`),
   // Pull the photos already on a connected frame into the library (gentle background job); poll

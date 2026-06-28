@@ -16,11 +16,10 @@ import {
   usePoll,
   type Tone,
 } from "../ui";
-import { AlbumsTab } from "./albums/AlbumsTab";
 
 /** Unified "Add photos" menu — the single entry point for filling a frame (#60). From Immich
- *  (curate, any frame) + Import from frame (connected). Folder-scoped uploads + keep-in-sync live in
- *  the Folders section below. */
+ *  (curate), Upload files (any frame), Import from frame (connected). Keep-in-sync is per-folder
+ *  via the FolderSync control on a selected folder (#62). */
 function AddPhotos({
   frameId,
   connected,
@@ -105,11 +104,9 @@ function AddPhotos({
               <div className="text-xs text-slate-400">Pull the photos already on the frame</div>
             </button>
           )}
-          {connected && (
-            <div className="border-t border-edge px-3 py-2 text-xs text-slate-500">
-              Keep-in-sync from an Immich album is per-folder — in Folders below ↓
-            </div>
-          )}
+          <div className="border-t border-edge px-3 py-2 text-xs text-slate-500">
+            Keep a folder in sync with an Immich album: pick the folder, then bind it below.
+          </div>
         </div>
       </details>
       {running && r && (
@@ -125,25 +122,6 @@ function AddPhotos({
         </span>
       )}
     </div>
-  );
-}
-
-/** Connected-frame device-folder surface, re-homed from the retired Albums tab into Library (#60):
- *  folders + per-folder From-Immich (once / keep-in-sync) + upload. Reads Engine B live, so it's
- *  unavailable when the frame is asleep — the curated set above is unaffected. */
-function FrameFolders({ frameId, connected }: { frameId: string; connected: boolean }) {
-  if (!connected) return null;
-  return (
-    <section className="space-y-3 border-t border-edge pt-5">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-200">Folders on the frame</h3>
-        <p className="text-xs text-slate-400">
-          Organise photos into folders on the device and fill them from Immich (once or kept in
-          sync) or by upload. Needs the frame reachable.
-        </p>
-      </div>
-      <AlbumsTab host={frameId} />
-    </section>
   );
 }
 
@@ -226,7 +204,6 @@ export function LibraryTab({ frameId }: { frameId: string }) {
           desc="Add photos from Immich, or pull in the photos already on the frame. They deliver automatically — even if the frame is asleep."
           action={<AddPhotos frameId={frameId} connected={connected} />}
         />
-        <FrameFolders frameId={frameId} connected={connected} />
       </div>
     );
   }
@@ -331,7 +308,6 @@ export function LibraryTab({ frameId }: { frameId: string }) {
         ))}
       </div>
 
-      <FrameFolders frameId={frameId} connected={connected} />
     </div>
   );
 }

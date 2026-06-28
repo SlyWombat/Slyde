@@ -4,9 +4,9 @@ import { api } from "../api/client";
 import type { SyncJobInfo } from "../api/types";
 
 /**
- * Drive a background sync job to completion (#56, extracted from the legacy AddPhotos). Start a job
- * via `start(() => api.startSyncJob(...))`, then it polls every 1s while running and, on completion,
- * invalidates the frame's folders + subscriptions so the UI reflects the result.
+ * Drive a background job (frame-import / keep-in-sync bind) to completion. Start it via
+ * `start(() => api.startFrameImport(...))` (or `api.subscribe(...)`), then it polls every 1s while
+ * running and, on completion, invalidates the frame's library + bindings so the UI reflects it.
  */
 export function useSyncJob(host: string) {
   const qc = useQueryClient();
@@ -23,7 +23,7 @@ export function useSyncJob(host: string) {
   const status = job.data?.status;
   useEffect(() => {
     if (status && status !== "running") {
-      qc.invalidateQueries({ queryKey: ["albums", host] });
+      qc.invalidateQueries({ queryKey: ["frame-library", host] });
       qc.invalidateQueries({ queryKey: ["subscriptions", host] });
     }
   }, [status, host, qc]);

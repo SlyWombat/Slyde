@@ -13,7 +13,6 @@ from ..jobs import JobManager
 from ..previews import AssetPreviewCache
 from ..scheduler import SyncScheduler
 from ..store import Store
-from ..sync import SyncService
 
 
 def get_settings(request: Request) -> Settings:
@@ -26,10 +25,6 @@ def get_store(request: Request) -> Store:
 
 def get_frame(request: Request) -> FrameService:
     return request.app.state.frame  # type: ignore[no-any-return]
-
-
-def get_sync(request: Request) -> SyncService:
-    return request.app.state.sync  # type: ignore[no-any-return]
 
 
 def get_scheduler(request: Request) -> SyncScheduler:
@@ -55,7 +50,6 @@ def get_asset_previews(request: Request) -> AssetPreviewCache:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 StoreDep = Annotated[Store, Depends(get_store)]
 FrameDep = Annotated[FrameService, Depends(get_frame)]
-SyncDep = Annotated[SyncService, Depends(get_sync)]
 SchedulerDep = Annotated[SyncScheduler, Depends(get_scheduler)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 FirmwareDep = Annotated[FirmwareService, Depends(get_firmware)]

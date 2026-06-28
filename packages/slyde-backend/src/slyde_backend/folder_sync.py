@@ -86,22 +86,12 @@ class FolderSyncService:
         result.prepared = len(items)
 
         prior = {i.dest_name for i in self._library.desired(frame_id) if i.folder == folder}
-        # Photos already on the device via the legacy engine carry the same canonical dest_name —
-        # record them delivered so the queue doesn't re-push them (migration safety).
-        on_device = {p.dest_name for p in self._store.list_for_album(frame_id, immich_album_id)}
-
         self._library.set_folder_sync(frame_id, folder, items)
         now = datetime.now(UTC)
-        for it in items:
-            if it.dest_name in on_device:
-                did = self._store.enqueue_delivery(
-                    frame_id, it.dest_name, it.asset_id, next_attempt_at=now.isoformat()
-                )
-                self._store.mark_delivered(did)
-                result.skipped += 1
-        result.uploaded = self._delivery.enqueue_desired(
-            frame_id, now=now
-        )  # the genuinely-new delta
+        # The delivery queue's delta-skip (#46) already avoids re-delivering photos that are on the
+        # frame, so a steady-state reconcile queues nothing — no separate "on device" bookkeeping.
+        result.uploaded = self._delivery.enqueue_desired(frame_id, now=now)
+        result.skipped = result.total - result.uploaded
         result.removed = len(prior - {i.dest_name for i in items})
         self._store.touch_subscription(
             frame_id,

@@ -62,7 +62,8 @@ class ApiHarness:
         self._lifespan = self.app.router.lifespan_context(self.app)
         self._loop.run_until_complete(self._lifespan.__aenter__())
         self.app.state.immich_factory = FakeImmich
-        self.app.state.sync._immich_factory = FakeImmich
+        self.app.state.folder_sync._immich_factory = FakeImmich
+        self.app.state.delivery_service._immich_factory = FakeImmich
         self._client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app), base_url="http://test"
         )
@@ -171,52 +172,6 @@ def test_frame_info_strips_wifi(client: ApiHarness) -> None:
     assert "WiFiSSID" not in info["config"] and "WiFiPSWD" not in info["config"]
 
 
-def test_albums_include_reserved_photos(client: ApiHarness) -> None:
-    albums = client.get(f"{F}/albums").json()
-    photos = next((a for a in albums if a["display_name"] == "Photos"), None)
-    assert photos is not None and photos["reserved"] is True
-
-
-def test_create_album(client: ApiHarness) -> None:
-    albums = client.post(f"{F}/albums", json={"name": "Holidays"}).json()
-    assert any(a["name"] == "Holidays" for a in albums)
-
-
-def test_create_then_delete_folder(client: ApiHarness) -> None:
-    client.post(f"{F}/albums", json={"name": "Temp"})
-    assert any(a["name"] == "Temp" for a in client.get(f"{F}/albums").json())
-    after = client.delete(f"{F}/albums/Temp").json()
-    assert not any(a["name"] == "Temp" for a in after)
-
-
-def test_remove_from_folder_keeps_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
-    client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Trip"})
-    trip = next(a for a in client.get(f"{F}/albums").json() if a["name"] == "Trip")
-    img = trip["images"][0]
-    after = client.delete(f"{F}/albums/Trip/images/{img}").json()
-    trip2 = next((a for a in after if a["name"] == "Trip"), None)
-    assert trip2 is None or img not in trip2["images"]
-    assert img in frame.state.photos  # the photo itself stays on the frame
-
-
-def test_sync_into_target_album(client: ApiHarness, frame: EmulatedFrame) -> None:
-    result = client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Beach"}).json()
-    assert result["uploaded"] == 1
-    dest = result["items"][0]["dest_name"]
-    assert dest in frame.state.photos
-    albums = client.get(f"{F}/albums").json()
-    beach = next((a for a in albums if a["name"] == "Beach"), None)
-    assert beach is not None and dest in beach["images"]
-
-
-def test_resync_skips_after_upload(client: ApiHarness, frame: EmulatedFrame) -> None:
-    first = client.post(f"{F}/sync", json={"album_id": "a1"}).json()
-    assert first["uploaded"] == 1 and first["skipped"] == 0
-    # A second identical sync must skip (the record was written after the upload succeeded).
-    second = client.post(f"{F}/sync", json={"album_id": "a1"}).json()
-    assert second["uploaded"] == 0 and second["skipped"] == 1
-
-
 def test_web_upload_becomes_a_library_item_with_folder(
     client: ApiHarness, frame: EmulatedFrame
 ) -> None:
@@ -292,28 +247,6 @@ def test_asset_preview_served_from_slyde_store_even_when_immich_unavailable(
     client.app.state.immich_factory = _BoomImmich
     res = client.get("/api/assets/x1/preview")
     assert res.status_code == 200 and res.content[:3] == b"\xff\xd8\xff"
-
-
-def test_delete_photo(client: ApiHarness, frame: EmulatedFrame) -> None:
-    client.post(f"{F}/sync", json={"album_id": "a1"})
-    dest = next(iter(frame.state.photos))
-    assert client.delete(f"{F}/photos/{dest}").status_code == 204
-    assert dest not in frame.state.photos
-
-
-def test_current_image_after_sync(client: ApiHarness, frame: EmulatedFrame) -> None:
-    client.post(f"{F}/sync", json={"album_id": "a1"})
-    body = client.get(f"{F}/current").json()
-    assert body["image"] in frame.state.photos
-
-
-def test_sync_job_runs_in_background(client: ApiHarness, frame: EmulatedFrame) -> None:
-    started = client.post(f"{F}/sync/jobs", json={"album_id": "a1"}).json()
-    assert started["status"] in {"running", "done"}
-    job = _await_job(client, started)
-    assert job["status"] == "done"
-    assert job["result"]["uploaded"] == 1
-    assert job["result"]["total"] >= 1
 
 
 def test_sync_job_404_for_unknown_id(client: ApiHarness) -> None:
@@ -392,20 +325,6 @@ class MutableImmich:
 
     async def asset_bytes(self, asset_id: str, size: str) -> bytes:
         return _png_bytes()
-
-
-def test_sync_streams_in_chunks_with_prepared_progress(
-    client: ApiHarness, frame: EmulatedFrame
-) -> None:
-    """#57: a multi-photo album syncs in bounded chunks; total/prepared/uploaded each reflect every
-    photo (so the UI never sits frozen at 0/N), and all land across multiple chunks."""
-    client.app.state.sync._immich_factory = MutableImmich
-    client.app.state.settings.sync_chunk_size = 1  # force one chunk per photo
-    MutableImmich.assets = [_cat(1), _cat(2), _cat(3)]
-    res = client.post(f"{F}/sync", json={"album_id": "a1", "target_album": "Stream"}).json()
-    assert res["total"] == 3 and res["prepared"] == 3
-    assert res["uploaded"] == 3 and res["failed"] == 0
-    assert len([i for i in res["items"] if i["status"] == "uploaded"]) == 3
 
 
 def _cat(n: int) -> ImmichAsset:

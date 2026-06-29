@@ -411,6 +411,40 @@ def test_dev_frame_status_idle_when_nothing_curated(served: ServedHarness) -> No
     assert st["action"] == 0  # no image -> nothing to display
 
 
+def test_dev_frame_status_rotates_to_next_image_each_wake(served: ServedHarness) -> None:
+    """#23: a served e-paper frame caches images locally and won't redraw one it already holds, so
+    to cycle the library AND recover a blank panel the backend advances to the NEXT image on each
+    new wake (forcing a fresh fetch+redraw). It must NOT rotate within one wake's poll burst."""
+    dev = "EF-ROT"
+    for k in ("img-a", "img-b", "img-c"):
+        served.app.state.image_cache.put(dev, k, b"BM-" + k.encode())
+    store = served.app.state.store
+
+    def poll() -> dict:  # type: ignore[type-arg]
+        return served.request("POST", f"{BASE}/dev/frame/status", data={"device_id": dev}).json()
+
+    def ack() -> None:
+        served.request("POST", f"{BASE}/callback/action_status", data={"device_id": dev})
+
+    def age() -> None:  # simulate the sleep: make the next poll count as a new wake
+        c, _, a = store.get_frame_display(dev)
+        store.set_frame_display(dev, content_key=c, last_update_ms="0", acked_key=a)
+
+    assert poll()["action"] == 2  # first wake -> show the first image (sorted)
+    assert store.get_frame_display(dev)[0] == "img-a"
+    ack()
+    assert poll()["action"] == 0  # same wake, already acked -> idle (no rotation mid-wake)
+
+    age()
+    assert poll()["action"] == 2  # new wake -> advance + ask to display
+    assert store.get_frame_display(dev)[0] == "img-b"  # rotated to the next image
+    ack()
+
+    age()  # blank-recovery: even after acking, a fresh wake offers a new image so the panel redraws
+    assert poll()["action"] == 2
+    assert store.get_frame_display(dev)[0] == "img-c"
+
+
 def test_setting_update_persists_and_drives_wakeupschedule(served: ServedHarness) -> None:
     """The app's setting/update changes the wake interval; dev/frame/status's wakeUpSchedule and
     setting/detail/frame/list reflect it."""

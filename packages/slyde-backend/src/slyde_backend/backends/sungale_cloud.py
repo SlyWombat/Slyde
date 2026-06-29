@@ -61,6 +61,14 @@ _SCREEN_MODEL = "EL133UF1"  # the 13.3" Spectra-6 panel
 _DEFAULT_WAKE_INTERVAL = 259200  # 3 days, if a frame has no setting yet
 _ACTION_DISPLAY = 2  # there's a new image to fetch + display
 _ACTION_IDLE = 0  # nothing to do (heartbeat) — lets the frame go back to sleep
+_ROTATE_MIN_GAP_MS = 45_000  # never rotate twice within one wake's poll burst
+_ROTATE_MAX_GAP_MS = 600_000  # ...but rotate after at most ~10 min of wake gap
+
+
+def _rotate_gap_ms(wake_interval_s: int) -> int:
+    """How long since the last image change before we advance to the next image on a wake — sits
+    between a wake's poll burst (seconds) and the wake interval, so rotation fires once per wake."""
+    return max(_ROTATE_MIN_GAP_MS, min(wake_interval_s * 1000 // 2, _ROTATE_MAX_GAP_MS))
 
 
 def _ok(message: str = "ok") -> dict[str, Any]:
@@ -383,14 +391,35 @@ class SungaleCloudBackend(ServedFrameBackend):
         # live wake capture (#9). Distinct from the app endpoints above.
         @router.api_route(f"{API_BASE}/dev/frame/status", methods=["POST"])
         async def dev_frame_status(request: Request) -> dict[str, Any]:
-            # The frame's heartbeat: we answer with the current image's change-state. action=2 once
-            # (fetch + display) then 0 on the heartbeats, so the frame displays once and sleeps.
+            # The frame's heartbeat -> a change-state: action=2 = fetch+display, else 0 (idle).
+            # The frame caches images locally and won't redraw one it already holds, so to cycle the
+            # library AND recover a cleared/blank panel we advance to the NEXT image once per wake
+            # (a fresh image forces a fetch+redraw). The frame bursts dozens of polls per wake then
+            # sleeps, so we rotate only once the gap since the last change is large enough (#23).
             store = request.app.state.store
             frame = resolve_or_register_served_frame(store, self.name, await _device_id(request))
-            current = request.app.state.image_cache.current_key(frame.id) or ""
             content_key, last_update_ms, acked_key = store.get_frame_display(frame.id)
-            if current != content_key:  # the image changed -> new lastUpdate, pending display
-                content_key, last_update_ms = current, str(int(time.time() * 1000))
+            # The frame sleeps for the configured wake interval (it acts on the first value), so
+            # changing it via setting/update changes the wake cadence.
+            try:
+                interval = int(store.get_frame_setting(frame.id)["wake_up_interval"])
+            except (ValueError, KeyError):
+                interval = _DEFAULT_WAKE_INTERVAL
+
+            keys = request.app.state.image_cache.keys(frame.id)
+            now_ms = int(time.time() * 1000)
+            since_ms = now_ms - int(last_update_ms or "0")
+            new_content, new_acked = content_key, acked_key
+            if not keys:  # nothing curated -> clear the pointer so we go idle
+                new_content = ""
+            elif content_key not in keys:  # first ever / the shown image is gone -> show the first
+                new_content, new_acked = keys[0], ""
+            elif content_key == acked_key and since_ms > _rotate_gap_ms(
+                interval
+            ):  # new wake -> next
+                new_content = keys[(keys.index(content_key) + 1) % len(keys)]
+            if new_content != content_key or new_acked != acked_key:
+                content_key, acked_key, last_update_ms = new_content, new_acked, str(now_ms)
                 store.set_frame_display(
                     frame.id,
                     content_key=content_key,
@@ -398,12 +427,6 @@ class SungaleCloudBackend(ServedFrameBackend):
                     acked_key=acked_key,
                 )
             action = _ACTION_DISPLAY if (content_key and content_key != acked_key) else _ACTION_IDLE
-            # Sleep for the configured wake interval (the frame sleeps on the first value), so
-            # changing it via setting/update changes the wake cadence.
-            try:
-                interval = int(store.get_frame_setting(frame.id)["wake_up_interval"])
-            except (ValueError, KeyError):
-                interval = _DEFAULT_WAKE_INTERVAL
             return {
                 "lastUpdate": last_update_ms,
                 "action": action,

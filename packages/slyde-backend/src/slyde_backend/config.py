@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     # Frame -------------------------------------------------------------------
     frame_backend: str = Field(
         "memento-lan",
-        description="The primary frame backend to drive: memento-lan (default) | sungale-cloud",
+        description="The primary frame backend to drive: memento-lan (default) | sungale-cloud "
+        "| switchbot",
     )
     frame_served_backends: str = Field(
         "",
@@ -37,6 +38,14 @@ class Settings(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Smart mode: crop if <= this fraction of the long edge is lost, else blur-fill",
+    )
+
+    # SwitchBot AI Art Frame (#64) — driven via SwitchBot's official signed cloud OpenAPI ---------
+    switchbot_token: str = Field(
+        "", description="SwitchBot OpenAPI token (for the 'switchbot' backend)", repr=False
+    )
+    switchbot_secret: str = Field(
+        "", description="SwitchBot OpenAPI secret (for the 'switchbot' backend)", repr=False
     )
 
     # Immich ------------------------------------------------------------------

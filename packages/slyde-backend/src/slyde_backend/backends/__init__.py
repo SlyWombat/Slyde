@@ -11,10 +11,12 @@ from .base import (
 )
 from .memento_lan import MementoLanBackend
 from .sungale_cloud import SungaleCloudBackend
+from .switchbot import SwitchBotBackend
 
 _BACKENDS: dict[str, type[FrameBackend]] = {
     MementoLanBackend.name: MementoLanBackend,
     SungaleCloudBackend.name: SungaleCloudBackend,
+    SwitchBotBackend.name: SwitchBotBackend,
 }
 
 
@@ -40,6 +42,7 @@ __all__ = [
     "MementoLanBackend",
     "ServedFrameBackend",
     "SungaleCloudBackend",
+    "SwitchBotBackend",
     "available_backends",
     "get_backend",
 ]

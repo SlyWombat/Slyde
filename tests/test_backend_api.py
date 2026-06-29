@@ -287,6 +287,50 @@ def test_frame_update_409_without_firmware(client: ApiHarness) -> None:
     assert client.post(f"{F}/update").status_code == 409
 
 
+def test_switchbot_discover_registers_account_frames_and_curation_queues(
+    client: ApiHarness,
+) -> None:
+    """#64: the SwitchBot discover endpoint lists the account's AI Art Frames and registers each
+    into the shared registry by deviceId, so curation queues delivery on the unified engine."""
+    from slyde_backend.switchbot import ART_FRAME, SwitchBotDevice
+    from slyde_backend.switchbot_service import SwitchBotService
+
+    class StubClient:
+        async def __aenter__(self) -> StubClient:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def art_frames(self) -> list[SwitchBotDevice]:
+            return [SwitchBotDevice("B0E9FEDEF6E2", ART_FRAME, name="Studio")]
+
+    store = client.app.state.store
+    # Explicit creds (a stub client bypasses the real cloud) so `configured` is True in CI too.
+    creds = Settings(switchbot_token="t", switchbot_secret="s")
+    client.app.state.switchbot = SwitchBotService(creds, store, client_factory=StubClient)
+
+    res = client.post("/api/frames/switchbot/discover")
+    assert res.status_code == 201
+    body = res.json()
+    assert body[0]["id"] == "B0E9FEDEF6E2" and body[0]["backend"] == "switchbot"
+
+    # It now shows in the frame-agnostic status view and accepts curation onto the delivery queue.
+    statuses = {f["id"]: f for f in client.get("/api/frames/status").json()}
+    assert statuses["B0E9FEDEF6E2"]["interaction"] == "connected"
+    queued = client.request("PUT", "/api/frames/B0E9FEDEF6E2/library", json=[{"asset_id": "x1"}])
+    assert queued.status_code == 202 and queued.json()["queued"] == 1
+
+
+def test_switchbot_discover_503_when_unconfigured(client: ApiHarness) -> None:
+    from slyde_backend.switchbot_service import SwitchBotService
+
+    # Blank creds (passed explicitly so it's deterministic) -> the endpoint reports not-configured.
+    blank = Settings(switchbot_token="", switchbot_secret="")
+    client.app.state.switchbot = SwitchBotService(blank, client.app.state.store)
+    assert client.post("/api/frames/switchbot/discover").status_code == 503
+
+
 def test_spa_cache_headers(tmp_path) -> None:  # type: ignore[no-untyped-def]
     static = tmp_path / "static"
     (static / "assets").mkdir(parents=True)

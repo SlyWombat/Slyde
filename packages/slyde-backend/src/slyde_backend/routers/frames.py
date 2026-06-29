@@ -49,10 +49,12 @@ from ..schemas import (
     RenameFrameRequest,
     SubscribeRequest,
     Subscription,
+    SwitchBotFrameStatus,
     SyncJobInfo,
     SyncResult,
 )
 from ..serving import resolve_or_register_served_frame
+from ..switchbot import SwitchBotError
 from ..uploads import ingest_upload
 from .deps import (
     FirmwareDep,
@@ -60,6 +62,7 @@ from .deps import (
     JobsDep,
     SettingsDep,
     StoreDep,
+    SwitchBotDep,
     get_immich_factory,
 )
 
@@ -226,6 +229,50 @@ async def register_frame(body: RegisterFrameRequest, store: StoreDep) -> FrameSt
         name=frame.name,
         last_seen=frame.last_seen,
         deliveries=DeliverySummary(**store.delivery_summary(frame.id)),
+    )
+
+
+# -- SwitchBot AI Art Frame: account-scoped onboarding + live status (#64) ----------------------
+# Registered before the generic /{host} routes so these literal paths win. SwitchBot frames are
+# listed from the account (not LAN-discovered) and pushed to via the vendor cloud; once registered
+# they curate + deliver on the same unified queue as every other frame.
+@router.post("/switchbot/discover", response_model=list[FrameStatus], status_code=201)
+async def discover_switchbot_frames(switchbot: SwitchBotDep, store: StoreDep) -> list[FrameStatus]:
+    """List the SwitchBot account's AI Art Frames and register each by its deviceId (#64)."""
+    if not switchbot.configured:
+        raise HTTPException(status_code=503, detail="SwitchBot token/secret not configured")
+    try:
+        frames = await switchbot.discover_frames()
+    except SwitchBotError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [
+        FrameStatus(
+            id=f.id,
+            backend=f.backend,
+            interaction=f.interaction,
+            name=f.name,
+            last_seen=f.last_seen,
+            deliveries=DeliverySummary(**store.delivery_summary(f.id)),
+        )
+        for f in frames
+    ]
+
+
+@router.get("/switchbot/{device_id}/status", response_model=SwitchBotFrameStatus)
+async def switchbot_frame_status(device_id: str, switchbot: SwitchBotDep) -> SwitchBotFrameStatus:
+    """Live battery / display-mode / current-image / firmware for one SwitchBot frame (#64)."""
+    if not switchbot.configured:
+        raise HTTPException(status_code=503, detail="SwitchBot token/secret not configured")
+    try:
+        s = await switchbot.status(device_id)
+    except SwitchBotError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return SwitchBotFrameStatus(
+        device_id=s.device_id,
+        battery=s.battery,
+        display_mode=s.display_mode,
+        image_url=s.image_url,
+        version=s.version,
     )
 
 

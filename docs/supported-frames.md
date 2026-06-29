@@ -15,6 +15,7 @@ forking. This page tracks which frames work today — and how to add yours.
 | **Memento Smart Frame** (Electric Objects) | ✅ **Supported** | Reverse-engineered **LAN protocol** (connected backend) — no cloud, no account | Full-colour LCD |
 | **DIY Pi soft-frame** | ✅ **Supported** | The emulator run fullscreen on a Raspberry Pi (SDL/KMS); Slyde treats it like a real frame, incl. OTA | Any HDMI display |
 | **Aluratek 13.3" ePaper** (model `AEINK13F`, a **Sungale** white-label) | ✅ **Supported** | **Cloud impersonation** (served backend) — DNS-redirected off the vendor cloud; the frame polls a Slyde server and pulls **byte-exact panel images** from Immich. Cut over and running standalone | Colour e-paper (Spectra-6) |
+| **SwitchBot AI Art Frame** (7.3") | ✅ **Supported** | **Vendor-cloud push** (`switchbot` backend) — Slyde pushes a pre-fitted JPEG to SwitchBot's **official signed cloud API** by `deviceId` (`uploadImage`); the cloud renders it onto the panel. No LAN, no impersonation; onboard via the account (`POST /api/frames/switchbot/discover`) | Colour e-paper (Spectra-6), 480×800 portrait |
 | **Other Sungale / "xiaowooya"-app frames** | 🟡 **Likely** | Same served backend, region/brand-parameterized | varies |
 | **Your frame?** | ⬜ **Wanted** | — | — |
 

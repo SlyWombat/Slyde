@@ -26,6 +26,7 @@ from .routers import assets, firmware, frames, health, immich
 from .scheduler import SyncScheduler
 from .serving import CachedImageDelivery, PlaceholderDelivery, mount_served_backends
 from .store import Store
+from .switchbot_service import SwitchBotService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -75,6 +76,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.frame_delivery = CachedImageDelivery(image_cache, fallback=PlaceholderDelivery())
         app.state.library = library
         app.state.delivery_service = delivery_service
+        # SwitchBot AI Art Frames are account-scoped: this lists/registers them + reads live status
+        # (the 'switchbot' backend pushes to SwitchBot's cloud; delivery rides the same queue, #64).
+        app.state.switchbot = SwitchBotService(settings, store)
         scheduler.start()
         try:
             yield

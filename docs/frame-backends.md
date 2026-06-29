@@ -37,6 +37,12 @@ A frame is reached one of two ways, captured by two interaction models
   or connect to). Implements `router()` (the HTTP surface the frame polls), `identify(request)` (which
   frame is calling), and `respond(frame, request)`. We impersonate the vendor cloud and hand the
   frame an already-prepared image from the cache. *(sungale-cloud)*
+- **Push-to-vendor-cloud** — a frame whose *vendor* exposes an official cloud API, so we reach it by
+  `deviceId` through that API rather than over the LAN or by impersonation. It's a thin
+  `FrameBackend` (neither connected-LAN nor served), declares `interaction=connected` (we initiate),
+  and plugs into the **delivery queue** with a dedicated push step. Discovery is account-scoped, not
+  LAN. *(switchbot — SwitchBot's signed OpenAPI; `delivery_service` prepares a 480×800 JPEG and calls
+  `uploadImage`.)*
 
 Both declare a **`FrameCapabilities`** descriptor (interaction, transport, `color_model`, discovery,
 albums, thumbnails, upload, delete, ota). `color_model` drives the per-frame processing profile:
@@ -51,7 +57,13 @@ registered backend. `FrameService` resolves it once via `get_backend(name)`.
 ```
 FRAME_BACKEND=memento-lan     # default — the reverse-engineered Memento LAN protocol
 FRAME_BACKEND=sungale-cloud   # Aluratek/Sungale Spectra-6 ePaper (cloud impersonation)
+FRAME_BACKEND=switchbot       # SwitchBot AI Art Frame (push to SwitchBot's signed cloud API)
 ```
+
+The `switchbot` backend needs no LAN at all; set `SWITCHBOT_TOKEN`/`SWITCHBOT_SECRET` and onboard the
+account's frames with `POST /api/frames/switchbot/discover`. Because delivery is keyed per
+`frame.backend`, a SwitchBot frame can also be curated from a hub whose primary `FRAME_BACKEND` is
+something else — its queued photos are pushed to SwitchBot's cloud regardless of the primary.
 
 **One hub, multiple frames (ADR-010).** A served backend can be mounted *alongside* the primary via
 `FRAME_SERVED_BACKENDS` (comma-separated), so a single Slyde drives both — e.g.
@@ -70,6 +82,7 @@ downloads its image. App photo pushes (`photo/upload`) are ingested too — see
 |---|---|---|---|
 | `memento-lan` | LAN (UDP+TCP) | ✅ complete | The original Memento frame, emulator, and Pi soft-frame. |
 | `sungale-cloud` | Cloud (HTTP) | ✅ complete · **live** | Aluratek/Sungale Spectra-6 ePaper (ESP32). Cloud-impersonation responder for **both** the app (`frame/list`, `album/detail`, `photo/upload`/`delete`, `setting/*`) **and the frame** (`dev/frame/status`, `dev/playlist/detail`, `callback/*`, keyed by `device_id`) — full wake sequence confirmed live (#9). Delivers the panel's exact byte-compatible 4bpp BMP (`panel_bmp.py`). **Cut over** off the vendor cloud (DNS host-override → Slyde); the frame now polls Slyde standalone. |
+| `switchbot` | Cloud (HTTPS, signed) | ✅ complete | SwitchBot **AI Art Frame** (7.3" Spectra-6, 480×800 portrait). A third model — *push to the vendor cloud*: we initiate delivery (`interaction=connected`) but reach the frame by `deviceId` through SwitchBot's **official signed OpenAPI** (`uploadImage`), no LAN session and no server the frame polls. Discovery is **account-scoped** (`SwitchBotService` → `art_frames`, `POST /api/frames/switchbot/discover`), not LAN broadcast. Delivery pre-fits each photo to the panel's native **480×800 portrait** and pushes a plain JPEG — SwitchBot's cloud renders it onto the Spectra-6 panel (~30 s after the frame wakes), so we don't quantize/dither here and don't block on confirmation. Creds: `SWITCHBOT_TOKEN`/`SWITCHBOT_SECRET`. |
 
 ## Adding your own
 

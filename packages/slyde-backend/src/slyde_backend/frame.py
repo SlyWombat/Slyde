@@ -58,3 +58,18 @@ class Frame:
             name=name or frame_code,
             frame_code=frame_code,
         )
+
+    @classmethod
+    def cloud_push(cls, device_id: str, *, backend: str, name: str = "") -> Frame:
+        """A frame we *push* to through a vendor's cloud API by ``device_id`` (e.g. SwitchBot, #64).
+
+        We initiate delivery (``interaction="connected"``), but there's no LAN address — the stable
+        id is the vendor ``device_id``, which is also kept as ``frame_code`` for the cloud identity.
+        """
+        return cls(
+            id=device_id,
+            backend=backend,
+            interaction="connected",
+            name=name or device_id,
+            frame_code=device_id,
+        )

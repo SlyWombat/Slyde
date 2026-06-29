@@ -21,6 +21,9 @@ import asyncio
 from collections.abc import Callable
 from datetime import datetime
 
+import httpx
+
+from .backends.switchbot import SwitchBotBackend
 from .config import Settings
 from .delivery import RetryPolicy, TransientDeliveryError, reconcile
 from .frames import FrameService, FrameUnavailable
@@ -29,6 +32,8 @@ from .immich import ImmichClient, ImmichError
 from .library import FrameLibrary
 from .processing import prepare, profile_for
 from .store import DeliveryRow, Store
+from .switchbot import SwitchBotClient, SwitchBotError
+from .switchbot_service import switchbot_client_factory
 
 
 class DeliveryService:
@@ -41,6 +46,7 @@ class DeliveryService:
         immich_factory: Callable[[], ImmichClient],
         settings: Settings,
         uploads: ImageCache | None = None,
+        switchbot_factory: Callable[[], SwitchBotClient] | None = None,
     ) -> None:
         self._store = store
         self._library = library
@@ -50,6 +56,9 @@ class DeliveryService:
         self._settings = settings
         # Originals of app-pushed photos (not in Immich); sourced from here instead of Immich.
         self._uploads = uploads
+        # How to reach SwitchBot's cloud for a 'switchbot' frame's push delivery (injectable for
+        # tests); defaults to a client built from the configured token/secret.
+        self._switchbot_factory = switchbot_factory or switchbot_client_factory(settings)
         self._policy = RetryPolicy()
         self._lock = asyncio.Lock()  # serialise reconcile passes (PUT, scheduler, delivery timer)
 
@@ -116,9 +125,27 @@ class DeliveryService:
             )  # cache for reuse (served serves from here)
         if frame.interaction == "served":
             return  # the prepared image waits in the cache; the frame pulls it on wake
+        if frame.backend == SwitchBotBackend.name:
+            # SwitchBot: push the prepared JPEG to the vendor cloud by deviceId (frame.id). The
+            # cloud renders it onto the panel on the frame's next wake (~30s) — we don't block on
+            # that confirmation; a transport/API hiccup is transient, so it's retried like any push.
+            await self._push_switchbot(frame.id, prepared)
+            return
         try:  # connected: push over the LAN — an offline frame is a transient (retried) failure.
             # Pass the frame's stable id (not a fixed address) so delivery resolves its CURRENT IP
             # and self-heals across DHCP changes (#58).
             await self._frames.upload_images(frame.id, [(prepared, item.key)], album=None)
         except FrameUnavailable as exc:
             raise TransientDeliveryError(f"frame offline: {exc}") from exc
+
+    async def _push_switchbot(self, device_id: str, image: bytes) -> None:
+        """Deliver ``image`` to a SwitchBot AI Art Frame via its signed cloud API (uploadImage).
+
+        A transport/API failure (cloud down, rate-limited, frame unreachable) is transient — raised
+        as ``TransientDeliveryError`` so the queue retries with backoff and never drops the photo.
+        """
+        try:
+            async with self._switchbot_factory() as client:
+                await client.upload_image_bytes(device_id, image)
+        except (SwitchBotError, httpx.HTTPError, OSError) as exc:
+            raise TransientDeliveryError(f"switchbot push failed: {exc}") from exc

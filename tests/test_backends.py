@@ -11,15 +11,17 @@ from slyde_backend.backends import (
     MementoLanBackend,
     ServedFrameBackend,
     SungaleCloudBackend,
+    SwitchBotBackend,
     available_backends,
     get_backend,
 )
 
 
 def test_registry_resolves_known_backends() -> None:
-    assert available_backends() == ["memento-lan", "sungale-cloud"]
+    assert available_backends() == ["memento-lan", "sungale-cloud", "switchbot"]
     assert isinstance(get_backend("memento-lan"), MementoLanBackend)
     assert isinstance(get_backend("sungale-cloud"), SungaleCloudBackend)
+    assert isinstance(get_backend("switchbot"), SwitchBotBackend)
 
 
 def test_unknown_backend_raises_with_helpful_message() -> None:
@@ -36,6 +38,21 @@ def test_backend_capabilities_describe_interaction_and_transport() -> None:
     assert SungaleCloudBackend.capabilities.interaction == "served"
     assert SungaleCloudBackend.capabilities.transport == "cloud"
     assert SungaleCloudBackend.capabilities.discovery is False
+    # SwitchBot: we push to the vendor cloud (connected) by deviceId; not LAN-discoverable; e-paper.
+    assert SwitchBotBackend.capabilities.interaction == "connected"
+    assert SwitchBotBackend.capabilities.transport == "cloud"
+    assert SwitchBotBackend.capabilities.color_model == "epaper"
+    assert SwitchBotBackend.capabilities.discovery is False
+    assert SwitchBotBackend.canvas == (480, 800)  # 7.3" Spectra-6 panel, portrait
+
+
+def test_switchbot_backend_is_push_not_lan_or_served() -> None:
+    """SwitchBot is a third model: we initiate delivery (push to the vendor cloud), but there's no
+    LAN session to open and no server the frame polls — so it's neither connected-LAN nor served."""
+    backend = get_backend("switchbot")
+    assert not isinstance(backend, ConnectedFrameBackend)  # no LAN session() contract
+    assert not isinstance(backend, ServedFrameBackend)  # no router()/the frame doesn't poll us
+    assert backend.discover() == []  # account-scoped (SwitchBotService), not LAN broadcast
 
 
 def test_backends_classify_by_interaction_model() -> None:

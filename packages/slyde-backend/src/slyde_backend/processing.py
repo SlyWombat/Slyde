@@ -83,7 +83,18 @@ def prepare(data: bytes, profile: ProcessingProfile) -> bytes:
 def profile_for(frame: Frame, settings: Settings, *, canvas: tuple[int, int]) -> ProcessingProfile:
     """Build the processing profile for ``frame`` from its backend's declared colour model."""
     from .backends import get_backend
+    from .backends.switchbot import SwitchBotBackend
 
+    if frame.backend == SwitchBotBackend.name:
+        # SwitchBot's cloud renders our upload onto the Spectra-6 panel itself (and center-crops to
+        # fill), so we DON'T quantize/dither here: we just smart-fit to the panel's native 480x800
+        # portrait and emit a plain JPEG. Pre-fitting makes the cloud's cover-crop a no-op (#64).
+        return ProcessingProfile(
+            canvas=SwitchBotBackend.canvas,
+            fit=settings.frame_fit,
+            crop_tolerance=settings.frame_crop_tolerance,
+            color_model="full",
+        )
     caps = get_backend(frame.backend).capabilities
     if getattr(caps, "color_model", "full") == "epaper":
         # The e-paper panel has a fixed native resolution and a byte-exact download format, so it

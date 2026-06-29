@@ -179,6 +179,16 @@ class FrameStatus(BaseModel):
     deliveries: DeliverySummary
 
 
+class SwitchBotFrameStatus(BaseModel):
+    """Live status of a SwitchBot AI Art Frame, read from the vendor cloud API (#64)."""
+
+    device_id: str
+    battery: int = 0  # 0-100
+    display_mode: int = 0  # 0 = static image, 1 = slideshow
+    image_url: str = ""  # the image the frame is currently showing
+    version: str = ""  # firmware, e.g. "V0.0-0.5"
+
+
 class FrameAlbum(BaseModel):
     name: str
     display_name: str

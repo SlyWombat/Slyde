@@ -13,6 +13,7 @@ from ..jobs import JobManager
 from ..previews import AssetPreviewCache
 from ..scheduler import SyncScheduler
 from ..store import Store
+from ..switchbot_service import SwitchBotService
 
 
 def get_settings(request: Request) -> Settings:
@@ -47,6 +48,10 @@ def get_asset_previews(request: Request) -> AssetPreviewCache:
     return request.app.state.asset_previews  # type: ignore[no-any-return]
 
 
+def get_switchbot(request: Request) -> SwitchBotService:
+    return request.app.state.switchbot  # type: ignore[no-any-return]
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 StoreDep = Annotated[Store, Depends(get_store)]
 FrameDep = Annotated[FrameService, Depends(get_frame)]
@@ -54,3 +59,4 @@ SchedulerDep = Annotated[SyncScheduler, Depends(get_scheduler)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 FirmwareDep = Annotated[FirmwareService, Depends(get_firmware)]
 AssetPreviewsDep = Annotated[AssetPreviewCache, Depends(get_asset_previews)]
+SwitchBotDep = Annotated[SwitchBotService, Depends(get_switchbot)]

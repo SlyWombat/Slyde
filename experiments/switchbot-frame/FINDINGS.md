@@ -71,19 +71,33 @@ Per-frame credentials (token/secret) configured per account.
 the HMAC signature vector, device filtering, status parse, the exact command payloads, and error
 handling. Ready to run against a real token/device.
 
-## Remaining (when the frame arrives)
-1. Create a SwitchBot **token/secret**, point the client at the live API, list devices, read status,
-   and **push a test image** (`uploadImage`) — confirm render quality + latency + wake behaviour.
-2. Decide the image prep: send a fit-to-1200×1600 JPEG and let the cloud convert (simplest), or
-   pre-render via a Spectra-6 path if dither quality needs it.
-3. Wire `SwitchBotClient` into a `switchbot` FrameBackend on the delivery queue; conformance test;
-   add to `docs/supported-frames.md`.
+## ✅ VALIDATED LIVE (2026-06-29, against a real frame)
+Ran `scripts/switchbot_smoke.py` with the existing SlyClaw SwitchBot Open API creds
+(`SWITCHBOT_TOKEN`/`SWITCHBOT_SECRET`, reused — HA itself uses local BLE, not these). Results:
+- **Auth / list / status all work.** The signed client reached the cloud; the account has 13 devices;
+  the test unit "Kazoo Small Frame" (`B0E9FEDEF6E2`) reported `battery=100`, `mode=static`,
+  `fw=V1.0-1.2`, and a `current` **AWS S3 presigned URL** (`art-frame-eu-prod`, eu-central-1).
+- **`uploadImage` works end-to-end.** Pushed a JPEG → the API accepted it → after a wake the frame's
+  `current` changed to a new S3 object (`main_<hash>.jpg`) and **the image displayed on the panel**.
+- **Panel = the 7.3" model = ~3.5"×6" = 480×800 PORTRAIT, Spectra-6.** (Not landscape.)
+- **SwitchBot's cloud center-CROPS to fill (cover), it does not letterbox.** A landscape image lost its
+  sides; a portrait 3:5 image filled the frame edge-to-edge. → **Slyde must pre-fit to 480×800 portrait.**
+- **Redraw latency ≈ 30 s** after the frame wakes (e-paper refresh + S3 pull). Delivery is therefore
+  "queued, lands on next wake," not instant — the backend should report `delivered` optimistically /
+  reconcile against `status.imageUrl`, like a served frame.
 
-## Open questions
-- Cloud-poll vs LAN-upload vs BLE for image delivery? (drives connected-vs-served)
-- Does the SwitchBot cloud TLS-pin? (affects MITM + DNS-redirect feasibility)
-- Is the 13.3" panel byte-identical to `EL133UF1`, or just the same Spectra-6 family?
-- Identity: how does the frame identify itself on its content requests (device id / serial / token)?
+## Remaining — build the backend
+1. Wire `SwitchBotClient` into a **`switchbot` FrameBackend** on the delivery queue: deliver =
+   prep photo to **480×800 portrait** (Slyde's smart-fit, so the cloud's cover-crop is a no-op) →
+   `upload_image_bytes`. Discovery = `list_devices`. Status/battery from `art_frame_status`.
+2. Per-account creds via config (`SWITCHBOT_TOKEN`/`SWITCHBOT_SECRET`, already in `.env.example`).
+3. Conformance test; add to `docs/supported-frames.md`; deploy creds into the kdocker2 stack env.
+
+## Resolved/no-longer-relevant questions
+- Cloud-poll vs LAN vs BLE → moot; we **push via the official API** (`uploadImage`).
+- `panel_bmp.py` → **not needed**; send a JPEG, the cloud renders to Spectra-6.
+- TLS-pinning / MITM → moot; no impersonation.
+- Identity → the API addresses the frame by its `deviceId` (e.g. `B0E9FEDEF6E2`).
 
 ## Sources
 - <https://us.switch-bot.com/products/switchbot-ai-art-frame>

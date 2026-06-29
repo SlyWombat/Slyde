@@ -430,18 +430,21 @@ def test_dev_frame_status_rotates_to_next_image_each_wake(served: ServedHarness)
         c, _, a = store.get_frame_display(dev)
         store.set_frame_display(dev, content_key=c, last_update_ms="0", acked_key=a)
 
-    assert poll()["action"] == 2  # first wake -> show the first image (sorted)
+    st = poll()  # first wake -> show the first image (sorted)
+    assert st["action"] == 2 and st["firstImageToDisplay"] == 0
     assert store.get_frame_display(dev)[0] == "img-a"
     ack()
     assert poll()["action"] == 0  # same wake, already acked -> idle (no rotation mid-wake)
 
     age()
-    assert poll()["action"] == 2  # new wake -> advance + ask to display
-    assert store.get_frame_display(dev)[0] == "img-b"  # rotated to the next image
+    st = poll()  # new wake -> advance + ask to display the NEXT image
+    assert st["action"] == 2 and st["firstImageToDisplay"] == 1  # points at img-b, not a fixed 0
+    assert store.get_frame_display(dev)[0] == "img-b"
     ack()
 
     age()  # blank-recovery: even after acking, a fresh wake offers a new image so the panel redraws
-    assert poll()["action"] == 2
+    st = poll()
+    assert st["action"] == 2 and st["firstImageToDisplay"] == 2
     assert store.get_frame_display(dev)[0] == "img-c"
 
 

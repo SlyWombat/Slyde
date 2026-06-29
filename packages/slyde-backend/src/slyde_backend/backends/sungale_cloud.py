@@ -427,10 +427,13 @@ class SungaleCloudBackend(ServedFrameBackend):
                     acked_key=acked_key,
                 )
             action = _ACTION_DISPLAY if (content_key and content_key != acked_key) else _ACTION_IDLE
+            # Tell the frame WHICH playlist image to show — the index of the rotated current image,
+            # not a hardcoded 0 (else rotation re-triggers but the frame keeps showing image 0).
+            first = keys.index(content_key) if content_key in keys else 0
             return {
                 "lastUpdate": last_update_ms,
                 "action": action,
-                "firstImageToDisplay": 0,
+                "firstImageToDisplay": first,
                 "wakeUpSchedule": [interval, 0],
             }
 

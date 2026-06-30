@@ -439,8 +439,9 @@ async def refresh_current_previews(
     """
     refreshed = 0
     for frame in store.list_frames():
-        if frame.interaction != "connected":
-            continue  # served/cloud frames already expose a preview via their delivered content
+        if not isinstance(get_backend(frame.backend), ConnectedFrameBackend):
+            continue  # only LAN-session frames have a live current image; served (eFrame) and
+            # cloud-push (SwitchBot) frames already get a preview from delivered content (#69)
         try:
             png = await frame_service.get_current_thumbnail(frame.id)
         except FrameUnavailable:

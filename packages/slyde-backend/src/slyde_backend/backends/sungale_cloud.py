@@ -26,6 +26,7 @@ import hashlib
 import logging
 import re
 import time
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -127,20 +128,48 @@ def _stem(name: str) -> str:
     return name.rsplit(".", 1)[0] if "." in name else name
 
 
-def _photo_items(frame: Frame, cache: ImageCache, base: str) -> list[dict[str, Any]]:
-    """The frame's photos as the vendor list items: a full ``path`` (.bmp) + ``thumbPath`` (.jpg).
+# A fixed "old" base date (2023-11) for non-current frame images, so the current one is newest.
+_BASE_CREATE_MS = 1_700_000_000_000
 
-    Both URLs resolve back to the same cached image via ``/e_frame_image/<serial>/<stem>.<ext>``.
+
+def _fmt_create_date(ms: int) -> str:
+    """The vendor's ``createDate`` format, e.g. ``2026-06-27 03:21:16.0`` (#9 capture)."""
+    return datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m-%d %H:%M:%S.0")
+
+
+def _photo_items(
+    frame: Frame,
+    cache: ImageCache,
+    base: str,
+    *,
+    for_frame: bool = False,
+    current: str = "",
+    current_ms: str = "0",
+) -> list[dict[str, Any]]:
+    """The vendor list items: a full ``path`` (.bmp) + ``thumbPath`` (.jpg), per cached image.
+
+    For the **frame** (``for_frame``, dev/playlist/detail) we match the real cloud's wire shape that
+    the device actually downloads from (#9): ``id`` is a small **integer** (parsed as a number) and
+    ``createDate`` is a real timestamp — the frame displays the image with the **newest** date, so
+    the current (rotated) image gets ``current_ms``, the rest older dates. For the **app**
+    (album/detail) ``id`` stays the stem (it deletes by ``photo_id``).
     """
+    cur_ms = int(current_ms) if current_ms.isdigit() else 0
     items: list[dict[str, Any]] = []
-    for key in cache.keys(frame.id):
+    for i, key in enumerate(cache.keys(frame.id)):
         stem = _stem(key)
         url = f"{base}{IMAGE_BASE}/{frame.id}/{stem}"
+        if for_frame:
+            item_id: Any = int(hashlib.sha1(key.encode()).hexdigest()[:6], 16)
+            ms = cur_ms if (key == current and cur_ms > _BASE_CREATE_MS) else _BASE_CREATE_MS + i
+            created = _fmt_create_date(ms)
+        else:
+            item_id, created = stem, ""
         items.append(
             {
-                "id": stem,
+                "id": item_id,
                 "name": key,
-                "createDate": "",
+                "createDate": created,
                 "path": f"{url}.bmp",
                 "thumbPath": f"{url}.jpg",
             }
@@ -427,23 +456,33 @@ class SungaleCloudBackend(ServedFrameBackend):
                     acked_key=acked_key,
                 )
             action = _ACTION_DISPLAY if (content_key and content_key != acked_key) else _ACTION_IDLE
-            # Tell the frame WHICH playlist image to show — the index of the rotated current image,
-            # not a hardcoded 0 (else rotation re-triggers but the frame keeps showing image 0).
-            first = keys.index(content_key) if content_key in keys else 0
             return {
                 "lastUpdate": last_update_ms,
                 "action": action,
-                "firstImageToDisplay": first,
+                # Real cloud always sends 0 (#9 capture); the frame picks WHICH image from
+                # dev/playlist/detail by newest createDate — which we mark as the current image.
+                "firstImageToDisplay": 0,
                 "wakeUpSchedule": [interval, 0],
             }
 
         @router.api_route(f"{API_BASE}/dev/playlist/detail", methods=["POST"])
         async def dev_playlist_detail(request: Request) -> dict[str, Any]:
-            # The frame's playlist: same item shape as the app's album/detail (path .bmp + thumb).
+            # The frame's playlist: the real-cloud wire shape (int id + createDate); the frame shows
+            # the newest-createDate image, so we mark the current (rotated) one as newest.
             store = request.app.state.store
             frame = resolve_or_register_served_frame(store, self.name, await _device_id(request))
             base = str(request.base_url).rstrip("/")
-            return {"list": _photo_items(frame, request.app.state.image_cache, base)}
+            content_key, last_update_ms, _ = store.get_frame_display(frame.id)
+            return {
+                "list": _photo_items(
+                    frame,
+                    request.app.state.image_cache,
+                    base,
+                    for_frame=True,
+                    current=content_key,
+                    current_ms=last_update_ms,
+                )
+            }
 
         @router.api_route(f"{API_BASE}/callback/action_status", methods=["POST"])
         async def callback_action_status(request: Request) -> dict[str, Any]:

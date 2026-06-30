@@ -31,8 +31,15 @@ import urllib3
 urllib3.disable_warnings()
 
 CLOUD_IP = "47.88.4.176"  # us.xiaowooya.eframe.sungale.com.cn (Sungale US cloud)
+FRAME_IP = (
+    "192.168.10.127"  # the eFrame's current DHCP lease (post-cutover it talks to Slyde @ .11)
+)
 LAN_IF = "igc1"  # OPNsense LAN interface (where the frame's traffic ingresses)
 DESC = "eframe-wake"  # capture description/tag
+# Post-cutover we capture the FRAME's whole conversation (DNS + HTTP) to see where it tries to fetch
+# the image — host=the frame, protocol=any (DNS is UDP). Pre-cutover used host=CLOUD_IP, TCP.
+CAP_HOST = FRAME_IP
+CAP_PROTO = "any"
 
 
 def _creds() -> tuple[str, str, str]:
@@ -85,8 +92,8 @@ def _eframe_job(opn: OPN) -> str | None:
 def start(opn: OPN) -> None:
     settings = {
         "interface": LAN_IF,
-        "protocol": "TCP",
-        "host": CLOUD_IP,  # filter to the frame<->cloud conversation only
+        "protocol": CAP_PROTO,
+        "host": CAP_HOST,  # the frame's whole conversation (DNS+HTTP) to see image fetches
         # All ports (empty = any): the frame's port is unconfirmed and the phone app uses 8080
         # (plain HTTP) for photo/upload + image_library/push — port "80" alone would miss both.
         "port": "",

@@ -430,22 +430,47 @@ def test_dev_frame_status_rotates_to_next_image_each_wake(served: ServedHarness)
         c, _, a = store.get_frame_display(dev)
         store.set_frame_display(dev, content_key=c, last_update_ms="0", acked_key=a)
 
-    st = poll()  # first wake -> show the first image (sorted)
+    st = (
+        poll()
+    )  # first wake -> action 2; firstImageToDisplay is always 0 (frame picks by createDate)
     assert st["action"] == 2 and st["firstImageToDisplay"] == 0
     assert store.get_frame_display(dev)[0] == "img-a"
     ack()
     assert poll()["action"] == 0  # same wake, already acked -> idle (no rotation mid-wake)
 
     age()
-    st = poll()  # new wake -> advance + ask to display the NEXT image
-    assert st["action"] == 2 and st["firstImageToDisplay"] == 1  # points at img-b, not a fixed 0
-    assert store.get_frame_display(dev)[0] == "img-b"
+    st = poll()  # new wake -> advance to the next image
+    assert st["action"] == 2 and st["firstImageToDisplay"] == 0
+    assert store.get_frame_display(dev)[0] == "img-b"  # rotated to the next image
     ack()
 
-    age()  # blank-recovery: even after acking, a fresh wake offers a new image so the panel redraws
-    st = poll()
-    assert st["action"] == 2 and st["firstImageToDisplay"] == 2
+    age()  # blank-recovery: even after acking, a fresh wake advances so the panel redraws
+    assert poll()["action"] == 2
     assert store.get_frame_display(dev)[0] == "img-c"
+
+
+def test_dev_playlist_detail_uses_real_cloud_shape_marking_current_newest(
+    served: ServedHarness,
+) -> None:
+    """#9: the frame downloads the playlist image with the NEWEST createDate and parses ``id`` as an
+    integer (the real-cloud wire shape). The current/rotated image must be the newest so the frame
+    fetches+shows it — our prior empty createDate left the frame with no image to pick (blank)."""
+    dev = "EF-PL"
+    for k in ("img-x", "img-y"):
+        served.app.state.image_cache.put(dev, k, b"BM-" + k.encode())
+    served.request(
+        "POST", f"{BASE}/dev/frame/status", data={"device_id": dev}
+    )  # sets current image
+    pl = served.request("POST", f"{BASE}/dev/playlist/detail", data={"device_id": dev}).json()[
+        "list"
+    ]
+    assert all(isinstance(i["id"], int) for i in pl)  # id is a number, not the 19-digit filename
+    assert all(i["createDate"] for i in pl)  # every item has a real createDate (never empty)
+    cur = served.app.state.store.get_frame_display(dev)[0]
+    newest = max(pl, key=lambda i: i["createDate"])
+    assert newest["path"].endswith(
+        f"/{cur}.bmp"
+    )  # the current image is the newest -> what it shows
 
 
 def test_setting_update_persists_and_drives_wakeupschedule(served: ServedHarness) -> None:

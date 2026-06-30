@@ -74,6 +74,21 @@ class Settings(BaseSettings):
         "ops to one frame are serialized; this paces them so we don't overload a low-power frame "
         "(some stop answering under concurrent/rapid requests). 0 disables.",
     )
+    frame_quick_timeout: float = Field(
+        3.5,
+        gt=0,
+        description="Seconds a quick UI read (current image / a single thumbnail) waits before it "
+        "fails fast as offline. Bounds both control + transfer channels and SKIPS DHCP "
+        "re-discovery, so a slow/unresponsive frame can't hang the overview or hold the per-frame "
+        "lock for minutes (#68).",
+    )
+    current_preview_interval_seconds: int = Field(
+        60,
+        ge=0,
+        description="How often a background refresh quick-fetches each connected frame's current "
+        "image and caches it as that frame's preview, so the overview renders it from cached bytes "
+        "with no live call. 0 disables the refresh.",
+    )
     frame_import_delay: float = Field(
         0.5,
         ge=0,

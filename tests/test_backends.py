@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import HOST, PORTS
+from memento_core import FrameClient
 from memento_emulator import EmulatedFrame
 from slyde_backend.backends import (
     ConnectedFrameBackend,
@@ -80,3 +81,16 @@ def test_memento_lan_backend_drives_the_emulator(frame: EmulatedFrame) -> None:
         conn.upload_image(b"\xff\xd8\xffPHOTO\xff\xd9", "via_backend.jpg")
         conn.next_image()
     assert "via_backend.jpg" in frame.state.photos
+
+
+def test_lan_session_threads_quick_timeout_to_both_channels(frame: EmulatedFrame) -> None:
+    """A quick UI read passes a short ``timeout`` to ``session``; the LAN backend must thread it to
+    BOTH the control and transfer channels so the read fails fast, not on the 60s transfer default
+    (#68). Without a timeout the client keeps its (longer) defaults."""
+    backend = MementoLanBackend()
+    with backend.session(HOST, ports=PORTS, timeout=2.5) as conn:
+        assert isinstance(conn, FrameClient)
+        assert conn.control._timeout == 2.5 and conn.file._timeout == 2.5
+    with backend.session(HOST, ports=PORTS) as conn:
+        assert isinstance(conn, FrameClient)
+        assert conn.control._timeout == 10.0 and conn.file._timeout == 60.0

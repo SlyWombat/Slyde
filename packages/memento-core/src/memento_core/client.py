@@ -36,11 +36,22 @@ class FrameClient:
     Like the official app, this opens both the control (2017) and file (2018) channels.
     """
 
-    def __init__(self, host: str, *, ports: Ports = DEFAULT_PORTS, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        host: str,
+        *,
+        ports: Ports = DEFAULT_PORTS,
+        timeout: float = 10.0,
+        file_timeout: float = 60.0,
+    ) -> None:
+        # ``timeout`` bounds the control channel; ``file_timeout`` the (bulk) transfer channel —
+        # which defaults higher because big uploads/downloads stream over it. A caller doing a quick
+        # UI read (e.g. a thumbnail) can pass the same short value for both so neither channel can
+        # hang for a minute on an unresponsive frame (#68).
         self.host = host
         self.ports = ports
         self.control = ControlChannel(host, ports, timeout)
-        self.file = FileChannel(host, ports)
+        self.file = FileChannel(host, ports, file_timeout)
 
     # -- lifecycle ------------------------------------------------------------
     def connect(self) -> FrameClient:

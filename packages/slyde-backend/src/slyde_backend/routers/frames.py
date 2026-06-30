@@ -30,6 +30,7 @@ from ..immich import ImmichError
 from ..jobs import SyncJob
 from ..library import LibraryItem
 from ..naming import dest_name_for
+from ..previews import AssetPreviewCache, current_preview_key
 from ..processing import prepare, profile_for
 from ..schemas import (
     AddAlbumOnceRequest,
@@ -59,6 +60,7 @@ from ..store import Store
 from ..switchbot import SwitchBotError
 from ..uploads import ingest_upload
 from .deps import (
+    AssetPreviewsDep,
     FirmwareDep,
     FrameDep,
     JobsDep,
@@ -144,7 +146,7 @@ async def list_frames(frame: FrameDep, settings: SettingsDep) -> list[FrameSumma
 
 
 @router.get("/status", response_model=list[FrameStatus])
-async def frames_status(store: StoreDep) -> list[FrameStatus]:
+async def frames_status(store: StoreDep, previews: AssetPreviewsDep) -> list[FrameStatus]:
     """Frame-agnostic, read-only status of every known frame across backends (#24).
 
     Built from the registry + delivery queue — no connection to the frame is made, so it works the
@@ -156,13 +158,23 @@ async def frames_status(store: StoreDep) -> list[FrameStatus]:
             backend=f.backend,
             interaction=f.interaction,
             transport=_transport(f.backend),
-            preview_asset=_current_asset(store, f),
+            preview_asset=_preview_asset(store, previews, f),
             name=f.name,
             last_seen=f.last_seen,
             deliveries=DeliverySummary(**store.delivery_summary(f.id)),
         )
         for f in store.list_frames()
     ]
+
+
+def _preview_asset(store: Store, previews: AssetPreviewCache, frame: Frame) -> str:
+    """The card's hero image: a connected frame's cached current-image preview when we have one
+    (its live picture, no blocking call), else the best-known curated asset for the frame (#68)."""
+    if frame.interaction == "connected":
+        key = current_preview_key(frame.id)
+        if previews.get(key) is not None:
+            return key
+    return _current_asset(store, frame)
 
 
 def _transport(backend: str) -> str:

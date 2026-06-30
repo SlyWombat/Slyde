@@ -196,7 +196,9 @@ def test_control_protocol_timeout_surfaces_as_frame_unavailable(tmp_path: Path) 
             return []
 
         @contextmanager
-        def session(self, host: str, *, ports: object | None = None):  # type: ignore[override]
+        def session(  # type: ignore[override]
+            self, host: str, *, ports: object | None = None, timeout: float | None = None
+        ):
             raise TimeoutError("timed out")  # the frame's app never answers
             yield  # pragma: no cover
 
@@ -208,3 +210,90 @@ def test_control_protocol_timeout_surfaces_as_frame_unavailable(tmp_path: Path) 
     svc._backend = _AsleepBackend()  # type: ignore[assignment]
     with pytest.raises(FrameUnavailable):
         asyncio.run(svc.get_config(HOST))
+
+
+def test_quick_read_fails_fast_and_never_rediscovers(tmp_path: Path) -> None:
+    """#68: a quick UI read (current image) must fail fast — bounded by ``frame_quick_timeout``, not
+    the 10s/60s socket defaults — and must NOT trigger DHCP re-discovery, even with discovery on.
+    A re-discovery round-trip would defeat the whole point of the bounded timeout."""
+    import asyncio
+    import time
+    from contextlib import contextmanager
+
+    import pytest
+
+    from slyde_backend.backends import ConnectedFrameBackend, get_backend
+    from slyde_backend.frames import FrameUnavailable
+
+    discovered: list[bool] = []
+
+    class _SlowBackend(ConnectedFrameBackend):
+        name = "memento-lan"
+        capabilities = get_backend("memento-lan").capabilities
+
+        def discover(self, *, timeout: float = 4.0, ports: object | None = None) -> list:  # type: ignore[type-arg,override]
+            discovered.append(True)
+            return []
+
+        @contextmanager
+        def session(  # type: ignore[override]
+            self, host: str, *, ports: object | None = None, timeout: float | None = None
+        ):
+            # Simulate a bounded socket: honor the short timeout we were given, then time out (as an
+            # unresponsive frame's control socket would). Default 10s would hang the test.
+            time.sleep(timeout if timeout is not None else 10.0)
+            raise TimeoutError("slow frame")
+            yield  # pragma: no cover
+
+    svc = FrameService(
+        Settings(
+            frame_backend="memento-lan",
+            frame_host=HOST,
+            frame_discovery=True,  # on — yet the quick path must still skip re-discovery
+            frame_quick_timeout=0.2,
+        ),
+        ports=PORTS,
+        store=Store(str(tmp_path / "slow.db")),
+    )
+    svc._backend = _SlowBackend()  # type: ignore[assignment]
+
+    started = time.monotonic()
+    with pytest.raises(FrameUnavailable):
+        asyncio.run(svc.get_current_image(HOST))
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0  # bounded by the 0.2s quick timeout, nowhere near 10s/60s
+    assert discovered == []  # a quick read never re-discovers
+
+
+def test_current_image_refresh_caches_preview_and_status_exposes_it(
+    frame: EmulatedFrame, tmp_path: Path
+) -> None:
+    """#68: a successful current-image fetch caches the frame's preview under its synthetic key, and
+    that key is what the status view surfaces as the card's hero image."""
+    import asyncio
+
+    from memento_core import FrameClient
+    from slyde_backend.frames import refresh_current_previews
+    from slyde_backend.previews import AssetPreviewCache, current_preview_key
+    from slyde_backend.routers.frames import _preview_asset
+
+    store = Store(str(tmp_path / "preview.db"))
+    store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
+    previews = AssetPreviewCache(str(tmp_path / "previews"))
+    svc = FrameService(Settings(frame_host=HOST), ports=PORTS, store=store)
+
+    # The emulator must be showing a named image for there to be a current thumbnail to cache.
+    with FrameClient(HOST, ports=PORTS) as c:
+        c.upload_image(b"\xff\xd8\xffPHOTO\xff\xd9", "now.jpg")
+
+    refreshed = asyncio.run(refresh_current_previews(svc, store, previews))
+    assert refreshed == 1
+
+    key = current_preview_key(HOST)
+    cached = previews.get(key)
+    assert cached is not None and cached.startswith(b"\xff\xd8")  # cached as a JPEG preview
+
+    f = store.get_frame(HOST)
+    assert f is not None
+    assert _preview_asset(store, previews, f) == key  # the status surfaces the cached current image

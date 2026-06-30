@@ -28,6 +28,16 @@ def _safe(asset_id: str) -> str:
     return cleaned[:200]
 
 
+def current_preview_key(frame_id: str) -> str:
+    """Synthetic ``AssetPreviewCache`` key for a connected frame's cached current-image preview.
+
+    Lets the overview render a LAN frame's live picture from cached bytes (uniform with how a cloud
+    frame's ``preview_asset`` renders) without a blocking call to the device (#68). Prefixed so it
+    can never collide with a real asset id.
+    """
+    return f"frame-current::{frame_id}"
+
+
 def render_canonical_preview(source: bytes) -> bytes:
     """A frame-agnostic, browser-displayable preview: EXIF-uprighted, fit to the max edge, JPEG."""
     with Image.open(io.BytesIO(source)) as im:

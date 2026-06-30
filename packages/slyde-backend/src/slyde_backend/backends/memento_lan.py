@@ -33,6 +33,16 @@ class MementoLanBackend(ConnectedFrameBackend):
         return discover(timeout=timeout, ports=ports or Ports())
 
     @contextmanager
-    def session(self, host: str, *, ports: Ports | None = None) -> Iterator[FrameConnection]:
-        with FrameClient(host, ports=ports or Ports()) as client:
-            yield client
+    def session(
+        self, host: str, *, ports: Ports | None = None, timeout: float | None = None
+    ) -> Iterator[FrameConnection]:
+        # A short ``timeout`` (UI quick read) bounds both channels; ``None`` keeps the client's
+        # defaults (10s control / 60s transfer) for management + bulk transfers (#68).
+        if timeout is None:
+            client = FrameClient(host, ports=ports or Ports())
+        else:
+            client = FrameClient(
+                host, ports=ports or Ports(), timeout=timeout, file_timeout=timeout
+            )
+        with client as conn:
+            yield conn

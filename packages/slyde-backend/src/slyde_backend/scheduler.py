@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -35,13 +36,20 @@ class SyncScheduler:
         interval_minutes: int,
         delivery: DeliveryService | None = None,
         delivery_interval_seconds: int = 0,
+        current_preview: Callable[[], Awaitable[object]] | None = None,
+        current_preview_interval_seconds: int = 0,
     ) -> None:
         self._folder_sync = folder_sync
         self._delivery = delivery
         self._interval = max(0, interval_minutes) * 60
         self._delivery_interval = max(0, delivery_interval_seconds)
+        # Opportunistic refresh of each connected frame's cached current-image preview (#68), on its
+        # own gentle cadence so the overview renders the live picture without a per-card live call.
+        self._current_preview = current_preview
+        self._current_preview_interval = max(0, current_preview_interval_seconds)
         self._task: asyncio.Task[None] | None = None
         self._delivery_task: asyncio.Task[None] | None = None
+        self._current_preview_task: asyncio.Task[None] | None = None
         self._started: float | None = None
         self._last_run: float | None = None
         self._last_run_iso: str | None = None
@@ -58,6 +66,10 @@ class SyncScheduler:
         if has_delivery and self._delivery_task is None:
             self._delivery_task = asyncio.create_task(self._delivery_loop())
             _log.info("delivery drain started (every %ss)", self._delivery_interval)
+        has_preview = self._current_preview is not None and self._current_preview_interval > 0
+        if has_preview and self._current_preview_task is None:
+            self._current_preview_task = asyncio.create_task(self._current_preview_loop())
+            _log.info("current-image refresh started (every %ss)", self._current_preview_interval)
 
     async def _loop(self) -> None:
         while True:
@@ -88,6 +100,17 @@ class SyncScheduler:
             except Exception:
                 _log.exception("delivery drain failed")
 
+    async def _current_preview_loop(self) -> None:
+        """Quick-fetch each connected frame's current image on a gentle timer, caching it as that
+        frame's preview so the overview never makes a blocking call to render the live picture."""
+        assert self._current_preview is not None
+        while True:
+            await asyncio.sleep(self._current_preview_interval)
+            try:
+                await self._current_preview()
+            except Exception:
+                _log.exception("current-image preview refresh failed")
+
     async def _run_delivery(self) -> dict[str, int]:
         """One delivery batch alongside album re-mirroring; the loop does the full drain."""
         if self._delivery is None:
@@ -107,7 +130,7 @@ class SyncScheduler:
         )
 
     async def stop(self) -> None:
-        for attr in ("_task", "_delivery_task"):
+        for attr in ("_task", "_delivery_task", "_current_preview_task"):
             task = getattr(self, attr)
             if task is not None:
                 task.cancel()

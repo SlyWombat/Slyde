@@ -1,38 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { FrameStatus } from "../api/types";
 import { frameHealth } from "../lib/frames";
-import {
-  Button,
-  Card,
-  FrameKindBadge,
-  HealthBadge,
-  Pill,
-  StatusDot,
-  Thumb,
-  relTime,
-  usePoll,
-} from "../ui";
+import { Button, Card, FrameKindBadge, HealthBadge, Pill, StatusDot, Thumb, relTime } from "../ui";
 
 /** A frame as a first-class object (#34): current-photo preview, health, and delivery roll-up. */
 export function FrameCard({ frame }: { frame: FrameStatus }) {
   const cloud = frame.transport !== "lan";
-  // The hero is the photo the frame is showing now. A LAN frame reports its live current image, so
-  // show that; otherwise (cloud frames, or a LAN frame we can't reach right now) fall back to the
-  // Slyde-curated current photo — `preview_asset` (a served eFrame's content_key / a cloud-push
-  // SwitchBot's last delivery), served from Slyde's own per-asset previews.
-  const refetchInterval = usePoll(15000);
-  const current = useQuery({
-    queryKey: ["current", frame.id],
-    queryFn: () => api.currentImage(frame.id),
-    enabled: !cloud,
-    refetchInterval,
-    retry: 0,
-  });
-  const liveImg =
-    !cloud && current.data?.image ? api.frameThumbUrl(frame.id, current.data.image) : null;
-  const thumb = liveImg ?? (frame.preview_asset ? api.assetPreviewUrl(frame.preview_asset) : null);
+  // The hero is the photo the frame is showing now, always rendered from `preview_asset` — Slyde's
+  // own cached preview — so the card never makes a blocking live call (#68). For a LAN frame that's
+  // its cached current image (refreshed in the background); for a cloud frame it's the Slyde-curated
+  // current photo (a served eFrame's content_key / a cloud-push SwitchBot's last delivery). A frame
+  // with no cached image has an empty `preview_asset` and shows the neutral placeholder.
+  const thumb = frame.preview_asset ? api.assetPreviewUrl(frame.preview_asset) : null;
   // Liveness derives from last_seen (the SAME source as "seen … ago") so the two can't disagree (#66):
   // a separate live control-probe would say "offline" while discovery still showed "seen 1s ago".
   // Cloud frames are always reachable via the cloud we run.

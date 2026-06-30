@@ -16,7 +16,7 @@ from .config import Settings, get_settings
 from .delivery_service import DeliveryService
 from .firmware import FirmwareService
 from .folder_sync import FolderSyncService
-from .frames import FrameService, FrameUnavailable
+from .frames import FrameService, FrameUnavailable, refresh_current_previews
 from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .jobs import JobManager
@@ -55,11 +55,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         # Keep-in-sync as per-folder bindings reconciled onto the delivery queue (#62).
         folder_sync = FolderSyncService(settings, store, library, delivery_service, immich_factory)
+
+        # Opportunistically cache each connected frame's current image as its preview, so the
+        # overview renders the live picture from cached bytes with no blocking per-card call (#68).
+        async def _refresh_current_previews() -> None:
+            await refresh_current_previews(frame_service, store, asset_previews)
+
         scheduler = SyncScheduler(
             folder_sync,
             settings.sync_interval_minutes,
             delivery_service,
             settings.delivery_interval_seconds,
+            current_preview=_refresh_current_previews,
+            current_preview_interval_seconds=settings.current_preview_interval_seconds,
         )
 
         app.state.settings = settings

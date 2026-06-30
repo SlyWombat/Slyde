@@ -98,9 +98,14 @@ class ConnectedFrameBackend(FrameBackend):
 
     @abstractmethod
     def session(
-        self, host: str, *, ports: Ports | None = None
+        self, host: str, *, ports: Ports | None = None, timeout: float | None = None
     ) -> AbstractContextManager[FrameConnection]:
-        """Open a session to ``host`` as a context manager yielding a ``FrameConnection``."""
+        """Open a session to ``host`` as a context manager yielding a ``FrameConnection``.
+
+        ``timeout`` (seconds), when given, bounds BOTH the control and transfer channels so a quick
+        UI read fails fast instead of hanging on an unresponsive frame; ``None`` keeps the backend's
+        defaults (longer transfer timeout for bulk uploads/downloads) (#68).
+        """
 
 
 class ServedFrameBackend(FrameBackend):

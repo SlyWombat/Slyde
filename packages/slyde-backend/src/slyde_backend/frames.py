@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ipaddress
+import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -18,7 +19,10 @@ from memento_core import AlbumData, FrameInfo, Ports, Setup
 from .backends import ConnectedFrameBackend, FrameConnection, get_backend
 from .config import Settings
 from .frame import NULL_GUID, Frame
+from .previews import AssetPreviewCache, current_preview_key, render_canonical_preview
 from .store import Store
+
+_log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -175,8 +179,17 @@ class FrameService:
         return frames[0].ip
 
     async def _with_client(
-        self, host: str, fn: Callable[[FrameConnection], T], *, register: bool = True
+        self,
+        host: str,
+        fn: Callable[[FrameConnection], T],
+        *,
+        register: bool = True,
+        quick: bool = False,
     ) -> T:
+        # ``quick`` is the UI read path (current image / a single thumbnail): a short, enforced
+        # timeout on both channels and NO DHCP re-discovery/retry, so a slow or unresponsive frame
+        # fails fast as offline instead of hanging the poll or holding the per-frame lock for
+        # minutes. It also doesn't touch ``last_seen`` — liveness derives from discovery (#66/#68).
         resolved = await self.resolve_host(host)
         backend = self._backend
         if not isinstance(backend, ConnectedFrameBackend):
@@ -186,10 +199,11 @@ class FrameService:
                 f"backend {backend.name!r} is served (the frame polls us); "
                 "direct frame operations aren't available for it"
             )
+        timeout = self._settings.frame_quick_timeout if quick else None
 
         def run() -> T:
             try:
-                with backend.session(resolved, ports=self._ports) as conn:
+                with backend.session(resolved, ports=self._ports, timeout=timeout) as conn:
                     return fn(conn)
             except (TimeoutError, OSError) as exc:
                 # The frame accepts a socket but doesn't answer the control protocol (asleep) or is
@@ -208,9 +222,11 @@ class FrameService:
                 # The frame may have moved (DHCP) since we last knew its address. Re-discover and if
                 # its address changed, retry once at the new one — so management never assumes a
                 # fixed IP (#58). ``run`` reads ``resolved`` from this scope; reassigning suffices.
-                # Skipped for discover-only reads (register=False) — those never touch the registry.
+                # Skipped for discover-only reads (register=False) and for quick UI reads, which
+                # must fail fast — a UDP discovery round-trip would defeat the timeout (#68).
                 if (
-                    not register
+                    quick
+                    or not register
                     or self._store is None
                     or not host
                     or not self._settings.frame_discovery
@@ -226,7 +242,7 @@ class FrameService:
                 await asyncio.sleep(
                     self._settings.frame_settle_delay
                 )  # give the frame breathing room
-        if register and self._store is not None:  # we just reached this frame — record it as seen
+        if register and not quick and self._store is not None:  # reached it — record it as seen
             existing = self._store.get_frame_by_address(resolved)
             if existing is not None:  # touch the (GUID) entry, don't make an IP duplicate (#58)
                 self._store.touch_frame(existing.id)
@@ -277,7 +293,20 @@ class FrameService:
         return await self._with_client(host, run)
 
     async def get_current_image(self, host: str) -> str:
-        return await self._with_client(host, lambda c: c.get_current_image_name())
+        # A quick UI read: bounded timeout, no re-discovery (the overview polls this).
+        return await self._with_client(host, lambda c: c.get_current_image_name(), quick=True)
+
+    async def get_current_thumbnail(self, host: str) -> bytes | None:
+        """Quick-read the frame's current image AND its thumbnail in ONE short-timeout session, for
+        the cached current-image preview (#68). Returns the thumbnail PNG bytes, or None if the
+        frame isn't showing a named image. Fails fast (``FrameUnavailable``) if it can't be reached.
+        """
+
+        def run(client: FrameConnection) -> bytes | None:
+            name = client.get_current_image_name()
+            return client.get_thumbnail(name) if name else None
+
+        return await self._with_client(host, run, quick=True, register=False)
 
     async def update_firmware(self, host: str, url: str, md5: str) -> None:
         """Tell the frame to download + apply an update bundle from ``url`` (md5-verified)."""
@@ -297,7 +326,9 @@ class FrameService:
         return await self._with_client(host, lambda c: c.get_thumbnails_list())
 
     async def get_thumbnail(self, host: str, image_filename: str) -> bytes:
-        return await self._with_client(host, lambda c: c.get_thumbnail(image_filename))
+        # A quick UI read (the overview/detail proxies single thumbnails): bounded timeout so a slow
+        # frame fails fast instead of blocking on the transfer channel's long default (#68).
+        return await self._with_client(host, lambda c: c.get_thumbnail(image_filename), quick=True)
 
     async def download_image(self, host: str, image_filename: str) -> bytes:
         """Pull the full-resolution original of an on-frame photo (#frame-import)."""
@@ -393,3 +424,37 @@ class FrameService:
             return uploaded
 
         return await self._with_client(host, run)
+
+
+async def refresh_current_previews(
+    frame_service: FrameService, store: Store, asset_previews: AssetPreviewCache
+) -> int:
+    """Opportunistically cache each connected frame's current image as that frame's preview (#68).
+
+    A lightweight background pass: for every connected frame, quick-fetch the image it's showing now
+    (a short, bounded read that never blocks the render path) and store it under the frame's
+    synthetic preview key, so the overview renders it from cached bytes — no live call on the card.
+    A frame that won't answer control quickly is skipped; it simply keeps showing the placeholder.
+    Returns how many previews were refreshed.
+    """
+    refreshed = 0
+    for frame in store.list_frames():
+        if frame.interaction != "connected":
+            continue  # served/cloud frames already expose a preview via their delivered content
+        try:
+            png = await frame_service.get_current_thumbnail(frame.id)
+        except FrameUnavailable:
+            continue  # offline/slow — leave the existing (or placeholder) preview as-is
+        except Exception:
+            _log.exception("current-image preview refresh failed for frame %s", frame.id)
+            continue
+        if not png:
+            continue  # frame isn't showing a named image
+        try:
+            jpeg = await asyncio.to_thread(render_canonical_preview, png)
+        except Exception:
+            _log.exception("could not render current-image preview for frame %s", frame.id)
+            continue
+        asset_previews.put(current_preview_key(frame.id), jpeg)
+        refreshed += 1
+    return refreshed

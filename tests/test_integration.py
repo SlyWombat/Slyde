@@ -51,6 +51,22 @@ def test_sustained_uploads_do_not_leak_sockets_or_threads(frame: EmulatedFrame) 
     assert len(frame.state.photos) >= 40  # the uploads actually landed
 
 
+def test_default_timeouts_keep_long_transfer_default() -> None:
+    """Out of the box the control channel is bounded short (10s) but the transfer channel keeps its
+    longer default (60s) — big uploads/downloads stream over it (#68)."""
+    c = FrameClient(HOST, ports=PORTS)
+    assert c.control._timeout == 10.0
+    assert c.file._timeout == 60.0
+
+
+def test_quick_timeout_bounds_both_channels() -> None:
+    """A quick UI read passes one short value for BOTH channels, so neither the control nor the
+    transfer channel can hang for a minute on an unresponsive frame (#68)."""
+    c = FrameClient(HOST, ports=PORTS, timeout=2.5, file_timeout=2.5)
+    assert c.control._timeout == 2.5
+    assert c.file._timeout == 2.5
+
+
 def test_get_config(frame: EmulatedFrame) -> None:
     with _client() as c:
         cfg = c.get_config()

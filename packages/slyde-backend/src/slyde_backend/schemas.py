@@ -174,6 +174,7 @@ class FrameStatus(BaseModel):
     id: str
     backend: str
     interaction: str  # "connected" | "served"
+    transport: str = ""  # "lan" | "cloud" — only "lan" frames have a live current-image preview
     name: str = ""
     last_seen: str | None = None
     deliveries: DeliverySummary

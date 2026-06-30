@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { FrameStatus } from "../api/types";
-import { frameHealth, isConnected } from "../lib/frames";
+import { frameHealth } from "../lib/frames";
 import {
   Button,
   Card,
@@ -17,18 +17,19 @@ import {
 
 /** A frame as a first-class object (#34): kind-aware preview, health, and delivery roll-up. */
 export function FrameCard({ frame }: { frame: FrameStatus }) {
-  const conn = isConnected(frame);
+  // Only LAN frames expose a live current-image we can proxy; cloud frames (served eFrame, cloud-push
+  // SwitchBot) don't — so we never call the LAN endpoint for them (it would 404 -> a false ⚠).
+  const live = frame.transport === "lan";
   const refetchInterval = usePoll(10000);
-  // Connected frames show what they're displaying now; served frames have no live current-image.
   const current = useQuery({
     queryKey: ["current", frame.id],
     queryFn: () => api.currentImage(frame.id),
-    enabled: conn,
+    enabled: live,
     refetchInterval,
     retry: 0,
   });
-  const thumb = conn && current.data?.image ? api.frameThumbUrl(frame.id, current.data.image) : null;
-  const online = conn ? current.isSuccess : true; // served frames are "reachable" (we run their cloud)
+  const thumb = live && current.data?.image ? api.frameThumbUrl(frame.id, current.data.image) : null;
+  const online = live ? current.isSuccess : true; // cloud frames are "reachable" (we run their cloud)
   const health = frameHealth(frame);
   const d = frame.deliveries;
   const pending = d.pending > 0;
@@ -40,7 +41,7 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
       }`}
     >
       <Thumb src={thumb} alt={frame.name} className="aspect-[3/2] w-full text-3xl text-slate-600">
-        {conn ? (online ? "" : "⚠") : "☁"}
+        {live ? (online ? "🖼️" : "⚠") : "☁"}
       </Thumb>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
@@ -54,7 +55,7 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
           </div>
           <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-400">
             <StatusDot tone={online ? "ok" : "idle"} />
-            {conn ? (online ? "online" : "offline") : "cloud"}
+            {live ? (online ? "online" : "offline") : "cloud"}
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { TONE, type Tone } from "./status";
 
 export function Card({ className = "", children, ...rest }: HTMLAttributes<HTMLDivElement>) {
@@ -29,10 +30,20 @@ export function Thumb({
   className?: string;
   children?: ReactNode;
 }) {
+  // Fall back to the placeholder children if the image fails to load (e.g. an offline LAN frame's
+  // thumbnail 404s) instead of showing the browser's broken-image glyph. Reset on a new src.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
   return (
     <div className={`flex items-center justify-center overflow-hidden bg-ink ${className}`}>
-      {src ? (
-        <img src={src} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+      {src && !failed ? (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
       ) : (
         children
       )}

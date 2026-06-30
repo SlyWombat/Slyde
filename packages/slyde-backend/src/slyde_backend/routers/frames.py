@@ -153,12 +153,21 @@ async def frames_status(store: StoreDep) -> list[FrameStatus]:
             id=f.id,
             backend=f.backend,
             interaction=f.interaction,
+            transport=_transport(f.backend),
             name=f.name,
             last_seen=f.last_seen,
             deliveries=DeliverySummary(**store.delivery_summary(f.id)),
         )
         for f in store.list_frames()
     ]
+
+
+def _transport(backend: str) -> str:
+    """The backend's transport ('lan'|'cloud'), safely — '' if the backend isn't registered."""
+    try:
+        return get_backend(backend).capabilities.transport
+    except Exception:
+        return ""
 
 
 def _served_backends() -> list[str]:

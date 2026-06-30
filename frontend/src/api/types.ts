@@ -136,6 +136,7 @@ export interface FrameStatus {
   id: string;
   backend: string;
   interaction: string;
+  transport?: string; // "lan" | "cloud" — only "lan" frames have a live current-image preview
   name: string;
   last_seen: string | null;
   deliveries: DeliverySummary;

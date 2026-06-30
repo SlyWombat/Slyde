@@ -196,7 +196,7 @@ function TargetPicker({
               {on ? "✓" : ""}
             </span>
             <span className="min-w-0 flex-1 truncate">{f.name || f.id}</span>
-            <FrameKindBadge interaction={f.interaction} />
+            <FrameKindBadge transport={f.transport} interaction={f.interaction} />
           </button>
         );
       })}

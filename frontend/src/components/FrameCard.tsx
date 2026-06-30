@@ -28,7 +28,9 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
     refetchInterval,
     retry: 0,
   });
-  const thumb = live && current.data?.image ? api.frameThumbUrl(frame.id, current.data.image) : null;
+  // The hero image is the photo the frame is showing now — resolved server-side per backend and
+  // served from Slyde's own per-asset previews, so it works for every frame (LAN, served, cloud-push).
+  const thumb = frame.preview_asset ? api.assetPreviewUrl(frame.preview_asset) : null;
   const online = live ? current.isSuccess : true; // cloud frames are "reachable" (we run their cloud)
   const health = frameHealth(frame);
   const d = frame.deliveries;
@@ -41,7 +43,7 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
       }`}
     >
       <Thumb src={thumb} alt={frame.name} className="aspect-[3/2] w-full text-3xl text-slate-600">
-        {live ? (online ? "🖼️" : "⚠") : "☁"}
+        🖼️
       </Thumb>
 
       <div className="flex flex-1 flex-col gap-3 p-4">
@@ -49,7 +51,7 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
           <div className="min-w-0">
             <div className="truncate font-semibold">{frame.name || frame.id}</div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
-              <FrameKindBadge interaction={frame.interaction} />
+              <FrameKindBadge transport={frame.transport} interaction={frame.interaction} />
               <span className="truncate">{frame.backend}</span>
             </div>
           </div>

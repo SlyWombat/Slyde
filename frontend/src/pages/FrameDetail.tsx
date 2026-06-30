@@ -81,7 +81,7 @@ export function FrameDetail() {
       </Link>
       <header className="mb-5 mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="text-2xl font-bold tracking-tight">{frame.name || frame.id}</h1>
-        <FrameKindBadge interaction={frame.interaction} />
+        <FrameKindBadge transport={frame.transport} interaction={frame.interaction} />
         <HealthBadge tone={health.tone} label={health.label} pulse={frame.deliveries.pending > 0} />
         <span className="text-sm text-slate-500">
           {frame.backend} · seen {relTime(frame.last_seen)}

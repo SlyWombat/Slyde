@@ -23,6 +23,7 @@ from fastapi import (
 
 from ..backends import available_backends, get_backend
 from ..delivery_service import DeliveryService
+from ..frame import Frame
 from ..frame_import import import_frame_photos
 from ..frames import FrameUnavailable
 from ..immich import ImmichError
@@ -54,6 +55,7 @@ from ..schemas import (
     SyncResult,
 )
 from ..serving import resolve_or_register_served_frame
+from ..store import Store
 from ..switchbot import SwitchBotError
 from ..uploads import ingest_upload
 from .deps import (
@@ -154,6 +156,7 @@ async def frames_status(store: StoreDep) -> list[FrameStatus]:
             backend=f.backend,
             interaction=f.interaction,
             transport=_transport(f.backend),
+            preview_asset=_current_asset(store, f),
             name=f.name,
             last_seen=f.last_seen,
             deliveries=DeliverySummary(**store.delivery_summary(f.id)),
@@ -168,6 +171,25 @@ def _transport(backend: str) -> str:
         return get_backend(backend).capabilities.transport
     except Exception:
         return ""
+
+
+def _current_asset(store: Store, frame: Frame) -> str:
+    """Asset id of the photo the frame shows now (the card's hero image), best-known per backend:
+    a served frame's displayed ``content_key``, else a delivered library item, else the first photo;
+    '' when the frame has no photos yet (the card then shows a placeholder)."""
+    lib = store.list_library(frame.id)  # (asset_id, dest_name, source, folder), in order
+    if not lib:
+        return ""
+    by_dest = {dest: aid for aid, dest, _src, _folder in lib}
+    if frame.interaction == "served":
+        content_key = store.get_frame_display(frame.id)[0]
+        if content_key in by_dest:
+            return by_dest[content_key]
+    delivered = {d.key for d in store.list_deliveries(frame.id) if d.state == "delivered"}
+    for aid, dest, _src, _folder in lib:
+        if dest in delivered:
+            return aid
+    return lib[0][0]
 
 
 def _served_backends() -> list[str]:

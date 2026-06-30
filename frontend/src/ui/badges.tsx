@@ -41,8 +41,16 @@ export function HealthBadge({ tone, label, pulse }: { tone: Tone; label: string;
 }
 
 /** "LAN" (connected) vs "Cloud" (served) — never just grey text. */
-export function FrameKindBadge({ interaction }: { interaction: string }) {
-  const lan = interaction === "connected";
+// LAN vs Cloud is a transport distinction — a cloud-push frame (SwitchBot) is `connected` but NOT
+// LAN, so prefer `transport`; fall back to `interaction` only when transport isn't known.
+export function FrameKindBadge({
+  transport,
+  interaction,
+}: {
+  transport?: string;
+  interaction?: string;
+}) {
+  const lan = transport ? transport === "lan" : interaction === "connected";
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-edge bg-ink px-2 py-0.5 text-[11px] font-medium text-slate-300">
       <span aria-hidden>{lan ? "📡" : "☁"}</span>

@@ -153,7 +153,7 @@ function ActivityRow({ frame }: { frame: FrameStatus }) {
         <Link to={`/frames/${encodeURIComponent(frame.id)}`} className="min-w-0 flex-1">
           <span className="truncate font-semibold hover:text-accent">{frame.name || frame.id}</span>
         </Link>
-        <FrameKindBadge interaction={frame.interaction} />
+        <FrameKindBadge transport={frame.transport} interaction={frame.interaction} />
         <HealthBadge tone={health.tone} label={health.label} pulse={d.pending > 0} />
         <span className="text-xs text-slate-500">seen {relTime(frame.last_seen)}</span>
       </div>

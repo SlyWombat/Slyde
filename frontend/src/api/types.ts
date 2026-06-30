@@ -136,7 +136,8 @@ export interface FrameStatus {
   id: string;
   backend: string;
   interaction: string;
-  transport?: string; // "lan" | "cloud" — only "lan" frames have a live current-image preview
+  transport?: string; // "lan" | "cloud"
+  preview_asset?: string; // asset id of the photo the frame is showing now (card hero image)
   name: string;
   last_seen: string | null;
   deliveries: DeliverySummary;

@@ -123,7 +123,7 @@ function FrameRow({ frame }: { frame: FrameStatus }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate font-semibold">{frame.name || frame.id}</span>
-              <FrameKindBadge interaction={frame.interaction} />
+              <FrameKindBadge transport={frame.transport} interaction={frame.interaction} />
             </div>
             <div className="mt-0.5 truncate text-xs text-slate-400">
               {frame.backend} · seen {relTime(frame.last_seen)}

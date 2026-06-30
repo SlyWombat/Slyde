@@ -174,7 +174,8 @@ class FrameStatus(BaseModel):
     id: str
     backend: str
     interaction: str  # "connected" | "served"
-    transport: str = ""  # "lan" | "cloud" — only "lan" frames have a live current-image preview
+    transport: str = ""  # "lan" | "cloud"
+    preview_asset: str = ""  # asset id of the photo the frame is showing now (the card hero image)
     name: str = ""
     last_seen: str | None = None
     deliveries: DeliverySummary

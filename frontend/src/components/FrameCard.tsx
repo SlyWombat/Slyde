@@ -15,23 +15,31 @@ import {
   usePoll,
 } from "../ui";
 
-/** A frame as a first-class object (#34): kind-aware preview, health, and delivery roll-up. */
+/** A frame as a first-class object (#34): current-photo preview, health, and delivery roll-up. */
 export function FrameCard({ frame }: { frame: FrameStatus }) {
-  // Only LAN frames expose a live current-image we can proxy; cloud frames (served eFrame, cloud-push
-  // SwitchBot) don't — so we never call the LAN endpoint for them (it would 404 -> a false ⚠).
-  const live = frame.transport === "lan";
-  const refetchInterval = usePoll(10000);
+  const cloud = frame.transport !== "lan";
+  // The hero is the photo the frame is showing now. A LAN frame reports its live current image, so
+  // show that; otherwise (cloud frames, or a LAN frame we can't reach right now) fall back to the
+  // Slyde-curated current photo — `preview_asset` (a served eFrame's content_key / a cloud-push
+  // SwitchBot's last delivery), served from Slyde's own per-asset previews.
+  const refetchInterval = usePoll(15000);
   const current = useQuery({
     queryKey: ["current", frame.id],
     queryFn: () => api.currentImage(frame.id),
-    enabled: live,
+    enabled: !cloud,
     refetchInterval,
     retry: 0,
   });
-  // The hero image is the photo the frame is showing now — resolved server-side per backend and
-  // served from Slyde's own per-asset previews, so it works for every frame (LAN, served, cloud-push).
-  const thumb = frame.preview_asset ? api.assetPreviewUrl(frame.preview_asset) : null;
-  const online = live ? current.isSuccess : true; // cloud frames are "reachable" (we run their cloud)
+  const liveImg =
+    !cloud && current.data?.image ? api.frameThumbUrl(frame.id, current.data.image) : null;
+  const thumb = liveImg ?? (frame.preview_asset ? api.assetPreviewUrl(frame.preview_asset) : null);
+  // Liveness derives from last_seen (the SAME source as "seen … ago") so the two can't disagree (#66):
+  // a separate live control-probe would say "offline" while discovery still showed "seen 1s ago".
+  // Cloud frames are always reachable via the cloud we run.
+  const seenMs = frame.last_seen
+    ? Date.now() - Date.parse(frame.last_seen.replace(" ", "T") + "Z")
+    : NaN;
+  const online = cloud || (Number.isFinite(seenMs) && seenMs < 5 * 60_000);
   const health = frameHealth(frame);
   const d = frame.deliveries;
   const pending = d.pending > 0;
@@ -57,7 +65,7 @@ export function FrameCard({ frame }: { frame: FrameStatus }) {
           </div>
           <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-400">
             <StatusDot tone={online ? "ok" : "idle"} />
-            {live ? (online ? "online" : "offline") : "cloud"}
+            {cloud ? "cloud" : online ? "online" : "offline"}
           </div>
         </div>
 

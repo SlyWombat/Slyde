@@ -40,6 +40,42 @@ class Settings(BaseSettings):
         description="Smart mode: crop if <= this fraction of the long edge is lost, else blur-fill",
     )
 
+    # Interlude: a recurring non-photo image shown between slideshow photos (#70) ------------
+    interlude_dir: str = Field(
+        "",
+        description="Directory holding each frame's interlude image, so a SEPARATE PROCESS can "
+        "update what the frame shows just by writing a file. Defaults to <CACHE_DIR>/interlude. "
+        "Slyde reads '<dir>/<frame-id>.img' (any common image format); delete the file and the "
+        "frame goes straight back to its normal slideshow.",
+    )
+    interlude_poll_seconds: float = Field(
+        5.0,
+        gt=0,
+        description="How often the conductor re-checks whether a frame's interlude image exists "
+        "and has changed. Also the granularity at which a REMOVED image is noticed, so the frame "
+        "returns to normal rotation within about this long.",
+    )
+    interlude_park_seconds: int = Field(
+        2419200,
+        ge=1,
+        description="What the frame's own slide timer is parked at while Slyde conducts the "
+        "rotation. 2419200s (28 days) is the top rung of the official app's picker -- the "
+        "protocol's 'never' -- so the frame never self-advances and Slyde drives every transition. "
+        "Set this to a small multiple of the slide time instead to make the frame's own timer a "
+        "dead-man switch (only safe once it's confirmed the frame re-arms that timer on "
+        "DisplayImage; see #70 open question 1).",
+    )
+    interlude_flap_threshold: int = Field(
+        2,
+        ge=1,
+        description="Consecutive polls agreeing the interlude image is present (or absent) before "
+        "the conductor engages or stands down. Stops a process that rewrites its image in place "
+        "from driving repeated engage/stand-down cycles.",
+    )
+    interlude_fetch_timeout: float = Field(
+        10.0, gt=0, description="Timeout for fetching a url-sourced interlude image"
+    )
+
     # SwitchBot AI Art Frame (#64) — driven via SwitchBot's official signed cloud OpenAPI ---------
     switchbot_token: str = Field(
         "", description="SwitchBot OpenAPI token (for the 'switchbot' backend)", repr=False

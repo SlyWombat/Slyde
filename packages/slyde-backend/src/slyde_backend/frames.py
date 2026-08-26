@@ -19,6 +19,7 @@ from memento_core import AlbumData, FrameInfo, Ports, Setup
 from .backends import ConnectedFrameBackend, FrameConnection, get_backend
 from .config import Settings
 from .frame import NULL_GUID, Frame
+from .naming import is_reserved_dest
 from .previews import AssetPreviewCache, current_preview_key, render_canonical_preview
 from .store import Store
 
@@ -296,21 +297,44 @@ class FrameService:
         # A quick UI read: bounded timeout, no re-discovery (the overview polls this).
         return await self._with_client(host, lambda c: c.get_current_image_name(), quick=True)
 
-    async def get_current_thumbnail(self, host: str) -> bytes | None:
+    async def get_current_thumbnail(self, host: str, *, photos_only: bool = False) -> bytes | None:
         """Quick-read the frame's current image AND its thumbnail in ONE short-timeout session, for
         the cached current-image preview (#68). Returns the thumbnail PNG bytes, or None if the
         frame isn't showing a named image. Fails fast (``FrameUnavailable``) if it can't be reached.
+
+        ``photos_only`` skips Slyde-reserved files (the interlude buffers, #70) so a frame card's
+        hero image stays the last real photo instead of flipping to the interlude every other slide.
         """
 
         def run(client: FrameConnection) -> bytes | None:
             name = client.get_current_image_name()
-            return client.get_thumbnail(name) if name else None
+            if not name or (photos_only and is_reserved_dest(name)):
+                return None
+            return client.get_thumbnail(name)
 
         return await self._with_client(host, run, quick=True, register=False)
 
     async def update_firmware(self, host: str, url: str, md5: str) -> None:
         """Tell the frame to download + apply an update bundle from ``url`` (md5-verified)."""
         await self._with_client(host, lambda c: c.trigger_update(url, md5))
+
+    async def display_image(self, host: str, name: str) -> None:
+        """Jump the frame straight to a specific stored image (``Flow.DisplayImage``).
+
+        This is how the interlude conductor drives the rotation (#70). It deliberately does NOT go
+        through ``next_image``: the frame computes "next" by looking the *currently displayed*
+        filename up in its current album, so from a non-member file (an interlude buffer) that
+        lookup misses and the rotation restarts at the first photo. Position is Slyde's state.
+        """
+        await self._with_client(host, lambda c: c.display_image(name))
+
+    async def set_picture_duration(self, host: str, seconds: int) -> None:
+        """Set the frame's own slide time, via the dedicated command (not a whole-config write)."""
+        await self._with_client(host, lambda c: c.change_picture_duration(seconds))
+
+    async def set_shuffle(self, host: str, on: bool) -> None:
+        """Turn the frame's own shuffle on/off, via the dedicated command."""
+        await self._with_client(host, lambda c: c.change_shuffle(on))
 
     async def next_image(self, host: str) -> None:
         await self._with_client(host, lambda c: c.next_image())
@@ -443,7 +467,7 @@ async def refresh_current_previews(
             continue  # only LAN-session frames have a live current image; served (eFrame) and
             # cloud-push (SwitchBot) frames already get a preview from delivered content (#69)
         try:
-            png = await frame_service.get_current_thumbnail(frame.id)
+            png = await frame_service.get_current_thumbnail(frame.id, photos_only=True)
         except FrameUnavailable:
             continue  # offline/slow — leave the existing (or placeholder) preview as-is
         except Exception:

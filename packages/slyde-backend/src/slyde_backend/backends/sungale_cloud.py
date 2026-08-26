@@ -198,6 +198,7 @@ class SungaleCloudBackend(ServedFrameBackend):
         upload=True,  # photos are pushed to the (impersonated) cloud
         delete=True,
         ota=False,  # firmware/OTA path not yet characterized (see #12)
+        interludes=False,  # e-paper wear + served/poll: no on-demand display (#70)
     )
 
     def discover(self, *, timeout: float = 4.0, ports: Ports | None = None) -> list[FrameInfo]:

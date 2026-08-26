@@ -32,6 +32,10 @@ When Memento's cloud was switched off, every frame people had paid for became a 
 - 🔁 **Keep a folder in sync** — bind a Library folder to an Immich album and it stays mirrored (new photos added, departed ones dropped) on a schedule — for LAN *and* cloud frames alike — or **add a whole album once** as a snapshot.
 - 🔎 **Zero-config discovery** — finds LAN frames (UDP broadcast) or scans the subnet; nothing is added until you pick it.
 - 🎯 **Smart image fit** — each photo is prepared to the frame's panel (resolution, aspect, and for e-paper the exact palette + dither): crop near-matches, blur-fill the sides for portraits (`contain` / `cover` / `blur` / `smart`).
+- 🕐 **Interlude — your own image between the photos** — show a clock, weather board or dashboard
+  every other picture on a Memento frame. Slyde doesn't draw it: **any separate process can drive
+  the display by writing a file**, as often as it likes — and deleting that file hands the frame
+  straight back to its normal slideshow. [How →](docs/interlude.md)
 - 🎛️ **Live frame control** — current-image preview, next/previous, slide time, shuffle, night mode, orientation, rename.
 - 🧪 **Faithful emulator** — a full software frame for testing with no hardware (the whole test suite runs against it).
 - 🖥️ **Soft-frame mode** — run the emulator **fullscreen on a Raspberry Pi** (SDL/KMS, no desktop) as a DIY frame that the Manager treats like the real thing.

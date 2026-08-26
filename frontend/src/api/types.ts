@@ -167,6 +167,34 @@ export interface CapabilitiesInfo {
   upload: boolean;
   delete: boolean;
   ota: boolean;
+  /** Can this frame show a recurring image between its photos? False for e-paper frames (#70). */
+  interludes: boolean;
+}
+
+/** A frame's interlude settings: one recurring non-photo image shown between photos (#70). */
+export interface InterludeConfig {
+  enabled: boolean;
+  source_kind: "file" | "url";
+  /** A path a separate process writes, or an http(s) URL. Empty = Slyde's managed drop path. */
+  source_ref: string;
+  every_n_photos: number;
+  /** 0 = the same as a normal photo. */
+  dwell_seconds: number;
+  fit: "contain" | "cover" | "blur" | "smart";
+}
+
+/** Interlude settings + what the conductor is actually doing right now. */
+export interface InterludeStatus {
+  frame_id: string;
+  supported: boolean;
+  config: InterludeConfig;
+  /** "idle" | "engaged" | "standby" | "unsupported" */
+  state: string;
+  detail: string;
+  /** The path a separate process can write to drive the display. */
+  image_path: string;
+  image_present: boolean;
+  last_photo: string;
 }
 
 /** Registry detail for a frame by id (any backend) + its backend capabilities (#28). */

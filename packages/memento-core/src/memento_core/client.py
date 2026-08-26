@@ -187,6 +187,27 @@ class FrameClient:
         """Select the active album the slideshow cycles through."""
         self.change_setup(Setup.SendCurrentAlbum, {"Name": name})
 
+    def change_picture_duration(self, seconds: int) -> None:
+        """Set how long the frame holds each photo (its own slideshow timer), in seconds.
+
+        Uses the dedicated ``ChangePictureDuration`` command with the exact payload the official
+        app sends -- ``{"PictureDuration": "<n>"}``, the value as a *string* (recovered from
+        ``State_ChangePictureDuration.State_Enter``). Preferred over a whole-config ``SendConfig``
+        write, which would round-trip every field (including the cleartext Wi-Fi password) just to
+        change one number.
+
+        The app's own picker offers 5s ... 2419200s (28 days -- the protocol's "never" constant),
+        so a large value effectively parks the frame's slideshow (see ``interlude.py``).
+        """
+        self.change_setup(Setup.ChangePictureDuration, {"PictureDuration": str(int(seconds))})
+
+    def change_shuffle(self, on: bool) -> None:
+        """Turn the frame's own shuffle on/off (``{"Shuffle": "True"|"False"}``, as the app sends).
+
+        .NET renders booleans title-cased on the wire, so the payload is the string "True"/"False".
+        """
+        self.change_setup(Setup.ChangeShuffle, {"Shuffle": "True" if on else "False"})
+
     def factory_reset(self) -> None:
         """Wipe the frame back to factory defaults (photos, albums, and settings)."""
         self.control.request(T_CONTROL_FLOW, Flow.FactoryReset)

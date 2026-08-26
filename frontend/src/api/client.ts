@@ -10,6 +10,8 @@ import type {
   FrameSummary,
   FrameUpdate,
   Health,
+  InterludeConfig,
+  InterludeStatus,
   LibraryView,
   Subscription,
   SyncJobInfo,
@@ -131,6 +133,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ album_id: albumId, folder }),
     }),
+
+  // -- interlude (a recurring image between the photos, #70) ----------------
+  interlude: (id: string) => request<InterludeStatus>(`/frames/${enc(id)}/interlude`),
+  setInterlude: (id: string, config: Partial<InterludeConfig>) =>
+    request<InterludeStatus>(`/frames/${enc(id)}/interlude`, {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
+  // Publish the image the frame shows in its interlude slot (the HTTP twin of the file drop).
+  putInterludeImage: (id: string, file: File) =>
+    request<InterludeStatus>(`/frames/${enc(id)}/interlude/image`, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    }),
+  // Withdraw the image -- the frame goes back to its ordinary photo slideshow.
+  deleteInterludeImage: (id: string) =>
+    request<InterludeStatus>(`/frames/${enc(id)}/interlude/image`, { method: "DELETE" }),
+  // Rendered exactly as the frame will show it (cache-busted so a republish is visible).
+  interludePreviewUrl: (id: string, bust: string | number = "") =>
+    `${BASE}/frames/${enc(id)}/interlude/preview?v=${enc(String(bust))}`,
 
   // -- firmware / updates --------------------------------------------------
   firmware: () => request<FirmwareInfo>("/firmware"),

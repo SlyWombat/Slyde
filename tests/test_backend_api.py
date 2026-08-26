@@ -80,6 +80,9 @@ class ApiHarness:
     def delete(self, url: str, **kw: object) -> httpx.Response:
         return self.request("DELETE", url, **kw)
 
+    def put(self, url: str, **kw: object) -> httpx.Response:
+        return self.request("PUT", url, **kw)
+
     def close(self) -> None:
         self._loop.run_until_complete(self._client.aclose())
         self._loop.run_until_complete(self._lifespan.__aexit__(None, None, None))
@@ -456,3 +459,90 @@ def test_add_album_once_drops_a_snapshot_with_no_binding(
     add_once()
     assert cats() == {"c1", "c2", "c3"}
     assert client.get(f"{F}/subscriptions").json() == []
+
+
+# -- interlude: a recurring non-photo image between the photos (#70) ----------------------------
+def _jpeg(colour: tuple[int, int, int]) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (120, 90), colour).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_interlude_defaults_to_off_and_reports_where_to_write_the_image(
+    client: ApiHarness,
+) -> None:
+    """The status tells a producer exactly which path to write — no guessing, no extra config."""
+    client.get(f"{F}")  # register the frame
+    body = client.get(f"{F}/interlude").json()
+    assert body["supported"] is True
+    assert body["config"]["enabled"] is False
+    assert body["state"] == "idle"
+    assert body["image_present"] is False
+    assert body["image_path"].endswith(".img")
+
+
+def test_a_separate_process_publishes_and_withdraws_the_image_over_http(
+    client: ApiHarness,
+) -> None:
+    """The HTTP twin of the file drop: PUT bytes to publish, DELETE to hand the frame back."""
+    client.get(f"{F}")
+    assert client.put(f"{F}/interlude", json={"enabled": True}).status_code == 200
+
+    published = client.put(
+        f"{F}/interlude/image", content=_jpeg((10, 20, 30)), headers={"content-type": "image/jpeg"}
+    )
+    assert published.status_code == 200 and published.json()["image_present"] is True
+
+    # It renders through the frame's own profile, so a producer can see what will appear.
+    preview = client.get(f"{F}/interlude/preview")
+    assert preview.status_code == 200 and preview.content[:2] == b"\xff\xd8"
+
+    withdrawn = client.delete(f"{F}/interlude/image")
+    assert withdrawn.status_code == 200 and withdrawn.json()["image_present"] is False
+    assert client.get(f"{F}/interlude/preview").status_code == 404
+
+
+def test_a_corrupt_upload_is_rejected_rather_than_shown_on_the_frame(client: ApiHarness) -> None:
+    client.get(f"{F}")
+    assert client.put(f"{F}/interlude/image", content=b"not an image").status_code == 415
+    assert client.put(f"{F}/interlude/image", content=b"").status_code == 400
+
+
+def test_settings_round_trip_without_clobbering_the_conductors_restore_state(
+    client: ApiHarness,
+) -> None:
+    """Saving settings must never reset engaged/saved_* — that would strand a parked frame."""
+    client.get(f"{F}")
+    from dataclasses import replace
+
+    store = client.app.state.store
+    store.set_interlude(replace(store.get_interlude(HOST), engaged=True, saved_display_time=90))
+    body = client.put(
+        f"{F}/interlude",
+        json={"enabled": True, "every_n_photos": 2, "dwell_seconds": 15, "fit": "blur"},
+    ).json()
+    assert body["config"]["every_n_photos"] == 2
+    assert body["config"]["dwell_seconds"] == 15
+    assert body["config"]["fit"] == "blur"
+    row = store.get_interlude(HOST)
+    assert row.engaged is True and row.saved_display_time == 90
+
+
+def test_interludes_are_refused_on_an_epaper_frame(client: ApiHarness) -> None:
+    """An e-paper panel would spend ~15-30s of visible flashing on every clock tick."""
+    registered = client.post(
+        "/api/frames/register", json={"backend": "sungale-cloud", "frame_code": "EPAPER1"}
+    )
+    assert registered.status_code == 201
+    status = client.get("/api/frames/EPAPER1/interlude").json()
+    assert status["supported"] is False and status["state"] == "unsupported"
+    refused = client.put("/api/frames/EPAPER1/interlude", json={"enabled": True})
+    assert refused.status_code == 409
+    assert "interlude" in refused.json()["detail"]
+
+
+def test_interlude_endpoints_404_for_an_unknown_frame(client: ApiHarness) -> None:
+    assert client.get("/api/frames/nope/interlude").status_code == 404
+    assert (
+        client.put("/api/frames/nope/interlude/image", content=_jpeg((1, 1, 1))).status_code == 404
+    )

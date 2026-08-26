@@ -73,6 +73,30 @@ CREATE TABLE IF NOT EXISTS frame_setting (
     display_orientation TEXT NOT NULL DEFAULT '1',
     timing_type         TEXT NOT NULL DEFAULT '0'
 );
+CREATE TABLE IF NOT EXISTS frame_interlude (
+    -- Per-frame interlude config + the conductor's durable restore state (#70).
+    -- The restore columns are the crash safety net: while the conductor is engaged it has PARKED
+    -- the frame's own slideshow timer, so if this process dies the frame would sit on one image
+    -- forever. ``engaged`` + ``saved_*`` let the next startup put the frame back exactly as the
+    -- user had it. They are written ONCE, on the stood-down -> engaged transition; re-writing them
+    -- while engaged would save the parked value as "the original" and park the frame permanently.
+    frame_id           TEXT PRIMARY KEY,
+    enabled            INTEGER NOT NULL DEFAULT 0,
+    source_kind        TEXT NOT NULL DEFAULT 'file',   -- 'file' (a path) | 'url' (HTTP GET)
+    source_ref         TEXT NOT NULL DEFAULT '',       -- path or URL; '' = the managed drop path
+    every_n_photos     INTEGER NOT NULL DEFAULT 1,     -- interlude after every N photos
+    dwell_seconds      INTEGER NOT NULL DEFAULT 0,     -- 0 = the frame's own slide time
+    fit                TEXT NOT NULL DEFAULT 'contain',-- a dashboard must never be cropped
+    engaged            INTEGER NOT NULL DEFAULT 0,
+    saved_display_time INTEGER NOT NULL DEFAULT 0,
+    saved_shuffle      INTEGER NOT NULL DEFAULT 0,
+    last_photo         TEXT NOT NULL DEFAULT '',       -- restore target: last real photo shown
+    slot               TEXT NOT NULL DEFAULT '',       -- which double-buffer slot is on screen
+    content_hash       TEXT NOT NULL DEFAULT '',       -- last uploaded bytes, to skip re-uploads
+    state              TEXT NOT NULL DEFAULT 'idle',   -- idle | engaged | standby | unsupported
+    detail             TEXT NOT NULL DEFAULT '',
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS frame_alias (
     -- Maps every id the app/frame presents for one device (numeric frame_id/setting_id, device_id,
     -- serial, …) to the single canonical frame.id, so the same device resolves to one Frame.
@@ -105,6 +129,27 @@ class Subscription:
     target_album: str
     last_synced_at: str | None = None
     last_result: str | None = None
+
+
+@dataclass
+class InterludeRow:
+    """A frame's interlude settings plus the conductor's durable state (see the schema)."""
+
+    frame_id: str
+    enabled: bool = False
+    source_kind: str = "file"
+    source_ref: str = ""
+    every_n_photos: int = 1
+    dwell_seconds: int = 0
+    fit: str = "contain"
+    engaged: bool = False
+    saved_display_time: int = 0
+    saved_shuffle: bool = False
+    last_photo: str = ""
+    slot: str = ""
+    content_hash: str = ""
+    state: str = "idle"
+    detail: str = ""
 
 
 @dataclass
@@ -243,6 +288,7 @@ class Store:
                 "delivery",
                 "frame_display",
                 "frame_setting",
+                "frame_interlude",
                 "frame_alias",
             ):
                 conn.execute(
@@ -312,6 +358,7 @@ class Store:
             conn.execute("DELETE FROM library_item WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_display WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_setting WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM frame_interlude WHERE frame_id = ?", (frame_id,))
             conn.execute(
                 "DELETE FROM frame_alias WHERE frame_id = ? OR alias = ?", (frame_id, frame_id)
             )
@@ -454,6 +501,56 @@ class Store:
                 (frame_id, *(merged[f] for f in _SETTING_FIELDS)),
             )
 
+    # -- interlude (a recurring non-photo slot between slideshow photos; see interlude.py) ----
+    def get_interlude(self, frame_id: str) -> InterludeRow:
+        """A frame's interlude row, or an all-defaults (disabled) row if it has never had one."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM frame_interlude WHERE frame_id = ?", (frame_id,)
+            ).fetchone()
+        return _interlude(row) if row else InterludeRow(frame_id=frame_id)
+
+    def list_interludes(self) -> list[InterludeRow]:
+        """Every frame that has an interlude row (enabled or not, engaged or not)."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM frame_interlude").fetchall()
+        return [_interlude(r) for r in rows]
+
+    def set_interlude(self, row: InterludeRow) -> None:
+        """Write a frame's whole interlude row (config + conductor state)."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame_interlude (frame_id, enabled, source_kind, source_ref, "
+                "every_n_photos, dwell_seconds, fit, engaged, saved_display_time, saved_shuffle, "
+                "last_photo, slot, content_hash, state, detail, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now')) "
+                "ON CONFLICT(frame_id) DO UPDATE SET enabled=excluded.enabled, "
+                "source_kind=excluded.source_kind, source_ref=excluded.source_ref, "
+                "every_n_photos=excluded.every_n_photos, dwell_seconds=excluded.dwell_seconds, "
+                "fit=excluded.fit, engaged=excluded.engaged, "
+                "saved_display_time=excluded.saved_display_time, "
+                "saved_shuffle=excluded.saved_shuffle, last_photo=excluded.last_photo, "
+                "slot=excluded.slot, content_hash=excluded.content_hash, state=excluded.state, "
+                "detail=excluded.detail, updated_at=datetime('now')",
+                (
+                    row.frame_id,
+                    int(row.enabled),
+                    row.source_kind,
+                    row.source_ref,
+                    row.every_n_photos,
+                    row.dwell_seconds,
+                    row.fit,
+                    int(row.engaged),
+                    row.saved_display_time,
+                    int(row.saved_shuffle),
+                    row.last_photo,
+                    row.slot,
+                    row.content_hash,
+                    row.state,
+                    row.detail[:500],
+                ),
+            )
+
     # -- delivery queue (guaranteed delivery; see delivery.py) -----------------
     def enqueue_delivery(
         self, frame_id: str, key: str, payload: str, *, next_attempt_at: str
@@ -559,6 +656,26 @@ def _subscription(row: sqlite3.Row) -> Subscription:
         target_album=row["target_album"],
         last_synced_at=row["last_synced_at"],
         last_result=row["last_result"],
+    )
+
+
+def _interlude(row: sqlite3.Row) -> InterludeRow:
+    return InterludeRow(
+        frame_id=row["frame_id"],
+        enabled=bool(row["enabled"]),
+        source_kind=row["source_kind"],
+        source_ref=row["source_ref"],
+        every_n_photos=int(row["every_n_photos"]),
+        dwell_seconds=int(row["dwell_seconds"]),
+        fit=row["fit"],
+        engaged=bool(row["engaged"]),
+        saved_display_time=int(row["saved_display_time"]),
+        saved_shuffle=bool(row["saved_shuffle"]),
+        last_photo=row["last_photo"],
+        slot=row["slot"],
+        content_hash=row["content_hash"],
+        state=row["state"],
+        detail=row["detail"],
     )
 
 

@@ -9,6 +9,7 @@ from fastapi import Depends, Request
 from ..config import Settings
 from ..firmware import FirmwareService
 from ..frames import FrameService
+from ..interlude import InterludeService
 from ..jobs import JobManager
 from ..previews import AssetPreviewCache
 from ..scheduler import SyncScheduler
@@ -26,6 +27,10 @@ def get_store(request: Request) -> Store:
 
 def get_frame(request: Request) -> FrameService:
     return request.app.state.frame  # type: ignore[no-any-return]
+
+
+def get_interlude(request: Request) -> InterludeService:
+    return request.app.state.interlude  # type: ignore[no-any-return]
 
 
 def get_scheduler(request: Request) -> SyncScheduler:
@@ -56,6 +61,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 StoreDep = Annotated[Store, Depends(get_store)]
 FrameDep = Annotated[FrameService, Depends(get_frame)]
 SchedulerDep = Annotated[SyncScheduler, Depends(get_scheduler)]
+InterludeDep = Annotated[InterludeService, Depends(get_interlude)]
 JobsDep = Annotated[JobManager, Depends(get_jobs)]
 FirmwareDep = Annotated[FirmwareService, Depends(get_firmware)]
 AssetPreviewsDep = Annotated[AssetPreviewCache, Depends(get_asset_previews)]

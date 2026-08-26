@@ -7,6 +7,7 @@ import contextlib
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import (
@@ -22,11 +23,19 @@ from fastapi import (
 )
 
 from ..backends import available_backends, get_backend
+from ..config import Settings
 from ..delivery_service import DeliveryService
 from ..frame import Frame
 from ..frame_import import import_frame_photos
 from ..frames import FrameUnavailable
 from ..immich import ImmichError
+from ..interlude import (
+    InterludeUnavailable,
+    managed_image_path,
+    source_for,
+    supports_interludes,
+    validate_image,
+)
 from ..jobs import SyncJob
 from ..library import LibraryItem
 from ..naming import dest_name_for
@@ -44,6 +53,8 @@ from ..schemas import (
     FrameStatus,
     FrameSummary,
     FrameUpdate,
+    InterludeConfig,
+    InterludeStatus,
     LibraryItemModel,
     LibraryPhoto,
     LibraryView,
@@ -63,6 +74,7 @@ from .deps import (
     AssetPreviewsDep,
     FirmwareDep,
     FrameDep,
+    InterludeDep,
     JobsDep,
     SettingsDep,
     StoreDep,
@@ -611,6 +623,157 @@ async def upload(
         )
     background.add_task(_drain_delivery, state.delivery_service)
     return {"uploaded": len(files)}
+
+
+def _interlude_status(store: Store, settings: Settings, frame_id: str) -> InterludeStatus:
+    frame = store.get_frame(frame_id)
+    if frame is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    row = store.get_interlude(frame_id)
+    supported = supports_interludes(frame.backend)
+    config = InterludeConfig(
+        enabled=row.enabled,
+        source_kind=row.source_kind,
+        source_ref=row.source_ref,
+        every_n_photos=row.every_n_photos,
+        dwell_seconds=row.dwell_seconds,
+        fit=row.fit,
+    )
+    path = managed_image_path(settings, frame_id)
+    present = row.source_kind == "url" or (
+        Path(row.source_ref).is_file() if row.source_ref else path.is_file()
+    )
+    return InterludeStatus(
+        frame_id=frame_id,
+        supported=supported,
+        config=config,
+        state=row.state if supported else "unsupported",
+        detail=row.detail,
+        image_path=str(path),
+        image_present=present,
+        last_photo=row.last_photo,
+    )
+
+
+@router.get("/{frame_id}/interlude", response_model=InterludeStatus)
+async def get_interlude(frame_id: str, store: StoreDep, settings: SettingsDep) -> InterludeStatus:
+    """This frame's interlude settings + what the conductor is doing right now (#70)."""
+    return _interlude_status(store, settings, frame_id)
+
+
+@router.put("/{frame_id}/interlude", response_model=InterludeStatus)
+async def set_interlude(
+    frame_id: str,
+    body: InterludeConfig,
+    store: StoreDep,
+    settings: SettingsDep,
+    interlude: InterludeDep,
+) -> InterludeStatus:
+    """Update this frame's interlude settings; takes effect on the current slide, not the next.
+
+    Refuses frames whose backend declares it can't do interludes -- an e-paper panel would spend
+    ~15-30s of visible flashing (and a slice of a finite refresh budget) on every clock tick.
+    """
+    frame = store.get_frame(frame_id)
+    if frame is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    if body.enabled and not supports_interludes(frame.backend):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"frame backend {frame.backend!r} can't show interludes: its panel/transport "
+                "doesn't support an on-demand image between photos"
+            ),
+        )
+    row = store.get_interlude(frame_id)
+    # Only the CONFIG fields are writable here; engaged/saved_*/slot are the conductor's durable
+    # restore state and must never be reset by a settings save (that would strand the frame parked).
+    store.set_interlude(
+        replace(
+            row,
+            enabled=body.enabled,
+            source_kind=body.source_kind,
+            source_ref=body.source_ref,
+            every_n_photos=body.every_n_photos,
+            dwell_seconds=body.dwell_seconds,
+            fit=body.fit,
+        )
+    )
+    interlude.wake(frame_id)
+    return _interlude_status(store, settings, frame_id)
+
+
+@router.put("/{frame_id}/interlude/image", response_model=InterludeStatus)
+async def put_interlude_image(
+    frame_id: str,
+    request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
+    interlude: InterludeDep,
+) -> InterludeStatus:
+    """Publish the image the frame shows in its interlude slot (raw image bytes as the body).
+
+    The HTTP twin of writing the drop file: a separate process can POST/PUT new bytes here as often
+    as it likes and the frame picks them up on its next interlude. The write is atomic (temp file +
+    rename), so the conductor never reads a half-written image, and the bytes are decode-checked
+    before they're accepted -- a corrupt upload is rejected here rather than shown on the frame.
+    """
+    if store.get_frame(frame_id) is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="no image bytes in the request body")
+    try:
+        validate_image(data)
+    except InterludeUnavailable as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    path = managed_image_path(settings, frame_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)  # atomic: a reader sees either the old image or the new one, never a splice
+    interlude.wake(frame_id)
+    return _interlude_status(store, settings, frame_id)
+
+
+@router.delete("/{frame_id}/interlude/image", response_model=InterludeStatus)
+async def delete_interlude_image(
+    frame_id: str, store: StoreDep, settings: SettingsDep, interlude: InterludeDep
+) -> InterludeStatus:
+    """Withdraw the interlude image -- the frame goes back to its ordinary photo slideshow.
+
+    Equivalent to deleting the drop file. The conductor notices within a poll, restores the frame's
+    own slide time and shuffle, and stops conducting; the interlude buffers are removed from the
+    device. The settings are left alone, so writing an image again resumes interludes.
+    """
+    if store.get_frame(frame_id) is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    managed_image_path(settings, frame_id).unlink(missing_ok=True)
+    interlude.wake(frame_id)
+    return _interlude_status(store, settings, frame_id)
+
+
+@router.get("/{frame_id}/interlude/preview")
+async def interlude_preview(frame_id: str, store: StoreDep, settings: SettingsDep) -> Response:
+    """The interlude image as the frame would show it -- fitted through this frame's own profile.
+
+    Lets the UI (or a producer, while developing) see exactly what will appear, without displaying
+    anything on the frame.
+    """
+    frame = store.get_frame(frame_id)
+    if frame is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    row = store.get_interlude(frame_id)
+    try:
+        data = validate_image(await source_for(row, settings).load())
+    except InterludeUnavailable as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    profile = replace(
+        profile_for(frame, settings, canvas=settings.canvas), fit=row.fit or "contain"
+    )
+    rendered = await asyncio.to_thread(prepare, data, profile)
+    media = "image/png" if rendered[:4] == b"\x89PNG" else "image/jpeg"
+    return Response(content=rendered, media_type=media)
 
 
 @router.delete("/{host}/photos/{filename}", status_code=204)

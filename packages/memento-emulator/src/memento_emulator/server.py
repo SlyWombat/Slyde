@@ -274,6 +274,27 @@ class EmulatedFrame:
             # The frame sets its RTC; the emulator answers GetFrameTime from host time, so just ack
             # (don't merge the time payload into the config).
             self._reply(conn, T_CHANGE_SETUP, action + 1)
+        elif action == Setup.ChangePictureDuration:
+            # The app changes the slide time with this dedicated command, not a whole-config write:
+            # ``{"PictureDuration": "<seconds>"}`` (the value as a string). Model it faithfully --
+            # the generic Change* fallback below would stash a stray "PictureDuration" key in the
+            # config and leave ``DisplayTime``, the value the slideshow loop actually reads,
+            # untouched (so parking the slideshow would silently no-op here).
+            payload = msg.json()
+            if isinstance(payload, dict) and payload.get("PictureDuration") is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    self.state.update_config(
+                        {"DisplayTime": int(float(str(payload["PictureDuration"])))}
+                    )
+            self._reply(conn, T_CHANGE_SETUP, action + 1)
+        elif action == Setup.ChangeShuffle:
+            # ``{"Shuffle": "True"|"False"}`` -- .NET title-cases booleans on the wire.
+            payload = msg.json()
+            if isinstance(payload, dict) and payload.get("Shuffle") is not None:
+                self.state.update_config(
+                    {"ShuffleOn": str(payload["Shuffle"]).strip().lower() == "true"}
+                )
+            self._reply(conn, T_CHANGE_SETUP, action + 1)
         elif action == Setup.ChangeOrientation:
             payload = msg.json()
             if isinstance(payload, dict):

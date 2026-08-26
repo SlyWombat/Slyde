@@ -21,6 +21,7 @@ from .frame import Frame
 from .frames import FrameService
 from .imagecache import ImageCache
 from .library import FrameLibrary, LibraryItem
+from .naming import is_reserved_dest
 from .previews import AssetPreviewCache, render_canonical_preview
 from .processing import prepare, profile_for
 from .schemas import SyncResult
@@ -55,6 +56,9 @@ async def import_frame_photos(
     seen: set[str] = set()
     for album in album_data.albums:
         for img in album.images:
+            if is_reserved_dest(img):
+                continue  # a Slyde-owned file (an interlude buffer) is not one of the user's
+                # photos: importing it would put a clock in the Library and in the rotation (#70)
             if img not in seen:
                 seen.add(img)
                 names.append(img)

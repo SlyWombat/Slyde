@@ -42,6 +42,7 @@ class SwitchBotBackend(FrameBackend):
         upload=True,
         delete=False,  # the cloud API exposes no per-image delete (only next/previous + upload)
         ota=False,
+        interludes=False,  # e-paper wear + the cloud API has no display-by-name (#70)
     )
 
     def discover(self, *, timeout: float = 4.0, ports: Ports | None = None) -> list[FrameInfo]:

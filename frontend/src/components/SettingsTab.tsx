@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { CapabilitiesInfo, FrameStatus } from "../api/types";
 import { isConnected } from "../lib/frames";
+import { InterludePanel } from "./InterludePanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { Banner, Button, Card, Skeleton, useToast } from "../ui";
 
@@ -24,6 +25,7 @@ export function SettingsTab({ frame }: { frame: FrameStatus }) {
     <div className="space-y-4">
       <RenameCard frame={frame} />
       {conn && <SettingsPanel host={frame.id} />}
+      {conn && <InterludePanel frameId={frame.id} />}
       <ProcessingCard caps={detail.data?.capabilities} loading={detail.isLoading} />
       {!conn && (
         <Banner tone="idle">

@@ -143,6 +143,29 @@ filled-in instance of the generic config below.
   framework design — including the **connected vs served** interaction split that cloud frames need
   — is in `framework-design.md`.
 
+- **ADR-011 The interlude conductor: to insert anything between photos, Slyde must own the
+  cursor.** A Memento frame runs its slideshow itself, on its own timer, and emits no "picture
+  changed" event — so there is no hook to insert a recurring non-photo image (a clock, a weather
+  board) into. The design (#70) is therefore: while an interlude is engaged, **park the frame's own
+  slide timer** (`ChangePictureDuration` at the protocol's "never", 2419200s — the top rung of the
+  official app's own picker) and drive every transition explicitly with `DisplayImage`. Two rules
+  fall out and are load-bearing:
+  1. **Resume by name, never by `next_image`.** The frame computes "next" by looking the *currently
+     displayed* filename up in its current album; from a non-member file (an interlude buffer) that
+     lookup misses and the rotation restarts at photo 0. Position is Slyde's state, so the frame's
+     own shuffle is turned off while engaged (it would fight the cursor) and restored after.
+  2. **No image means stand down, not pause.** Because parking makes Slyde responsible for the
+     slideshow, any time there is nothing to show — the image was removed, the URL is down, the
+     panel is off, no photos are delivered — the conductor restores the frame's slide time and
+     shuffle, leaves a real photo on screen, and lets the frame run itself. Durable `engaged` +
+     `saved_*` state in the store lets a restart restore a frame a crash left parked.
+
+  The image comes from an `InterludeSource`; the shipped `file` source means **any separate process
+  can drive the display by writing a file**, and `rm` of that file is the off switch. Reserved
+  on-frame filenames (`naming.is_reserved_dest`) keep the buffers out of the Library, out of frame
+  previews, and out of prune candidates. Gated by `FrameCapabilities.interludes`, never by a
+  colour-model check in the engine (ADR-009 rule 2). See `docs/interlude.md`.
+
 ## 5. Image pipeline (Immich → frame)
 The frame canvas is **3240×2160 landscape** (portrait variant exists). Immich originals must be
 transformed before upload:

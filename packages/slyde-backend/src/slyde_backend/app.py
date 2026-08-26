@@ -19,6 +19,7 @@ from .folder_sync import FolderSyncService
 from .frames import FrameService, FrameUnavailable, refresh_current_previews
 from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
+from .interlude import InterludeService
 from .jobs import JobManager
 from .library import FrameLibrary
 from .previews import AssetPreviewCache
@@ -87,10 +88,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # SwitchBot AI Art Frames are account-scoped: this lists/registers them + reads live status
         # (the 'switchbot' backend pushes to SwitchBot's cloud; delivery rides the same queue, #64).
         app.state.switchbot = SwitchBotService(settings, store)
+        # The interlude conductor: shows a recurring non-photo image between a frame's photos, and
+        # hands the slideshow straight back to the frame whenever that image isn't there (#70).
+        # It starts by restoring any frame a previous process left parked mid-interlude.
+        interlude = InterludeService(store, frame_service, settings)
+        app.state.interlude = interlude
         scheduler.start()
+        interlude.start()
         try:
             yield
         finally:
+            await interlude.stop()
             await scheduler.stop()
 
     app = FastAPI(title="Slyde", version=__version__, lifespan=lifespan)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -116,6 +116,7 @@ class CapabilitiesInfo(BaseModel):
     upload: bool
     delete: bool
     ota: bool
+    interludes: bool = False  # can show a recurring image between slideshow photos (#70)
 
 
 class FrameDetailInfo(BaseModel):
@@ -129,6 +130,46 @@ class FrameDetailInfo(BaseModel):
     frame_code: str = ""
     last_seen: str | None = None
     capabilities: CapabilitiesInfo
+
+
+class InterludeConfig(BaseModel):
+    """A frame's interlude settings: one recurring non-photo image shown between photos (#70)."""
+
+    enabled: bool = False
+    source_kind: Literal["file", "url"] = "file"
+    source_ref: str = Field(
+        "",
+        description="Where the image comes from: a filesystem path a separate process writes, or "
+        "an http(s) URL to GET. Empty means Slyde's managed drop path for this frame (returned as "
+        "``image_path``), which is also what the upload endpoint writes to.",
+    )
+    every_n_photos: int = Field(
+        1, ge=1, le=100, description="Show the interlude after every N photos (1 = every other)"
+    )
+    dwell_seconds: int = Field(
+        0,
+        ge=0,
+        le=86400,
+        description="How long the interlude stays up; 0 = the same as a normal photo",
+    )
+    fit: Literal["contain", "cover", "blur", "smart"] = Field(
+        "contain",
+        description="How the image is fitted to the panel. Defaults to contain -- a dashboard or "
+        "clock must never be cropped, unlike a photo.",
+    )
+
+
+class InterludeStatus(BaseModel):
+    """A frame's interlude settings plus what the conductor is actually doing right now."""
+
+    frame_id: str
+    supported: bool  # false for e-paper/served frames (FrameCapabilities.interludes)
+    config: InterludeConfig
+    state: str  # "idle" | "engaged" | "standby" | "unsupported"
+    detail: str = ""
+    image_path: str = ""  # the managed drop path a separate process can write to
+    image_present: bool = False
+    last_photo: str = ""  # the photo the rotation will resume from
 
 
 class RenameFrameRequest(BaseModel):

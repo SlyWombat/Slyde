@@ -27,6 +27,7 @@ class MementoLanBackend(ConnectedFrameBackend):
         upload=True,
         delete=True,
         ota=True,
+        interludes=True,  # full-colour LCD + on-demand DisplayImage (#70)
     )
 
     def discover(self, *, timeout: float = 4.0, ports: Ports | None = None) -> list[FrameInfo]:

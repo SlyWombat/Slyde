@@ -31,7 +31,8 @@ A frame is reached one of two ways, captured by two interaction models
   `discover()` and `session(host) -> contextmanager[FrameConnection]`, where **`FrameConnection`** is
   a `Protocol` of per-session operations: `get_config` / `change_setup`, `next_image` /
   `previous_image`, `get_current_image_name`, `upload_image` / `delete_image`, `get_album_data` /
-  `send_album_data`, `get_thumbnails_list` / `get_thumbnail`, `trigger_update`.
+  `send_album_data`, `get_thumbnails_list` / `get_thumbnail`, `trigger_update`, and — for frames
+  that can be conducted — `display_image`, `change_picture_duration`, `change_shuffle`.
   `memento_core.FrameClient` satisfies it structurally. *(memento-lan)*
 - **Served** (`ServedFrameBackend`) — the *frame* polls a server we run (cloud devices we can't reach
   or connect to). Implements `router()` (the HTTP surface the frame polls), `identify(request)` (which
@@ -45,7 +46,7 @@ A frame is reached one of two ways, captured by two interaction models
   `uploadImage`.)*
 
 Both declare a **`FrameCapabilities`** descriptor (interaction, transport, `color_model`, discovery,
-albums, thumbnails, upload, delete, ota). `color_model` drives the per-frame processing profile:
+albums, thumbnails, upload, delete, ota, interludes). `color_model` drives the per-frame processing profile:
 `full` (LCD → JPEG) or `epaper` (Spectra-6 palette + dither → the panel's 4bpp BMP, see
 `panel_bmp.py`).
 
@@ -93,6 +94,10 @@ downloads its image. App photo pushes (`photo/upload`) are ingested too — see
      ones it can't, and reflect that in `capabilities`).
    - **Served** (`ServedFrameBackend`): implement `router()`, `identify()`, and `respond()` — the
      frame polls those endpoints (see `sungale_cloud.py`).
+   Set `interludes=True` only if the frame can show a recurring image *between* photos (#70):
+   that needs both a panel that tolerates the extra redraws (never e-paper — every refresh is
+   ~15-30s of flashing and part of a finite wear budget) **and** an on-demand "show this image now"
+   command, so the manager can conduct the rotation itself.
 2. Register it in `backends/__init__.py` (`_BACKENDS`).
 3. Add a conformance test (see `tests/test_backends.py` — run your backend against a fake/emulated
    device the way `test_memento_lan_backend_drives_the_emulator` does).

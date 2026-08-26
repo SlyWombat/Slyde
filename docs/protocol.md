@@ -141,6 +141,26 @@ reads exactly that many bytes on 2018; client sends `…Ended`; frame replies `�
   ScreenSize, Width, Height, Orientation, WiFiSSID, WiFiPSWD (clear!), TimeZoneName, SideBars,
   SideBarsColor, GUID`. NOTE: the frame returns Wi-Fi SSID + password in cleartext on the LAN.
 
+## VERIFIED LIVE (2026-08-26, frame "Living Room" @ 192.168.10.141, fw 6.02) — slideshow timing
+Measured for the interlude work (#70), because both answers were unknown from the app source alone
+(the frame's own firmware is Android, not in `reversing/`):
+
+- **`ChangePictureDuration` accepts ARBITRARY second values.** The app's picker offers 15 rungs
+  (5/15/30/60/300/600/1800/3600/7200/14400/28800/43200/86400/604800/2419200), but that is only its
+  UI: `120`, `90`, `7` and `2419200` were each set and read back **exactly** via `GetConfig`. The
+  frame neither clamps nor rounds. Payload is `{"PictureDuration":"<n>"}` (value as a *string*).
+- **`DisplayImage` RE-ARMS the frame's slideshow countdown.** With `DisplayTime=60`, phase-locked to
+  a natural auto-advance and then issuing `DisplayImage` 40s in: the next auto-advance came **~62s
+  after the command**, not the ~20s a free-running timer would give. So the countdown restarts on
+  every display command. (This is what lets a manager park the timer at a *finite* value and have
+  the frame's own timer act as a dead-man switch — see `interlude.py`.)
+- **The frame closes the control session immediately after `DisplayImage`.** A long-lived session
+  gets `BrokenPipeError` on the next command; one short session per operation (what `FrameService`
+  already does) is unaffected.
+- **Session pacing is not optional.** Bulk `GetThumbnailsList` (1164 entries) followed by rapid
+  reconnects made the frame stop answering control for ~45-90s. It recovers on its own. Poll at the
+  ~10-15s cadence the UI uses, with a settle delay between ops (`FRAME_SETTLE_DELAY`).
+
 ## Discovery over Tailscale
 Broadcast (255.255.255.255:2015) does not traverse Tailscale. With a subnet router advertising
 the frame's LAN (here 192.168.10.0/24), reach the frame by **unicast**: scan TCP 2017/2018 to

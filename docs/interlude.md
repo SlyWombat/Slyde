@@ -74,6 +74,38 @@ refresh for no reason.
 
 ---
 
+## Running the producer in its own container
+
+The usual shape: your producer is a **sibling container on the same Docker host**. Share one
+directory between it and Slyde, and the file drop works unchanged.
+
+```yaml
+services:
+  slyde:
+    image: slyde:latest
+    env_file: .env                 # INTERLUDE_DIR=/interlude
+    volumes:
+      - slyde-data:/data
+      - interlude:/interlude       # <- shared
+
+  my-board:                        # your renderer, whatever it is
+    image: my-board:latest
+    restart: unless-stopped
+    volumes:
+      - interlude:/out             # <- same volume, its own mount point
+    environment:
+      # ask Slyde once for the exact filename; it is the frame's id, not its IP (see below)
+      TARGET: /out/b3f1c2de-4a55-4f0e-9a11-7c2d5e8f0a12.img
+
+volumes:
+  slyde-data:
+  interlude:
+```
+
+A bind mount (`- /data/interlude:/interlude`) works just as well and is easier to inspect from the
+host. **If the producer runs on a different host from Slyde**, don't try to share a filesystem —
+use the HTTP `PUT` below, or have Slyde pull with a `url` source.
+
 ## Two other ways in
 
 **Push over HTTP** — no shared filesystem needed (handy from another host or container). Slyde
@@ -140,9 +172,17 @@ explicitly. Two consequences you can see from the outside:
   yet — Slyde restores the frame's own slide time and shuffle, leaves a real photo on screen, and
   lets the frame run itself. It keeps watching, and re-engages when the image comes back.
 
-If Slyde is killed mid-interlude, the frame is left parked. The next startup detects that (the
-restore data is stored durably) and puts the frame back before doing anything else. A clean
-shutdown restores immediately.
+**If Slyde dies mid-interlude, the frame recovers by itself.** The frame's timer isn't switched off
+— it's set to a value comfortably longer than Slyde's own cadence, and every command Slyde sends
+restarts that countdown. So while Slyde is alive the timer never fires; if Slyde stops, nothing
+re-arms it, and a couple of minutes later the frame simply resumes its own slideshow. Nothing to
+restart, nothing stuck on the wall. (Both facts this relies on — that a display command restarts
+the countdown, and that the frame accepts any number of seconds rather than just the app's 15
+choices — were measured on a real fw 6.02 frame; see `protocol.md`.)
+
+On top of that, Slyde writes the frame's original settings down before touching them, so a restart
+restores them exactly, and a clean shutdown restores immediately. Set `INTERLUDE_PARK_SECONDS=2419200`
+if you'd rather the frame hold the last image until Slyde comes back.
 
 **The image is uploaded while a photo is on screen**, into one of two alternating buffer files
 (`slyde-interlude-a.jpg` / `-b.jpg`), so an upload never overwrites the file the frame is
@@ -158,6 +198,18 @@ nothing running to explain it. So whenever interludes aren't active, the frame i
 had never had one.
 
 ---
+
+## On the Pi soft-frame
+
+The soft-frame is the emulator running fullscreen on a Pi, driven by the same `memento-lan`
+backend — so interludes work there identically, and it's the easy place to try this before pointing
+it at the real frame. Two practical differences:
+
+- **Its id is usually its IP**, not a GUID, because the emulator reports a placeholder GUID. So the
+  drop file is typically `192.168.x.y.img`. As always, don't construct it — read `image_path` from
+  `GET /api/frames/{id}/interlude`.
+- **The canvas is whatever you configured the soft-frame to render at**, not 3240x2160, so size
+  your source image to that panel.
 
 ## Why not e-paper
 

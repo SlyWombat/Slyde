@@ -159,6 +159,13 @@ filled-in instance of the generic config below.
      panel is off, no photos are delivered — the conductor restores the frame's slide time and
      shuffle, leaves a real photo on screen, and lets the frame run itself. Durable `engaged` +
      `saved_*` state in the store lets a restart restore a frame a crash left parked.
+  3. **The park is finite, so the frame's own timer is the dead-man switch.** Measured live on
+     fw 6.02: `DisplayImage` *re-arms* the frame's countdown, and the frame honours arbitrary
+     second values (the app's 15-rung picker is only its UI) — see `protocol.md`. So the timer is
+     parked a little beyond the conductor's own cadence rather than at "never": Slyde's transitions
+     keep re-arming it, but if the process dies the frame resumes its own slideshow unaided. The
+     durable restore state in rule 2 remains the belt to this braces (and `INTERLUDE_PARK_SECONDS`
+     can pin the old "never" behaviour).
 
   The image comes from an `InterludeSource`; the shipped `file` source means **any separate process
   can drive the display by writing a file**, and `rm` of that file is the off switch. Reserved

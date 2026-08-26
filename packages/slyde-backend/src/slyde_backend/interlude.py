@@ -69,6 +69,9 @@ STATE_ENGAGED = "engaged"  # Slyde is conducting; interlude appears between phot
 STATE_STANDBY = "standby"  # enabled, but no usable image (or panel off) -- frame runs itself
 STATE_UNSUPPORTED = "unsupported"  # this frame's backend can't do interludes
 
+# The protocol's "never" -- 28 days, the top rung of the official app's slide-time picker.
+NEVER_SECONDS = 2419200
+
 
 def supports_interludes(backend_name: str) -> bool:
     """Whether a backend's frames can show interludes, from its declared capabilities (ADR-009)."""
@@ -234,6 +237,25 @@ class InterludeConductor:
         return replace(profile, fit=row.fit or "contain")
 
     # -- engage / stand down ---------------------------------------------------------------------
+    def _park_for(self, row: InterludeRow, saved_time: int) -> int:
+        """What to set the frame's own slide timer to while we conduct.
+
+        Measured live against fw 6.02 (#70 Q1/Q2): ``DisplayImage`` **re-arms** the frame's
+        countdown, and the frame honours arbitrary second values -- the app's 15-rung picker is
+        just its UI. Those two facts together buy a dead-man switch for free, so the default is a
+        *finite* park a bit longer than our own cadence: our transitions keep re-arming it, so it
+        never fires while we're alive, but if this process dies the frame notices nobody is driving
+        and resumes its own slideshow instead of holding one picture until someone restarts Slyde.
+
+        ``INTERLUDE_PARK_SECONDS`` overrides it -- set it to ``NEVER_SECONDS`` for the old
+        behaviour (the frame holds the last image until the startup watchdog restores it).
+        """
+        if self._settings.interlude_park_seconds > 0:
+            return self._settings.interlude_park_seconds
+        # Twice the longest gap between our own commands, plus headroom for a slow upload/retry.
+        longest = max(saved_time, row.dwell_seconds or saved_time)
+        return max(2 * longest + 30, 90)
+
     async def _engage(self, row: InterludeRow) -> InterludeRow:
         """Take over the slideshow: park the frame's timer and turn its own shuffle off.
 
@@ -247,17 +269,20 @@ class InterludeConductor:
         config = await self._frames.get_config(self.frame_id)
         saved_time = int(float(config.get("DisplayTime", 60) or 60))
         saved_shuffle = bool(config.get("ShuffleOn", False))
-        if saved_time >= self._settings.interlude_park_seconds:
-            # Already parked -- we're recovering from a crash that never got to restore. Trusting
-            # this as "the original" would park the frame permanently; fall back to a sane slide
-            # time so the user always gets a working slideshow back.
+        if saved_time >= NEVER_SECONDS:
+            # The frame is parked at "never" with no row to explain it: a crashed conductor whose
+            # state we've lost. Trusting this as "the original" would park the frame permanently,
+            # so fall back to a sane slide time -- the user always gets a working slideshow back.
+            # (Only checked against "never": a finite park needs no rescue, since the frame's own
+            # timer recovers it.)
             _log.warning(
-                "interlude: frame %s was already parked (DisplayTime=%s); assuming a crashed "
-                "conductor and restoring to 60s on stand-down",
+                "interlude: frame %s was already parked at never (DisplayTime=%s); assuming a "
+                "crashed conductor and restoring to 60s on stand-down",
                 self.frame_id,
                 saved_time,
             )
             saved_time = 60
+        park = self._park_for(row, saved_time)
         row = self._save(
             row,
             engaged=True,
@@ -266,16 +291,15 @@ class InterludeConductor:
             state=STATE_ENGAGED,
             detail="",
         )
-        await self._frames.set_picture_duration(
-            self.frame_id, self._settings.interlude_park_seconds
-        )
+        await self._frames.set_picture_duration(self.frame_id, park)
         if saved_shuffle:
             await self._frames.set_shuffle(self.frame_id, False)
         _log.info(
-            "interlude: engaged on frame %s (slide time %ss, shuffle %s saved)",
+            "interlude: engaged on frame %s (slide time %ss, shuffle %s saved; parked at %ss)",
             self.frame_id,
             saved_time,
             saved_shuffle,
+            park,
         )
         return row
 

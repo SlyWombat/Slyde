@@ -56,14 +56,15 @@ class Settings(BaseSettings):
         "returns to normal rotation within about this long.",
     )
     interlude_park_seconds: int = Field(
-        2419200,
-        ge=1,
+        0,
+        ge=0,
         description="What the frame's own slide timer is parked at while Slyde conducts the "
-        "rotation. 2419200s (28 days) is the top rung of the official app's picker -- the "
-        "protocol's 'never' -- so the frame never self-advances and Slyde drives every transition. "
-        "Set this to a small multiple of the slide time instead to make the frame's own timer a "
-        "dead-man switch (only safe once it's confirmed the frame re-arms that timer on "
-        "DisplayImage; see #70 open question 1).",
+        "rotation. 0 (default) computes a finite value from the slide/dwell time, which makes the "
+        "frame's own timer a DEAD-MAN SWITCH: Slyde's transitions keep re-arming it so it never "
+        "fires, but if Slyde dies the frame resumes its own slideshow instead of holding one "
+        "picture. (Verified on fw 6.02: DisplayImage re-arms the countdown, and the frame honours "
+        "arbitrary second values, not just the app picker's 15 rungs.) Set 2419200 for the old "
+        "behaviour -- the frame holds the last image until Slyde restarts and restores it.",
     )
     interlude_flap_threshold: int = Field(
         2,

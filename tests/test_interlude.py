@@ -28,6 +28,7 @@ from slyde_backend.config import Settings
 from slyde_backend.frame import Frame
 from slyde_backend.frames import FrameService
 from slyde_backend.interlude import (
+    NEVER_SECONDS,
     InterludeConductor,
     InterludeService,
     InterludeUnavailable,
@@ -164,7 +165,7 @@ def test_removing_the_image_hands_the_slideshow_back_to_the_frame(
     asyncio.run(run_cycles(conductor, 2))
 
     parked = frame.state.config["DisplayTime"]
-    assert parked == settings.interlude_park_seconds  # engaged: the frame's own timer is parked
+    assert parked > 1  # engaged: the frame's own timer is parked well beyond our cadence
     assert conductor._store.get_interlude(HOST).engaged is True
 
     path.unlink()  # <- the separate process withdraws its image
@@ -344,7 +345,7 @@ def test_a_frame_left_parked_by_a_crash_is_restored_on_startup(
     """The crash safety net: a parked frame with nobody conducting sits on one image forever."""
     from dataclasses import replace
 
-    frame.state.update_config({"DisplayTime": settings.interlude_park_seconds})
+    frame.state.update_config({"DisplayTime": NEVER_SECONDS})
     store.set_interlude(
         replace(
             store.get_interlude(HOST),
@@ -374,11 +375,67 @@ def test_a_conductor_that_finds_the_frame_already_parked_restores_a_sane_slide_t
 ) -> None:
     """If a crash left the frame parked but the row lost, the parked value must not become "the
     user's setting" — that would park the frame forever on the next restore."""
-    frame.state.update_config({"DisplayTime": settings.interlude_park_seconds})
+    frame.state.update_config({"DisplayTime": NEVER_SECONDS})
     write_interlude(settings, image_bytes((2, 2, 2)))
     enable(conductor._store)
     asyncio.run(run_cycles(conductor, 1))
     assert conductor._store.get_interlude(HOST).saved_display_time == 60
+
+
+def test_the_park_is_finite_so_the_frames_own_timer_is_a_dead_man_switch(
+    conductor: InterludeConductor, settings: Settings, frame: EmulatedFrame
+) -> None:
+    """Measured on fw 6.02: DisplayImage re-arms the frame's countdown and arbitrary second values
+    are honoured. So we park at a finite value longer than our own cadence — our transitions keep
+    re-arming it, but if Slyde dies the frame resumes its own slideshow instead of holding one
+    picture until someone restarts the manager."""
+    write_interlude(settings, image_bytes((8, 8, 8)))
+    enable(conductor._store, dwell_seconds=30)
+    asyncio.run(run_cycles(conductor, 1))
+
+    parked = frame.state.config["DisplayTime"]
+    assert parked < NEVER_SECONDS, "a finite park is what makes the frame self-recover"
+    assert parked > 30, "must exceed the longest gap between our own commands, or it fires on us"
+
+
+def test_an_explicit_park_setting_overrides_the_computed_one(
+    frame: EmulatedFrame, store: Store, tmp_path: Path
+) -> None:
+    """Operators can still pin it to 'never' -- the frame then holds the last image until Slyde
+    restarts and the startup watchdog restores it."""
+    from dataclasses import replace as _replace
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path}/s.db",
+        cache_dir=str(tmp_path / "c"),
+        interlude_dir=str(tmp_path / "i"),
+        frame_host=HOST,
+        frame_discovery=False,
+        frame_settle_delay=0,
+        interlude_poll_seconds=0.05,
+        interlude_flap_threshold=1,
+        interlude_park_seconds=NEVER_SECONDS,
+        frame_canvas="160x120",
+    )
+    frame.state.add_photo(PHOTOS[0], image_bytes((1, 1, 1)))
+    store.add_library_item(HOST, PHOTOS[0], PHOTOS[0], source="frame")
+    store.mark_delivered(
+        store.enqueue_delivery(
+            HOST, PHOTOS[0], PHOTOS[0], next_attempt_at=datetime.now(UTC).isoformat()
+        )
+    )
+    frame.state.update_config({"DisplayTime": 1, "DisplayOn": True, "ShuffleOn": False})
+    store.set_interlude(_replace(store.get_interlude(HOST), enabled=True))
+    write_interlude(settings, image_bytes((2, 2, 2)))
+
+    conductor = InterludeConductor(
+        HOST,
+        store=store,
+        frames=FrameService(settings, ports=PORTS, store=store),
+        settings=settings,
+    )
+    asyncio.run(run_cycles(conductor, 1))
+    assert frame.state.config["DisplayTime"] == NEVER_SECONDS
 
 
 # -- isolation from the photo library ------------------------------------------------------------

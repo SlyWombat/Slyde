@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from memento_core import AlbumData
+from memento_core.albums import parse_album_data
 
 from .config import Settings
 from .frame import Frame
@@ -45,6 +46,7 @@ from .immich import ImmichClient
 from .immich_write import ImmichWriter
 from .naming import is_reserved_dest
 from .schemas import SyncItem, SyncResult
+from .store import Store
 from .thumbmatch import best_match
 
 _log = logging.getLogger(__name__)
@@ -104,6 +106,39 @@ def taken_at(data: bytes, filename: str) -> datetime:
     return _exif_taken(data) or _name_taken(filename) or datetime.now(UTC)
 
 
+async def read_manifest(
+    frame: Frame, frame_service: FrameService, store: Store | None
+) -> tuple[AlbumData, str]:
+    """The frame's album manifest, falling back to the last one we read. Returns ``(data, source)``.
+
+    Reading it is a file-channel transfer, and on a Memento frame every transfer has to complete
+    inside its ~21s service window; the manifest is the largest one we make, so it fails often —
+    six attempts in a row during one session, while control reads answered in 8 ms. Album
+    membership changes about as often as someone rearranges the frame from the vendor app, so a
+    manifest from an hour ago is a far better basis for a bulk job than not running it at all.
+
+    A live read always wins and refreshes the cache; the fallback is reported, never silent, so a
+    caller can say which one it used.
+    """
+    try:
+        data = await frame_service.get_album_data(frame.id)
+    except Exception as exc:
+        cached = store.get_frame_manifest(frame.id) if store is not None else None
+        if cached is None:
+            raise
+        album_json, fetched_at = cached
+        _log.warning(
+            "manifest: live read of %s failed (%s); using the copy cached at %s",
+            frame.id,
+            exc,
+            fetched_at,
+        )
+        return parse_album_data(album_json), f"cached {fetched_at}"
+    if store is not None:
+        store.set_frame_manifest(frame.id, data.to_json(), datetime.now(UTC).isoformat())
+    return data, "live"
+
+
 def plan_albums(album_data: AlbumData, prefix: str) -> tuple[list[str], dict[str, list[str]]]:
     """Work out what to import and where it goes.
 
@@ -138,6 +173,7 @@ async def import_frame_albums_to_immich(
     settings: Settings,
     prefix: str,
     writer: ImmichWriter,
+    store: Store | None = None,
     limit: int = 0,
     result: SyncResult | None = None,
 ) -> SyncResult:
@@ -151,17 +187,18 @@ async def import_frame_albums_to_immich(
     Immich already had, and ``failed`` those that couldn't be read off the frame.
     """
     result = result or SyncResult()
-    album_data = await frame_service.get_album_data(frame.id)
+    album_data, source = await read_manifest(frame, frame_service, store)
     names, folders = plan_albums(album_data, prefix)
     if limit > 0:
         names = names[:limit]  # folders keep their full membership; absent assets are skipped below
     result.total = len(names)
     _log.info(
-        "immich import: %d image(s) from %s across %d folder(s) -> %r",
+        "immich import: %d image(s) from %s across %d folder(s) -> %r (%s manifest)",
         len(names),
         frame.id,
         len(folders),
         prefix,
+        source,
     )
 
     device_id = f"slyde-frame-{frame.id}"
@@ -218,6 +255,7 @@ async def import_frame_albums_to_immich(
 class LinkReport:
     """What a link pass found, per filename on the frame — the numbers a dry run reports."""
 
+    source: str = "live"  # "live" or "cached <when>" — which manifest these numbers came from
     matched: dict[str, str] = field(default_factory=dict)  # filename -> Immich asset id
     missing: list[str] = field(default_factory=list)  # not in Immich at all
     ambiguous: dict[str, int] = field(default_factory=dict)  # filename -> how many assets matched
@@ -234,6 +272,7 @@ async def link_frame_albums_to_immich(
     settings: Settings,
     prefix: str,
     writer: ImmichWriter,
+    store: Store | None = None,
     dry_run: bool = False,
     resolve: bool = False,
     immich_factory: Callable[[], ImmichClient] | None = None,
@@ -254,7 +293,7 @@ async def link_frame_albums_to_immich(
     """
     result = result or SyncResult()
     report = LinkReport()
-    album_data = await frame_service.get_album_data(frame.id)
+    album_data, report.source = await read_manifest(frame, frame_service, store)
     names, folders = plan_albums(album_data, prefix)
     result.total = len(names)
 
@@ -288,8 +327,9 @@ async def link_frame_albums_to_immich(
                 )
             )
     _log.info(
-        "immich link: %d on the frame -> %d matched, %d missing, %d ambiguous%s",
+        "immich link: %d on the frame (%s manifest) -> %d matched, %d missing, %d ambiguous%s",
         len(names),
+        report.source,
         len(report.matched),
         len(report.missing),
         len(report.ambiguous),

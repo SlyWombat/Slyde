@@ -613,6 +613,7 @@ async def start_immich_import(
                 settings=settings,
                 prefix=label,
                 writer=writer,
+                store=store,
                 limit=limit,
                 result=result,
             )
@@ -660,6 +661,7 @@ async def start_immich_album_link(
                 settings=settings,
                 prefix=label,
                 writer=writer,
+                store=store,
                 dry_run=dry_run,
                 resolve=resolve,
                 immich_factory=request.app.state.immich_factory,

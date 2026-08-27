@@ -97,6 +97,11 @@ CREATE TABLE IF NOT EXISTS frame_interlude (
     detail             TEXT NOT NULL DEFAULT '',
     updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS frame_manifest (
+    frame_id   TEXT PRIMARY KEY,
+    album_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS frame_alias (
     -- Maps every id the app/frame presents for one device (numeric frame_id/setting_id, device_id,
     -- serial, …) to the single canonical frame.id, so the same device resolves to one Frame.
@@ -471,6 +476,29 @@ class Store:
                 "content_key=excluded.content_key, last_update_ms=excluded.last_update_ms, "
                 "acked_key=excluded.acked_key",
                 (frame_id, content_key, last_update_ms, acked_key),
+            )
+
+    def get_frame_manifest(self, frame_id: str) -> tuple[str, str] | None:
+        """The frame's last successfully-read album manifest as ``(album_json, fetched_at)``.
+
+        Reading the manifest means a file-channel transfer, and on a Memento frame every transfer
+        has to fit inside its ~21s service window — so a large manifest read fails often enough
+        that a bulk job shouldn't depend on getting a fresh one (#72).
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT album_json, fetched_at FROM frame_manifest WHERE frame_id=?",
+                (frame_id,),
+            ).fetchone()
+        return (row["album_json"], row["fetched_at"]) if row else None
+
+    def set_frame_manifest(self, frame_id: str, album_json: str, fetched_at: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO frame_manifest (frame_id, album_json, fetched_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(frame_id) DO UPDATE SET album_json=excluded.album_json, "
+                "fetched_at=excluded.fetched_at",
+                (frame_id, album_json, fetched_at),
             )
 
     def get_frame_setting(self, frame_id: str) -> dict[str, str]:

@@ -9,6 +9,7 @@ import json
 import random
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -21,9 +22,11 @@ from slyde_backend.immich_import import (
     import_frame_albums_to_immich,
     link_frame_albums_to_immich,
     plan_albums,
+    read_manifest,
     taken_at,
 )
 from slyde_backend.immich_write import ImmichWriter
+from slyde_backend.store import Store
 
 
 class _FakeImmich:
@@ -495,3 +498,68 @@ def test_resolve_settles_ambiguous_names_by_pixels_and_leaves_the_rest() -> None
     assert settled == 1
     assert report.matched == {"dscn0031.jpg": "2016"}  # the 2016 photo, by content
     assert "orange.jpg" not in report.matched  # the Cezanne is not your photo
+
+
+def _store(tmp_path: Path) -> Store:
+    return Store(str(tmp_path / "manifest.db"))
+
+
+def test_manifest_read_caches_a_live_read_and_falls_back_when_the_frame_wont_serve_it(
+    tmp_path: Path,
+) -> None:
+    """The manifest is the largest transfer we make, and on this frame every transfer must fit in a
+    ~21s service window — so a bulk job can't depend on getting a fresh one (#72)."""
+    store = _store(tmp_path)
+    frames = _FakeFrameService(_album_data())
+
+    data, source = asyncio.run(read_manifest(_frame(), frames, store))  # type: ignore[arg-type]
+    assert source == "live" and len(data.albums) == 4
+    assert store.get_frame_manifest(_frame().id) is not None  # cached for next time
+
+    class _Refusing:
+        async def get_album_data(self, frame_id: str) -> AlbumData:
+            raise TimeoutError("timed out")
+
+    cached, source = asyncio.run(read_manifest(_frame(), _Refusing(), store))  # type: ignore[arg-type]
+    assert source.startswith("cached ")  # reported, never silent
+    assert [a.name for a in cached.albums] == [a.name for a in data.albums]
+
+
+def test_manifest_read_still_fails_when_there_is_nothing_cached(tmp_path: Path) -> None:
+    """A first run against an unreachable frame has nothing to fall back on, and must say so
+    rather than silently mirroring an empty frame."""
+
+    class _Refusing:
+        async def get_album_data(self, frame_id: str) -> AlbumData:
+            raise TimeoutError("timed out")
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(read_manifest(_frame(), _Refusing(), _store(tmp_path)))  # type: ignore[arg-type]
+
+
+def test_link_runs_off_the_cached_manifest_when_the_frame_wont_serve_one(tmp_path: Path) -> None:
+    """The payoff: the link job completes from cache instead of dying on the manifest read."""
+    store = _store(tmp_path)
+    asyncio.run(read_manifest(_frame(), _FakeFrameService(_album_data()), store))  # type: ignore[arg-type]
+
+    class _Refusing(_FakeFrameService):
+        async def get_album_data(self, frame_id: str) -> AlbumData:
+            raise TimeoutError("timed out")
+
+    immich = _SearchingImmich({"a.jpg": ["orig-a"], "b.jpg": ["orig-b"], "c.jpg": ["orig-c"]})
+
+    async def run():
+        async with immich.writer() as writer:
+            return await link_frame_albums_to_immich(
+                frame=_frame(),
+                frame_service=_Refusing(_album_data()),  # type: ignore[arg-type]
+                settings=Settings(frame_import_delay=0),
+                prefix="Memento",
+                writer=writer,
+                store=store,
+            )
+
+    result, report = asyncio.run(run())
+    assert report.source.startswith("cached ")
+    assert result.total == 3 and len(report.matched) == 3
+    assert sorted(immich.albums) == ["Memento - All", "Memento - Louvre", "Memento - Mexico"]

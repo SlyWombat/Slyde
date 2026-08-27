@@ -97,6 +97,7 @@ class _Keeper:
         self.status = "connecting"
         self.last_error = ""
         self.sessions = 0  # how many times we've (re)connected — asserted in tests, useful in logs
+        self.failures = 0  # consecutive failed connects, reset when the frame comes back
         self._thread = threading.Thread(target=self._run, name=f"frame-session-{host}", daemon=True)
         self._thread.start()
 
@@ -174,8 +175,7 @@ class _Keeper:
         try:
             conn = session.__enter__()
         except OSError as exc:  # refused / no route / gone — the frame really is unreachable
-            self._live.clear()
-            self.status, self.last_error = "offline", str(exc)
+            self._went_offline(exc)
             return None, None
         self.status = "connecting"
         try:
@@ -184,14 +184,21 @@ class _Keeper:
             # what proves the session is usable — and everything after it is sub-second (#71).
             conn.get_current_image_name()
         except (TimeoutError, OSError) as exc:
-            self._live.clear()
-            self.status, self.last_error = "offline", str(exc)
+            self._went_offline(exc)
             with contextlib.suppress(Exception):
                 session.__exit__(type(exc), exc, exc.__traceback__)
             return None, None
         self.sessions += 1
         self.status, self.last_error = "live", ""
         self._live.set()
+        if self.failures:
+            _log.info(
+                "frame %s: back after %d failed attempt(s) (last: %s)",
+                self._host,
+                self.failures,
+                self.last_error,
+            )
+        self.failures = 0
         _log.info(
             "frame %s: warm session #%d live (first reply after %.1fs)",
             self._host,
@@ -199,6 +206,20 @@ class _Keeper:
             time.monotonic() - started,
         )
         return conn, session
+
+    def _went_offline(self, exc: BaseException) -> None:
+        """Record — and, on the way down, announce — that the frame stopped taking connections.
+
+        Logged on the transition only: the keeper retries every few seconds for as long as a frame
+        is away, and a line per attempt would bury the night's real events. Silence here would be
+        worse, though — without it an unreachable frame looks identical to an idle one in the log.
+        """
+        was = self.status
+        self._live.clear()
+        self.status, self.last_error = "offline", str(exc)
+        self.failures += 1
+        if was != "offline":
+            _log.warning("frame %s: went offline (%s); retrying until it returns", self._host, exc)
 
     def _take(self) -> _Job | None:
         try:

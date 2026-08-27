@@ -213,6 +213,29 @@ def test_unreachable_frame_reads_as_offline_not_asleep() -> None:
     assert "asleep" not in message
 
 
+def test_going_offline_is_logged_once_not_once_per_retry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unreachable frame must be visible in the log, but the keeper retries every few seconds —
+    a line per attempt would bury a night's real events, so it's logged on the transition only."""
+    backend = _TickingBackend(connect_error=ConnectionRefusedError("connection refused"))
+    pool = _pool(backend, frame_warm_retry_delay=0.05)
+
+    async def scenario() -> None:
+        with caplog.at_level("WARNING", logger="slyde_backend.warm"):
+            pool.warm("frame-g")
+            deadline = time.monotonic() + 5.0
+            while pool.status("frame-g") != "offline" and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            await asyncio.sleep(0.4)  # several more retries go by
+        await pool.aclose()
+
+    asyncio.run(scenario())
+    went_offline = [r for r in caplog.records if "went offline" in r.message]
+    assert len(went_offline) == 1, f"expected one transition line, got {len(went_offline)}"
+    assert "refused" in went_offline[0].getMessage()
+
+
 def test_idle_session_is_released_so_another_client_can_connect() -> None:
     """The frame starves a second client, so we must not hold its only slot forever (#71)."""
     backend = _TickingBackend()

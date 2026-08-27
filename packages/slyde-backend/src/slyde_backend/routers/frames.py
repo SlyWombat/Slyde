@@ -29,6 +29,8 @@ from ..frame import Frame
 from ..frame_import import import_frame_photos
 from ..frames import FrameUnavailable
 from ..immich import ImmichError
+from ..immich_import import import_frame_albums_to_immich
+from ..immich_write import ImmichWriter
 from ..interlude import (
     InterludeUnavailable,
     managed_image_path,
@@ -569,6 +571,53 @@ async def start_frame_import(
         )
 
     job = jobs.start(frame_id, f"Import from {f.name or frame_id}", runner)  # type: ignore[arg-type]
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/import/immich/jobs", response_model=SyncJobInfo, status_code=202)
+async def start_immich_import(
+    frame_id: str,
+    frame: FrameDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    jobs: JobsDep,
+    prefix: str = "",
+    limit: int = 0,
+) -> SyncJobInfo:
+    """Import the photos already ON a connected frame INTO Immich, mirroring its folders (#72).
+
+    Creates ``<prefix> - All`` plus one album per user folder on the frame. ``prefix`` defaults to
+    the frame's name, so nothing about a particular deployment is baked in. Idempotent: Immich
+    dedupes the uploads and albums are matched by name, so a re-run fills in only what's missing.
+
+    ``limit`` (0 = all) caps how many photos are pulled, for a smoke run before a full import.
+
+    A background job; poll GET /{frame_id}/sync/jobs/{job_id} for progress.
+    """
+    f = store.get_frame(frame_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    if f.interaction != "connected":
+        raise HTTPException(status_code=422, detail="only connected frames hold photos to import")
+    if not settings.immich_base_url or not settings.immich_api_key:
+        raise HTTPException(status_code=422, detail="Immich is not configured")
+    label = (prefix or f.name or frame_id).strip()
+
+    async def runner(result: SyncResult) -> object:
+        # The writer is built here and closed with the job: nothing on the automatic path holds a
+        # handle that can write to the user's Immich library (see immich_write.py).
+        async with ImmichWriter(settings.immich_base_url, settings.immich_api_key) as writer:
+            return await import_frame_albums_to_immich(
+                frame=f,
+                frame_service=frame,
+                settings=settings,
+                prefix=label,
+                writer=writer,
+                limit=limit,
+                result=result,
+            )
+
+    job = jobs.start(frame_id, f"Import {label} into Immich", runner)  # type: ignore[arg-type]
     return _job_info(job)
 
 

@@ -32,6 +32,7 @@ import asyncio
 import io
 import logging
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from memento_core import AlbumData
@@ -208,3 +209,96 @@ async def import_frame_albums_to_immich(
             result.failed += 1
             _log.warning("immich import: album %r failed: %s", album_name, exc)
     return result
+
+
+@dataclass
+class LinkReport:
+    """What a link pass found, per filename on the frame — the numbers a dry run reports."""
+
+    matched: dict[str, str] = field(default_factory=dict)  # filename -> Immich asset id
+    missing: list[str] = field(default_factory=list)  # not in Immich at all
+    ambiguous: dict[str, int] = field(default_factory=dict)  # filename -> how many assets matched
+
+    @property
+    def considered(self) -> int:
+        return len(self.matched) + len(self.missing) + len(self.ambiguous)
+
+
+async def link_frame_albums_to_immich(
+    *,
+    frame: Frame,
+    frame_service: FrameService,
+    prefix: str,
+    writer: ImmichWriter,
+    dry_run: bool = False,
+    result: SyncResult | None = None,
+) -> tuple[SyncResult, LinkReport]:
+    """Rebuild a frame's folder structure as Immich albums over the photos ALREADY in Immich (#72).
+
+    Preferred over importing the frame's own copies: firmware 6.02 will not hand back a full-size
+    image — ``ReadFile`` answers ``ReadFileStarted`` with ``file_size=0`` for a filename the
+    thumbnail path fetches happily — and the only bytes it does give up are 256x170 thumbnails.
+    The frame's *manifest* reads perfectly, though, so the structure is recoverable even when the
+    pixels aren't: each filename is looked up in Immich and the matching original is filed into
+    ``<prefix> - <folder>``.
+
+    A filename matching several Immich assets is left alone and reported as ambiguous — putting the
+    wrong photo in someone's album is worse than leaving a gap. ``dry_run`` reports the match rate
+    and writes nothing, which is how you find out whether a link pass is worth running at all.
+    """
+    result = result or SyncResult()
+    report = LinkReport()
+    album_data = await frame_service.get_album_data(frame.id)
+    names, folders = plan_albums(album_data, prefix)
+    result.total = len(names)
+
+    for name in names:
+        try:
+            found = await writer.find_assets_by_filename(name)
+        except Exception as exc:
+            result.failed += 1
+            _log.warning("immich link: lookup failed for %s: %s", name, exc)
+            continue
+        if len(found) == 1:
+            report.matched[name] = found[0]
+            result.prepared += 1
+        elif not found:
+            report.missing.append(name)
+            result.skipped += 1
+        else:
+            report.ambiguous[name] = len(found)
+            result.skipped += 1
+    _log.info(
+        "immich link: %d on the frame -> %d matched, %d missing, %d ambiguous%s",
+        len(names),
+        len(report.matched),
+        len(report.missing),
+        len(report.ambiguous),
+        " (dry run)" if dry_run else "",
+    )
+    if dry_run:
+        return result, report
+
+    wanted = {f"{prefix} - All": names, **folders}
+    for album_name, members in wanted.items():
+        ids = [report.matched[m] for m in members if m in report.matched]
+        if not ids:
+            continue
+        try:
+            album_id, created = await writer.ensure_album(
+                album_name,
+                description=f"The {frame.name or frame.id} frame's '{album_name}' folder.",
+            )
+            added = await writer.add_assets(album_id, ids)
+            result.uploaded += added
+            _log.info(
+                "immich link: album %r (%s) +%d of %d",
+                album_name,
+                "created" if created else "existing",
+                added,
+                len(ids),
+            )
+        except Exception as exc:
+            result.failed += 1
+            _log.warning("immich link: album %r failed: %s", album_name, exc)
+    return result, report

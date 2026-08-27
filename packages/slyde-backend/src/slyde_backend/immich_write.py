@@ -102,6 +102,27 @@ class ImmichWriter:
             raise ImmichError(f"upload {filename!r} returned no asset id: {payload}")
         return UploadedAsset(asset_id, str(payload.get("status", "")).lower() == "duplicate")
 
+    async def find_assets_by_filename(self, filename: str) -> list[str]:
+        """Asset ids whose original filename is ``filename``. A read — but a POST, which is why it
+        lives here rather than on the GET-only ``ImmichClient``.
+
+        Used to link a frame's albums to photos already in the library, instead of importing the
+        frame's panel-sized re-encodes of them (#72).
+        """
+        resp = self._ok(
+            await self._client.post("/api/search/metadata", json={"originalFileName": filename}),
+            f"search for {filename!r}",
+        )
+        items = (resp.json().get("assets") or {}).get("items") or []
+        wanted = filename.casefold()
+        # The search is a contains/fuzzy match on some versions, so keep only exact filenames —
+        # linking the wrong photo into someone's album is worse than leaving a gap.
+        return [
+            str(a["id"])
+            for a in items
+            if str(a.get("originalFileName", "")).casefold() == wanted and a.get("id")
+        ]
+
     async def find_album(self, name: str) -> str | None:
         resp = self._ok(await self._client.get("/api/albums"), "list albums")
         for album in resp.json():

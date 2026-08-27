@@ -29,7 +29,7 @@ from ..frame import Frame
 from ..frame_import import import_frame_photos
 from ..frames import FrameUnavailable
 from ..immich import ImmichError
-from ..immich_import import import_frame_albums_to_immich
+from ..immich_import import import_frame_albums_to_immich, link_frame_albums_to_immich
 from ..immich_write import ImmichWriter
 from ..interlude import (
     InterludeUnavailable,
@@ -618,6 +618,58 @@ async def start_immich_import(
             )
 
     job = jobs.start(frame_id, f"Import {label} into Immich", runner)  # type: ignore[arg-type]
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/albums/immich/jobs", response_model=SyncJobInfo, status_code=202)
+async def start_immich_album_link(
+    frame_id: str,
+    frame: FrameDep,
+    store: StoreDep,
+    settings: SettingsDep,
+    jobs: JobsDep,
+    prefix: str = "",
+    dry_run: bool = False,
+) -> SyncJobInfo:
+    """Rebuild the frame's folders as Immich albums over photos ALREADY in Immich (#72).
+
+    The frame's manifest reads fine but firmware 6.02 won't hand back full-size images, so this
+    recovers the *structure* and points it at the originals already in the library, matched by
+    filename. ``dry_run=true`` reports the match rate and writes nothing.
+
+    A background job; poll GET /{frame_id}/sync/jobs/{job_id} for progress. ``prepared`` counts
+    filenames matched in Immich, ``skipped`` those missing or ambiguous, ``uploaded`` the album
+    memberships added.
+    """
+    f = store.get_frame(frame_id)
+    if f is None:
+        raise HTTPException(status_code=404, detail="frame not found")
+    if f.interaction != "connected":
+        raise HTTPException(status_code=422, detail="only connected frames hold albums to mirror")
+    if not settings.immich_base_url or not settings.immich_api_key:
+        raise HTTPException(status_code=422, detail="Immich is not configured")
+    label = (prefix or f.name or frame_id).strip()
+
+    async def runner(result: SyncResult) -> object:
+        async with ImmichWriter(settings.immich_base_url, settings.immich_api_key) as writer:
+            _, report = await link_frame_albums_to_immich(
+                frame=f,
+                frame_service=frame,
+                prefix=label,
+                writer=writer,
+                dry_run=dry_run,
+                result=result,
+            )
+            return {
+                "matched": len(report.matched),
+                "missing": len(report.missing),
+                "ambiguous": len(report.ambiguous),
+                "missing_examples": report.missing[:20],
+                "ambiguous_examples": dict(list(report.ambiguous.items())[:20]),
+            }
+
+    verb = "Preview" if dry_run else "Link"
+    job = jobs.start(frame_id, f"{verb} {label} albums in Immich", runner)  # type: ignore[arg-type]
     return _job_info(job)
 
 

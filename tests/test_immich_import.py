@@ -18,6 +18,7 @@ from slyde_backend.config import Settings
 from slyde_backend.frame import Frame
 from slyde_backend.immich_import import (
     import_frame_albums_to_immich,
+    link_frame_albums_to_immich,
     plan_albums,
     taken_at,
 )
@@ -275,3 +276,92 @@ def test_upload_failure_is_reported_not_swallowed() -> None:
     with pytest.raises(ImmichError) as caught:
         asyncio.run(run())
     assert "413" in str(caught.value)
+
+
+class _SearchingImmich(_FakeImmich):
+    """Adds filename search, so the link pass can be exercised against a stocked library."""
+
+    def __init__(self, library: dict[str, list[str]]) -> None:
+        super().__init__()
+        self.library = library  # filename -> asset ids Immich would return
+        self.searches: list[str] = []
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/search/metadata":
+            name = json.loads(request.content)["originalFileName"]
+            self.searches.append(name)
+            items = [{"id": i, "originalFileName": name} for i in self.library.get(name, [])]
+            return httpx.Response(200, json={"assets": {"items": items}})
+        return super().handler(request)
+
+
+def _link(immich: _SearchingImmich, *, dry_run: bool = False):
+    frames = _FakeFrameService(_album_data())
+
+    async def run():
+        async with immich.writer() as writer:
+            return await link_frame_albums_to_immich(
+                frame=_frame(),
+                frame_service=frames,  # type: ignore[arg-type]
+                prefix="Memento",
+                writer=writer,
+                dry_run=dry_run,
+            )
+
+    return asyncio.run(run()), frames
+
+
+def test_link_files_existing_immich_originals_into_mirrored_albums() -> None:
+    """The frame won't give back full-size images, but its manifest reads fine — so rebuild the
+    folders over the originals already in Immich, and never download a thing (#72)."""
+    immich = _SearchingImmich({"a.jpg": ["orig-a"], "b.jpg": ["orig-b"], "c.jpg": ["orig-c"]})
+    (result, report), frames = _link(immich)
+
+    assert frames.downloads == []  # nothing pulled off the frame
+    assert report.matched == {"a.jpg": "orig-a", "b.jpg": "orig-b", "c.jpg": "orig-c"}
+    assert sorted(immich.albums) == ["Memento - All", "Memento - Louvre", "Memento - Mexico"]
+    assert immich.members[immich.albums["Memento - Mexico"]] == ["orig-a", "orig-b"]
+    assert immich.members[immich.albums["Memento - All"]] == ["orig-a", "orig-b", "orig-c"]
+    assert (result.total, result.prepared) == (3, 3)
+
+
+def test_link_leaves_gaps_rather_than_guessing_on_ambiguous_filenames() -> None:
+    """A generic frame filename like '747.jpg' can match several Immich assets. Filing the wrong
+    photo into someone's album is worse than a gap, so ambiguity is reported, not guessed."""
+    immich = _SearchingImmich({"a.jpg": ["orig-a"], "b.jpg": ["dup-1", "dup-2"]})  # c.jpg absent
+    (result, report), _ = _link(immich)
+
+    assert report.matched == {"a.jpg": "orig-a"}
+    assert report.missing == ["c.jpg"]
+    assert report.ambiguous == {"b.jpg": 2}
+    assert report.considered == 3
+    assert immich.members[immich.albums["Memento - Mexico"]] == ["orig-a"]  # b.jpg left out
+    assert "Memento - Louvre" not in immich.albums  # its only photo was missing: no empty album
+    assert result.skipped == 2
+
+
+def test_link_dry_run_reports_the_match_rate_and_writes_nothing() -> None:
+    immich = _SearchingImmich({"a.jpg": ["orig-a"]})
+    (result, report), _ = _link(immich, dry_run=True)
+
+    assert len(report.matched) == 1 and len(report.missing) == 2
+    assert immich.albums == {} and immich.album_creates == 0  # nothing created
+    assert result.uploaded == 0
+
+
+def test_link_ignores_a_fuzzy_search_hit_that_is_not_the_same_filename() -> None:
+    """Immich's metadata search is a contains-match on some versions; only exact names may link."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"assets": {"items": [{"id": "other", "originalFileName": "a.jpg.backup.jpg"}]}},
+        )
+
+    async def run() -> list[str]:
+        async with ImmichWriter(
+            "http://immich.test", "k", transport=httpx.MockTransport(handler)
+        ) as writer:
+            return await writer.find_assets_by_filename("a.jpg")
+
+    assert asyncio.run(run()) == []

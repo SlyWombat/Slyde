@@ -107,7 +107,24 @@ message's `filesize`, then exactly that many bytes flow on 2018.
 Symmetric: client sends the base action; frame replies `…Started` with `filesize`; client
 reads exactly that many bytes on 2018; client sends `…Ended`; frame replies `…Succeeded`.
 - `GetAlbums` / `GetThumbnailsList` return JSON/data files describing the frame's library.
-- `GetThumbnails` returns `<name>.thumb.png` images.
+- `GetThumbnails` returns `<name>.thumb.png` images — **256×170**, ~50-80 KB.
+
+> **`ReadFile` does not work on firmware 6.02 (measured 2026-08-27, #72).** The flow above is
+> recovered from the app's code and holds for `GetThumbnails`/`GetThumbnailsList`/`GetAlbums`,
+> which were validated live. `ReadFile` is not: the frame replies `ReadFileStarted` with
+> **`m_FileSize = 0`** and an empty `m_DestinationFileName` for a stored photo, then sends nothing
+> and never answers the closing `ReadFileEnded`. Confirmed against a filename the thumbnail path
+> fetches successfully 0.7 s later, and under every payload variant: `dstfilename`, `srcfilename`,
+> both together, and each as a top-level `m_DestinationFileName`/`m_SourceFileName` field.
+>
+> **So a full-resolution photo cannot be pulled off this frame.** The only image bytes it will
+> part with are 256×170 thumbnails. Anything that needs the originals has to get them elsewhere —
+> see `slyde_backend/immich_import.py`, which rebuilds the frame's folder structure over photos
+> already in Immich rather than importing the frame's copies.
+>
+> Two traps this hid, both now fixed in `memento-core`: an unbounded `wait_for` never ends against
+> a frame that chats every tick (it waits for a reply that isn't coming while unrelated messages
+> reset the socket timeout), and a download must not lose its bytes to a missing confirmation.
 
 ## Connect / session sequence (from `Client.cs`)
 1. Discover frame (above) → get IP + ClientInfoData.

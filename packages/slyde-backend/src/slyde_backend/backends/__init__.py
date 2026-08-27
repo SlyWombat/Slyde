@@ -8,6 +8,7 @@ from .base import (
     FrameCapabilities,
     FrameConnection,
     ServedFrameBackend,
+    SessionLiveness,
 )
 from .memento_lan import MementoLanBackend
 from .sungale_cloud import SungaleCloudBackend
@@ -41,6 +42,7 @@ __all__ = [
     "FrameConnection",
     "MementoLanBackend",
     "ServedFrameBackend",
+    "SessionLiveness",
     "SungaleCloudBackend",
     "SwitchBotBackend",
     "available_backends",

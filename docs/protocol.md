@@ -155,11 +155,43 @@ Measured for the interlude work (#70), because both answers were unknown from th
   every display command. (This is what lets a manager park the timer at a *finite* value and have
   the frame's own timer act as a dead-man switch — see `interlude.py`.)
 - **The frame closes the control session immediately after `DisplayImage`.** A long-lived session
-  gets `BrokenPipeError` on the next command; one short session per operation (what `FrameService`
-  already does) is unaffected.
+  gets `BrokenPipeError` on the next command.
 - **Session pacing is not optional.** Bulk `GetThumbnailsList` (1164 entries) followed by rapid
   reconnects made the frame stop answering control for ~45-90s. It recovers on its own. Poll at the
   ~10-15s cadence the UI uses, with a settle delay between ops (`FRAME_SETTLE_DELAY`).
+
+## The service tick — a NEW connection is served only every ~21s (2026-08-26, #71)
+
+Measured on "Living Room" @ 192.168.10.141, fw 6.02, and it dominates every timeout decision:
+
+- **The frame services a newly opened control connection only once per ~20.7s tick, phase-locked.**
+  Eight connects at staggered offsets had their first reply land at the same point in the cycle
+  (13.0-13.4s in; phase concentration R=0.999). TCP `connect()` completes at once — 0.02-0.31s —
+  and then nothing happens until the tick.
+- **So a cold connection's "slow first command" is not work.** It is `T - (connect_time mod T)`:
+  uniformly 0-21s, with ~40s whenever a tick is missed. It is not attached to any one command —
+  `GetConfig` measured 21-42s as a session's first command and 0.6s as its second.
+- **Everything after the first reply is sub-second**, on the same session.
+- **A session lives one tick (~21-23s).** The frame tears it down whether or not you are using it;
+  polling every 2s does not keep it alive. It does *not* send a FIN — the peer socket sits in
+  `FIN_WAIT_2` while the frame still considers the session open.
+- **Reconnecting the instant it hangs up keeps you in phase.** Four back-to-back sessions, each
+  reopened immediately on close, had first replies in 0.2/0.0/0.0/0.1s. Any pause costs a full tick.
+- **A second concurrent client starves rather than being refused**: of two simultaneous clients one
+  was served in 40.2s, the other timed out at 60s. So the vendor phone app being connected is
+  indistinguishable from the frame being slow.
+
+Consequence for any client: **do not open a session per operation.** A per-op connect cannot beat
+its own timeout — 3.5s or 10s against a guaranteed-up-to-21s first reply times out every time, and
+the frame reads as permanently wedged while in fact answering everything. Hold one warm session,
+reconnect immediately on EOF, and run every op on it (`slyde_backend/warm.py`). A path that must
+connect cold needs a budget of **>=42s** (two ticks).
+
+Whether this tick is the frame's normal state is unknown: reads of 0.39-0.52s were recorded
+earlier in the same frame's history, which a 20.7s tick makes impossible. It survives a power
+cycle. When it is in this mode, the frame's clock is unset (`GetFrameTime` -> `01/01/0001`,
+`ServerTime: False`) and its Android connectivity check to `clients3.google.com` is stuck
+half-open, so it believes it has no internet — suggestive, unproven.
 
 ## Discovery over Tailscale
 Broadcast (255.255.255.255:2015) does not traverse Tailscale. With a subnet router advertising

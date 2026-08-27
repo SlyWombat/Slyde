@@ -22,6 +22,7 @@ from .frame import NULL_GUID, Frame
 from .naming import is_reserved_dest
 from .previews import AssetPreviewCache, current_preview_key, render_canonical_preview
 from .store import Store
+from .warm import WarmSessionPool, WarmSessionUnavailable
 
 _log = logging.getLogger(__name__)
 
@@ -63,7 +64,23 @@ class FrameService:
         self._store = store
         # One control op per physical frame at a time — low-power frames stop answering under
         # concurrent/rapid requests, so we serialize (and pace) per resolved host. Keyed lazily.
+        # Only the one-shot path uses these; the warm pool serializes on its own keeper thread.
         self._locks: dict[str, asyncio.Lock] = {}
+        # Kept-warm control sessions (#71). A real Memento frame services a NEW connection only
+        # once per ~21s tick, so a session per op can't beat any sane timeout; one warm session per
+        # frame, reconnected the instant the frame drops it, makes the same ops sub-second.
+        self._pool: WarmSessionPool | None = None
+        if settings.frame_warm_sessions and isinstance(self._backend, ConnectedFrameBackend):
+            self._pool = WarmSessionPool(self._backend, ports=self._ports, settings=settings)
+
+    async def aclose(self) -> None:
+        """Release every warm session (and its keeper thread). Called on app shutdown."""
+        if self._pool is not None:
+            await self._pool.aclose()
+
+    def session_status(self, host: str) -> str:
+        """``live`` | ``connecting`` | ``offline`` | ``idle`` for ``host``'s warm session (#71)."""
+        return self._pool.status(host) if self._pool is not None else "idle"
 
     def _lock_for(self, host: str) -> asyncio.Lock:
         return self._locks.setdefault(host, asyncio.Lock())
@@ -186,11 +203,14 @@ class FrameService:
         *,
         register: bool = True,
         quick: bool = False,
+        warm: bool = True,
     ) -> T:
-        # ``quick`` is the UI read path (current image / a single thumbnail): a short, enforced
-        # timeout on both channels and NO DHCP re-discovery/retry, so a slow or unresponsive frame
-        # fails fast as offline instead of hanging the poll or holding the per-frame lock for
-        # minutes. It also doesn't touch ``last_seen`` — liveness derives from discovery (#66/#68).
+        # ``quick`` is the UI read path (current image / a single thumbnail): it never waits for a
+        # session to come up and never re-discovers, so a frame that isn't answering reads as
+        # offline at once instead of hanging the overview. It also doesn't touch ``last_seen`` —
+        # liveness derives from discovery (#66/#68).
+        # ``warm`` runs the op on the frame's kept-warm session (#71); pass False for discover-only
+        # probes of arbitrary addresses, which are one-shot by nature and shouldn't hold a session.
         resolved = await self.resolve_host(host)
         backend = self._backend
         if not isinstance(backend, ConnectedFrameBackend):
@@ -200,49 +220,60 @@ class FrameService:
                 f"backend {backend.name!r} is served (the frame polls us); "
                 "direct frame operations aren't available for it"
             )
-        timeout = self._settings.frame_quick_timeout if quick else None
+        pool = self._pool if warm else None
 
-        def run() -> T:
-            try:
-                with backend.session(resolved, ports=self._ports, timeout=timeout) as conn:
-                    return fn(conn)
-            except (TimeoutError, OSError) as exc:
-                # The frame accepts a socket but doesn't answer the control protocol (asleep) or is
-                # unreachable — a normal state, not a server error. Surface it as FrameUnavailable
-                # so callers get a clean 503/"offline", not an uncaught 500 (offline is not a fail).
-                raise FrameUnavailable(
-                    f"frame {resolved} did not respond (asleep?): {exc}"
-                ) from exc
+        async def call(address: str) -> T:
+            if pool is not None:
+                try:
+                    return await pool.run(address, fn, quick=quick)
+                except WarmSessionUnavailable as exc:
+                    # Says which of "offline" / "hasn't answered yet" it is, rather than the old
+                    # catch-all "asleep?" that fitted every state and explained none (#71).
+                    raise FrameUnavailable(str(exc)) from exc
+                except (TimeoutError, OSError) as exc:
+                    raise FrameUnavailable(f"frame {address} stopped answering: {exc}") from exc
+            timeout = self._settings.frame_quick_timeout if quick else None
 
-        # Serialize all control ops to THIS frame (and pace them) so concurrent callers — the UI
-        # polling, a bulk import, album thumbnails — can't overload a low-power device.
-        async with self._lock_for(resolved):
-            try:
+            def run() -> T:
+                try:
+                    with backend.session(address, ports=self._ports, timeout=timeout) as conn:
+                        return fn(conn)
+                except (TimeoutError, OSError) as exc:
+                    # A one-shot connect has to wait out the frame's service tick (~21s, ~42s if it
+                    # misses one), so a timeout here says little about the frame's health — hence
+                    # the warm pool above. Offline is not a server error: surface it as a clean 503.
+                    raise FrameUnavailable(
+                        f"frame {address} did not answer its control channel: {exc}"
+                    ) from exc
+
+            # Serialize + pace ops to THIS frame so concurrent callers can't overload it. Only the
+            # one-shot path needs the lock; the warm pool's keeper thread is already serial.
+            async with self._lock_for(address):
                 result = await asyncio.to_thread(run)
-            except FrameUnavailable:
-                # The frame may have moved (DHCP) since we last knew its address. Re-discover and if
-                # its address changed, retry once at the new one — so management never assumes a
-                # fixed IP (#58). ``run`` reads ``resolved`` from this scope; reassigning suffices.
-                # Skipped for discover-only reads (register=False) and for quick UI reads, which
-                # must fail fast — a UDP discovery round-trip would defeat the timeout (#68).
-                if (
-                    quick
-                    or not register
-                    or self._store is None
-                    or not host
-                    or not self._settings.frame_discovery
-                ):
-                    raise
-                await self.discover_frames()
-                new_address = await self.resolve_host(host)
-                if new_address == resolved:
-                    raise
-                resolved = new_address
-                result = await asyncio.to_thread(run)
-            if self._settings.frame_settle_delay:
-                await asyncio.sleep(
-                    self._settings.frame_settle_delay
-                )  # give the frame breathing room
+                if self._settings.frame_settle_delay:
+                    await asyncio.sleep(self._settings.frame_settle_delay)
+            return result
+
+        try:
+            result = await call(resolved)
+        except FrameUnavailable:
+            # The frame may have moved (DHCP) since we last knew its address. Re-discover and if its
+            # address changed, retry once at the new one — so management never assumes a fixed IP
+            # (#58). Skipped for discover-only reads and for quick UI reads, which must fail fast.
+            if (
+                quick
+                or not register
+                or self._store is None
+                or not host
+                or not self._settings.frame_discovery
+            ):
+                raise
+            await self.discover_frames()
+            new_address = await self.resolve_host(host)
+            if new_address == resolved:
+                raise
+            resolved = new_address
+            result = await call(resolved)
         if register and not quick and self._store is not None:  # reached it — record it as seen
             existing = self._store.get_frame_by_address(resolved)
             if existing is not None:  # touch the (GUID) entry, don't make an IP duplicate (#58)
@@ -275,7 +306,9 @@ class FrameService:
     async def get_config(self, host: str, *, register: bool = True) -> dict[str, Any]:
         # register=False reads the config WITHOUT adding the frame to the registry — for discovery/
         # scan, which only list candidates; the user adds one explicitly (see add_frame).
-        config = await self._with_client(host, lambda c: c.get_config(), register=register)
+        config = await self._with_client(
+            host, lambda c: c.get_config(), register=register, warm=register
+        )
         if register and self._store is not None:
             self._capture_identity(
                 await self.resolve_host(host),

@@ -100,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             await interlude.stop()
             await scheduler.stop()
+            await frame_service.aclose()  # release the frames' warm control sessions (#71)
 
     app = FastAPI(title="Slyde", version=__version__, lifespan=lifespan)
 

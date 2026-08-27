@@ -70,6 +70,10 @@ class FrameClient:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
+    def closed_by_peer(self, timeout: float = 0.0) -> bool:
+        """True once the frame has closed the control channel (see ``ControlChannel``, #71)."""
+        return self.control.closed_by_peer(timeout)
+
     # -- setup / config reads -------------------------------------------------
     def get_config(self) -> JsonDict:
         reply = self.control.request(T_CHANGE_SETUP, Setup.GetConfig)

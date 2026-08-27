@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import select
 import socket
 from collections.abc import Iterable
 
@@ -23,8 +24,12 @@ class ControlChannel:
     def connect(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
-        sock.connect((self._host, self._ports.control))
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        try:
+            sock.connect((self._host, self._ports.control))
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            sock.close()  # a refused/timed-out connect must not leak the socket — callers retry
+            raise
         self._sock = sock
 
     def close(self) -> None:
@@ -46,6 +51,34 @@ class ControlChannel:
         self._cid += 1
         self.socket.sendall(encode(type_name, action, data=data, extra=extra, cid=self._cid))
         return self._cid
+
+    def closed_by_peer(self, timeout: float = 0.0) -> bool:
+        """Has the frame torn this control session down? Waits up to ``timeout`` for an answer.
+
+        Non-destructive: a real message that arrives while we watch is buffered for the next
+        ``recv`` rather than dropped. A real Memento frame closes the control session about every
+        21s (see ``docs/protocol.md`` -- the service tick, #71), so a caller holding a warm session
+        polls this to notice at once and reconnect while still in phase with the tick.
+        """
+        sock = self._sock
+        if sock is None:
+            return True
+        try:
+            ready, _, _ = select.select([sock], [], [], max(0.0, timeout))
+        except OSError:
+            return True
+        if not ready:
+            return False
+        try:
+            chunk = sock.recv(65536)
+        except (TimeoutError, BlockingIOError):
+            return False
+        except OSError:
+            return True
+        if not chunk:
+            return True
+        self._pending.extend(self._decoder.feed(chunk))
+        return False
 
     def recv(self) -> Message:
         """Return the next decoded message, reading from the socket as needed."""

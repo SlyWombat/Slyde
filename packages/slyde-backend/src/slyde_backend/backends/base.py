@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from memento_core import AlbumData, FrameInfo, Ports, Setup
 from memento_core.protocol import JsonDict
@@ -63,6 +63,19 @@ class FrameConnection(Protocol):
     def get_thumbnail(self, image_filename: str) -> bytes: ...
     def download_image(self, image_filename: str) -> bytes: ...
     def trigger_update(self, url: str, md5: str) -> None: ...
+
+
+@runtime_checkable
+class SessionLiveness(Protocol):
+    """A session that can say whether the frame has hung up on it, without sending anything.
+
+    Optional: a backend whose connection implements this lets the manager hold a *warm* session and
+    reconnect the instant the frame drops it. That matters on the Memento LAN frame, which services
+    a new connection only once per ~21s tick and tears the session down each tick, so reconnecting
+    immediately (rather than on the next request) is what keeps reads sub-second (#71).
+    """
+
+    def closed_by_peer(self, timeout: float = 0.0) -> bool: ...
 
 
 @dataclass(frozen=True)

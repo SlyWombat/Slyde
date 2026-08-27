@@ -119,6 +119,34 @@ class Settings(BaseSettings):
         "re-discovery, so a slow/unresponsive frame can't hang the overview or hold the per-frame "
         "lock for minutes (#68).",
     )
+    frame_warm_sessions: bool = Field(
+        True,
+        description="Hold ONE kept-warm control session per connected frame and run every op on "
+        "it, instead of opening a session per op. A real Memento frame services a NEW connection "
+        "only once per ~21s tick, so a per-op connect costs up to ~21s and blows any sane timeout; "
+        "on a warm session the same ops answer in well under a second (#71).",
+    )
+    frame_connect_timeout: float = Field(
+        60.0,
+        gt=0,
+        description="Seconds a warm session may spend claiming the frame's service tick (its first "
+        "reply after connecting) before it's treated as unreachable. Must exceed two ticks (~42s) "
+        "so a missed tick doesn't look like an offline frame. Also bounds that session's ops "
+        "(#71).",
+    )
+    frame_warm_idle_ttl: float = Field(
+        180.0,
+        ge=0,
+        description="Seconds without an op before a warm session is released, freeing the frame's "
+        "single client slot (it starves a second client) for e.g. the vendor phone app. 0 keeps "
+        "the session for as long as the process runs (#71).",
+    )
+    frame_warm_retry_delay: float = Field(
+        5.0,
+        ge=0,
+        description="Seconds to wait before reconnecting a warm session whose connect attempt "
+        "failed, so an offline frame isn't hammered (#71).",
+    )
     current_preview_interval_seconds: int = Field(
         60,
         ge=0,

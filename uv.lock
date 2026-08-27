@@ -537,7 +537,7 @@ wheels = [
 
 [[package]]
 name = "memento-core"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/memento-core" }
 dependencies = [
     { name = "cryptography" },
@@ -1061,7 +1061,7 @@ wheels = [
 
 [[package]]
 name = "slyde-backend"
-version = "0.1.50"
+version = "0.1.51"
 source = { editable = "packages/slyde-backend" }
 dependencies = [
     { name = "fastapi" },

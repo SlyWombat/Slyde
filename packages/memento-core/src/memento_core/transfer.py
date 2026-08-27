@@ -29,8 +29,12 @@ class FileChannel:
             return
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(self._timeout)
-        sock.connect((self._host, self._ports.file))
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        try:
+            sock.connect((self._host, self._ports.file))
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            sock.close()  # same: don't leak the socket when the frame won't take the connection
+            raise
         self._sock = sock
 
     def close(self) -> None:

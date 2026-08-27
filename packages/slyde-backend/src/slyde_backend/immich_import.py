@@ -42,7 +42,7 @@ from .frame import Frame
 from .frames import FrameService
 from .immich_write import ImmichWriter
 from .naming import is_reserved_dest
-from .schemas import SyncResult
+from .schemas import SyncItem, SyncResult
 
 _log = logging.getLogger(__name__)
 
@@ -265,9 +265,22 @@ async def link_frame_albums_to_immich(
         elif not found:
             report.missing.append(name)
             result.skipped += 1
+            # Recorded per photo, not just counted: which ones didn't link is the whole point of a
+            # dry run, and the job's return value is discarded by the job manager.
+            result.items.append(
+                SyncItem(asset_id="", dest_name=name, status="skipped", detail="not in Immich")
+            )
         else:
             report.ambiguous[name] = len(found)
             result.skipped += 1
+            result.items.append(
+                SyncItem(
+                    asset_id="",
+                    dest_name=name,
+                    status="skipped",
+                    detail=f"ambiguous: {len(found)} assets share this filename",
+                )
+            )
     _log.info(
         "immich link: %d on the frame -> %d matched, %d missing, %d ambiguous%s",
         len(names),

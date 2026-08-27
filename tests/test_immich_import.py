@@ -341,12 +341,17 @@ def test_link_leaves_gaps_rather_than_guessing_on_ambiguous_filenames() -> None:
 
 
 def test_link_dry_run_reports_the_match_rate_and_writes_nothing() -> None:
-    immich = _SearchingImmich({"a.jpg": ["orig-a"]})
+    immich = _SearchingImmich({"a.jpg": ["orig-a"], "b.jpg": ["d1", "d2"]})
     (result, report), _ = _link(immich, dry_run=True)
 
-    assert len(report.matched) == 1 and len(report.missing) == 2
+    assert len(report.matched) == 1 and len(report.missing) == 1
     assert immich.albums == {} and immich.album_creates == 0  # nothing created
     assert result.uploaded == 0
+    # WHICH photos didn't link is the point of a dry run, and the job manager keeps only the
+    # SyncResult — so each one is named there, not just counted.
+    unlinked = {i.dest_name: i.detail for i in result.items}
+    assert unlinked["c.jpg"] == "not in Immich"
+    assert "ambiguous: 2 assets" in (unlinked["b.jpg"] or "")
 
 
 def test_link_ignores_a_fuzzy_search_hit_that_is_not_the_same_filename() -> None:

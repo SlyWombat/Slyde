@@ -652,7 +652,7 @@ async def start_immich_album_link(
 
     async def runner(result: SyncResult) -> object:
         async with ImmichWriter(settings.immich_base_url, settings.immich_api_key) as writer:
-            _, report = await link_frame_albums_to_immich(
+            result_, report = await link_frame_albums_to_immich(
                 frame=f,
                 frame_service=frame,
                 prefix=label,
@@ -660,13 +660,16 @@ async def start_immich_album_link(
                 dry_run=dry_run,
                 result=result,
             )
-            return {
-                "matched": len(report.matched),
-                "missing": len(report.missing),
-                "ambiguous": len(report.ambiguous),
-                "missing_examples": report.missing[:20],
-                "ambiguous_examples": dict(list(report.ambiguous.items())[:20]),
-            }
+            # Unlinked photos are listed per-name in ``result.items``; the job manager keeps the
+            # SyncResult and discards whatever a runner returns.
+            _log.info(
+                "immich link %r: %d matched, %d missing, %d ambiguous",
+                label,
+                len(report.matched),
+                len(report.missing),
+                len(report.ambiguous),
+            )
+            return result_
 
     verb = "Preview" if dry_run else "Link"
     job = jobs.start(frame_id, f"{verb} {label} albums in Immich", runner)  # type: ignore[arg-type]

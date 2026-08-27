@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -24,6 +25,9 @@ from .transfer import FileChannel
 
 ALBUM_DATA_FILE = "AlbumData.json"
 THUMBNAILS_LIST_FILE = "ThumbnailsList.txt"
+
+
+_log = logging.getLogger(__name__)
 
 
 class FrameError(RuntimeError):
@@ -119,9 +123,25 @@ class FrameClient:
         s = self.control.wait_for(T_TRANSFER_FILE, [started, failed])
         if s.action == failed:
             raise FrameError(f"frame failed to start transfer {base.name}")
+        if not s.file_size:
+            # The frame acknowledged the request and offered nothing. Firmware 6.02 does this for
+            # every ReadFile of a stored photo — the same filename the thumbnail path fetches in
+            # under a second (#72). There are no bytes coming, so don't read the file channel.
+            _log.warning("frame offered no bytes for %r (%s started, file_size=0)", dest, base.name)
         data = self.file.recv_bytes(s.file_size) if s.file_size else b""
         self.control.send(T_TRANSFER_FILE, ended, data=json.dumps({"dstfilename": dest}))
-        self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
+        try:
+            self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
+        except TimeoutError:
+            # The transfer's closing handshake is a confirmation, and we already hold every byte
+            # the frame promised — so a missing one is worth a note, never a lost download or a
+            # wait that outlives the data (#72).
+            _log.warning(
+                "frame never confirmed %s of %r; keeping the %d byte(s) it sent",
+                base.name,
+                dest,
+                len(data),
+            )
         return data
 
     def _upload(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import select
 import socket
+import time
 from collections.abc import Iterable
 
 from .protocol import Decoder, JsonDict, Message, Ports, encode
@@ -99,10 +100,26 @@ class ControlChannel:
             if msg.type == type_name:
                 return msg
 
-    def wait_for(self, type_name: str, actions: Iterable[int]) -> Message:
-        """Read until a message of ``type_name`` whose action is in ``actions``."""
+    def wait_for(
+        self, type_name: str, actions: Iterable[int], *, timeout: float | None = None
+    ) -> Message:
+        """Read until a message of ``type_name`` whose action is in ``actions``.
+
+        Bounded by an overall ``timeout`` (default: the channel's own), NOT just by the socket's.
+        Without that bound this loop can wait forever: every unrelated message the frame sends
+        resets the socket timeout, so a frame that chats periodically — as a real one does, at
+        every ~21s service tick — keeps a wait alive indefinitely for a reply that never comes.
+        That is exactly how a download of a file the frame declined to send hung a whole import
+        with no error (#72).
+        """
         wanted = set(actions)
+        budget = self._timeout if timeout is None else timeout
+        deadline = time.monotonic() + budget if budget else None
         while True:
             msg = self.recv()
             if msg.type == type_name and msg.action in wanted:
                 return msg
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"no {type_name} reply with action in {sorted(wanted)} within {budget:g}s"
+                )

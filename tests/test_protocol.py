@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import time
+
+import pytest
 
 from memento_core import crypto
 from memento_core.protocol import (
     EOF,
     T_CHANGE_SETUP,
+    T_TRANSFER_FILE,
     Decoder,
     Setup,
     encode,
@@ -47,3 +51,87 @@ def test_reply_envelope_decodes_and_decrypts() -> None:
     [msg] = Decoder().feed(wire)
     assert msg.obj.get("$type") == "1"  # Newtonsoft envelope present
     assert msg.json() == payload  # ...and the real data decrypts cleanly
+
+
+class _ScriptedSocket:
+    """A control socket that replays canned frames, then stalls — for testing the wait bounds."""
+
+    def __init__(
+        self, chunks: list[bytes], *, chatter: bytes | None = None, pace: float = 0.0
+    ) -> None:
+        self._chunks = list(chunks)
+        self._chatter = chatter  # sent forever once the script runs out (a talkative frame)
+        self._pace = pace
+        self.sent: list[bytes] = []
+
+    def recv(self, _size: int) -> bytes:
+        if self._chunks:
+            return self._chunks.pop(0)
+        if self._chatter is not None:
+            if self._pace:
+                time.sleep(self._pace)
+            return self._chatter
+        raise TimeoutError("timed out")
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def settimeout(self, _t: float) -> None: ...
+    def setsockopt(self, *_a: object) -> None: ...
+    def close(self) -> None: ...
+
+
+def _unrelated() -> bytes:
+    """A message that is NOT what a waiter is waiting for."""
+    from memento_core.protocol import encode_reply
+
+    return encode_reply(T_TRANSFER_FILE, 99, cid=1)
+
+
+def test_wait_for_is_bounded_even_while_the_frame_keeps_talking() -> None:
+    """#72: every unrelated message resets the socket timeout, so an unbounded wait_for never ends
+    against a frame that chats each ~21s tick — that hung a whole import with no error."""
+    from memento_core.control import ControlChannel
+    from memento_core.protocol import Ports
+
+    channel = ControlChannel("h", Ports(), timeout=0.3)
+    # A frame that never stops talking, and never says the one thing we're waiting for.
+    channel._sock = _ScriptedSocket([], chatter=_unrelated(), pace=0.01)  # type: ignore[assignment]
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        channel.wait_for(T_TRANSFER_FILE, [1, 4])
+    assert time.monotonic() - started < 5.0  # bounded, not "until the frame stops talking"
+
+
+def test_download_keeps_its_bytes_when_the_frame_never_confirms() -> None:
+    """The closing handshake is a confirmation; the data is already in hand, so a frame that goes
+    quiet must not cost us the download (#72)."""
+    from memento_core.client import FrameClient
+    from memento_core.protocol import Ports, Transfer, encode_reply
+
+    client = FrameClient("h", ports=Ports(), timeout=0.3, file_timeout=0.3)
+    started = int(Transfer.GetAlbums) + 1
+    client.control._sock = _ScriptedSocket(  # type: ignore[assignment]
+        [encode_reply(T_TRANSFER_FILE, started, file_size=5, cid=1)]
+    )
+    client.file._sock = _ScriptedSocket([b"hello"])  # type: ignore[assignment]
+
+    assert client._download(Transfer.GetAlbums, "albums.json") == b"hello"
+
+
+def test_download_of_a_file_the_frame_declines_returns_empty_rather_than_hanging() -> None:
+    """Firmware 6.02 answers ReadFile with file_size=0 for a stored photo. That must surface as
+    'no bytes' for the caller to record, not as a wait that never ends (#72)."""
+    from memento_core.client import FrameClient
+    from memento_core.protocol import Ports, Transfer, encode_reply
+
+    client = FrameClient("h", ports=Ports(), timeout=0.3, file_timeout=0.3)
+    client.control._sock = _ScriptedSocket(  # type: ignore[assignment]
+        [encode_reply(T_TRANSFER_FILE, int(Transfer.ReadFile) + 1, file_size=0, cid=1)]
+    )
+    client.file._sock = _ScriptedSocket([])  # type: ignore[assignment]
+
+    started = time.monotonic()
+    assert client._download(Transfer.ReadFile, "photo.jpg") == b""
+    assert time.monotonic() - started < 5.0

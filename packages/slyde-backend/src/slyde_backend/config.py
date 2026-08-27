@@ -147,6 +147,27 @@ class Settings(BaseSettings):
         description="Seconds to wait before reconnecting a warm session whose connect attempt "
         "failed, so an offline frame isn't hammered (#71).",
     )
+    thumb_match_max_distance: int = Field(
+        14,
+        ge=0,
+        le=64,
+        description="How many bits (of 64) two image fingerprints may differ and still count as "
+        "the same photo, when matching a frame's thumbnail to an Immich asset (#72). Higher is "
+        "more permissive; the frame's thumbnail is a rescaled re-encode, so it is never identical.",
+    )
+    thumb_match_min_margin: int = Field(
+        6,
+        ge=0,
+        le=64,
+        description="How far clear of the runner-up a thumbnail match must be to be trusted. This "
+        "is what stops near-identical burst frames resolving to a coin flip — without a clear "
+        "winner the photo is left unlinked rather than guessed at (#72).",
+    )
+    thumb_match_candidates: int = Field(
+        25,
+        ge=1,
+        description="Most Immich assets to compare a frame thumbnail against per photo (#72).",
+    )
     current_preview_interval_seconds: int = Field(
         60,
         ge=0,

@@ -382,10 +382,12 @@ class FrameService:
     async def get_thumbnails_list(self, host: str) -> list[tuple[str, str]]:
         return await self._with_client(host, lambda c: c.get_thumbnails_list())
 
-    async def get_thumbnail(self, host: str, image_filename: str) -> bytes:
+    async def get_thumbnail(self, host: str, image_filename: str, *, quick: bool = True) -> bytes:
         # A quick UI read (the overview/detail proxies single thumbnails): bounded timeout so a slow
         # frame fails fast instead of blocking on the transfer channel's long default (#68).
-        return await self._with_client(host, lambda c: c.get_thumbnail(image_filename), quick=True)
+        # ``quick=False`` is for bulk work (thumbnail matching, #72), which must not give up on a
+        # frame that is merely between service ticks.
+        return await self._with_client(host, lambda c: c.get_thumbnail(image_filename), quick=quick)
 
     async def download_image(self, host: str, image_filename: str) -> bytes:
         """Pull the full-resolution original of an on-frame photo (#frame-import)."""

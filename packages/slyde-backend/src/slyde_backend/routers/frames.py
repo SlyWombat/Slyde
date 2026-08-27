@@ -624,12 +624,14 @@ async def start_immich_import(
 @router.post("/{frame_id}/albums/immich/jobs", response_model=SyncJobInfo, status_code=202)
 async def start_immich_album_link(
     frame_id: str,
+    request: Request,
     frame: FrameDep,
     store: StoreDep,
     settings: SettingsDep,
     jobs: JobsDep,
     prefix: str = "",
     dry_run: bool = False,
+    resolve: bool = True,
 ) -> SyncJobInfo:
     """Rebuild the frame's folders as Immich albums over photos ALREADY in Immich (#72).
 
@@ -655,9 +657,12 @@ async def start_immich_album_link(
             result_, report = await link_frame_albums_to_immich(
                 frame=f,
                 frame_service=frame,
+                settings=settings,
                 prefix=label,
                 writer=writer,
                 dry_run=dry_run,
+                resolve=resolve,
+                immich_factory=request.app.state.immich_factory,
                 result=result,
             )
             # Unlinked photos are listed per-name in ``result.items``; the job manager keeps the

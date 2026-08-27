@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import io
 import json
+import random
 import re
 from datetime import UTC, datetime
 
@@ -303,6 +304,7 @@ def _link(immich: _SearchingImmich, *, dry_run: bool = False):
             return await link_frame_albums_to_immich(
                 frame=_frame(),
                 frame_service=frames,  # type: ignore[arg-type]
+                settings=Settings(frame_import_delay=0),
                 prefix="Memento",
                 writer=writer,
                 dry_run=dry_run,
@@ -370,3 +372,126 @@ def test_link_ignores_a_fuzzy_search_hit_that_is_not_the_same_filename() -> None
             return await writer.find_assets_by_filename("a.jpg")
 
     assert asyncio.run(run()) == []
+
+
+def _base_image(seed: int) -> Image.Image:
+    """A photo-like image: structure that differs per seed and survives rescaling.
+
+    A smooth gradient will not do — dHash compares horizontal neighbours, so every gradient hashes
+    alike no matter its brightness (exactly the invariance the matcher relies on). This lays out a
+    deterministic grid of blocks, which gives each seed genuinely different local structure.
+    """
+    rng = random.Random(seed)
+    cells = 16
+    small = Image.new("RGB", (cells, cells))
+    px = small.load()
+    assert px is not None
+    for x in range(cells):
+        for y in range(cells):
+            px[x, y] = (rng.randrange(256), rng.randrange(256), rng.randrange(256))
+    return small.resize((320, 320), Image.Resampling.LANCZOS)
+
+
+def _photo(seed: int, size: tuple[int, int] = (256, 170)) -> bytes:
+    """``seed``'s image, rendered at ``size`` — a genuine rescale of one original."""
+    buf = io.BytesIO()
+    _base_image(seed).resize(size, Image.Resampling.LANCZOS).save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+def test_dhash_survives_rescaling_but_separates_different_photos() -> None:
+    """The frame's thumbnail is a rescaled re-encode of the original, never the same bytes."""
+    from slyde_backend.thumbmatch import dhash, distance
+
+    original = _photo(1, (1600, 1064))
+    on_frame = _photo(1, (256, 170))  # same image, frame-sized
+    other = _photo(9, (1600, 1064))
+
+    same = distance(dhash(original), dhash(on_frame))  # type: ignore[arg-type]
+    different = distance(dhash(original), dhash(other))  # type: ignore[arg-type]
+    assert same <= 14, f"rescaled copy drifted {same} bits"
+    assert different > same
+
+
+def test_best_match_refuses_to_pick_between_near_identical_candidates() -> None:
+    """Three burst frames look alike; a coin flip files the wrong photo in someone's album (#72)."""
+    from slyde_backend.thumbmatch import best_match
+
+    reference = _photo(4)
+    twins = [("a", _photo(4)), ("b", _photo(4))]  # indistinguishable
+    assert best_match(reference, twins, max_distance=14, min_margin=6) is None
+
+    clear = [("a", _photo(4)), ("b", _photo(30))]
+    won = best_match(reference, clear, max_distance=14, min_margin=6)
+    assert won is not None and won.asset_id == "a"
+
+
+def test_best_match_rejects_a_candidate_that_is_merely_the_closest() -> None:
+    """A stem search returns leads, not answers: 'orange.jpg' finds a Cezanne. Nothing close
+    enough means no match, however lonely the candidate."""
+    from slyde_backend.thumbmatch import best_match
+
+    assert best_match(_photo(2), [("wrong", _photo(40))], max_distance=8, min_margin=6) is None
+
+
+def test_name_stem_undoes_the_frame_truncation() -> None:
+    from slyde_backend.immich_import import name_stem
+
+    assert name_stem("mvimg_20180821_205541~2.jp.jpg") == "mvimg_20180821_205541~2"
+    assert name_stem("pxl_20210209_221956211.portrait..jpg") == "pxl_20210209_221956211"
+    assert (
+        name_stem("408969_10150556269672401_707149362_.jpg")
+        == "408969_10150556269672401_707149362_"
+    )
+    assert name_stem("plain.jpg") == "plain"
+
+
+def test_resolve_settles_ambiguous_names_by_pixels_and_leaves_the_rest() -> None:
+    """The payoff: 'dscn0031.jpg' is three different photos across 2013/2016/2019 in this library,
+    and only the frame's own thumbnail says which one is on the frame (#72)."""
+    from slyde_backend.immich_import import LinkReport, resolve_unlinked_by_thumbnail
+
+    on_frame = {"dscn0031.jpg": _photo(7), "orange.jpg": _photo(3)}
+    immich_assets = {
+        "2013": _photo(21),
+        "2016": _photo(7),
+        "2019": _photo(33),
+        "cezanne": _photo(50),
+    }
+
+    class _Frames:
+        async def get_thumbnail(self, frame_id: str, name: str, *, quick: bool = True) -> bytes:
+            return on_frame[name]
+
+    class _Writer:
+        async def find_assets_by_filename(self, name: str) -> list[str]:
+            return ["2013", "2016", "2019"]
+
+        async def find_asset_candidates(
+            self, term: str, *, limit: int = 25
+        ) -> list[tuple[str, str]]:
+            return [("cezanne", "cezanne.jpg")]  # a lead, and the wrong one
+
+    class _Immich:
+        async def __aenter__(self) -> _Immich:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None: ...
+
+        async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:
+            return immich_assets[asset_id]
+
+    report = LinkReport(ambiguous={"dscn0031.jpg": 3}, missing=["orange.jpg"])
+    settled = asyncio.run(
+        resolve_unlinked_by_thumbnail(
+            frame=_frame(),
+            frame_service=_Frames(),  # type: ignore[arg-type]
+            settings=Settings(),
+            writer=_Writer(),  # type: ignore[arg-type]
+            immich_factory=_Immich,  # type: ignore[arg-type]
+            report=report,
+        )
+    )
+    assert settled == 1
+    assert report.matched == {"dscn0031.jpg": "2016"}  # the 2016 photo, by content
+    assert "orange.jpg" not in report.matched  # the Cezanne is not your photo

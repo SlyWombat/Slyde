@@ -123,6 +123,23 @@ class ImmichWriter:
             if str(a.get("originalFileName", "")).casefold() == wanted and a.get("id")
         ]
 
+    async def find_asset_candidates(self, term: str, *, limit: int = 25) -> list[tuple[str, str]]:
+        """``(asset_id, original_filename)`` for assets whose filename contains ``term``.
+
+        Candidates only, never evidence: the frame truncates long filenames, so a stem search is
+        the only way to find what a mangled name might refer to — but ``orange`` matches a Cézanne
+        still life as happily as your photo. What the candidates are FOR is a pixel comparison
+        (``thumbmatch``), which decides (#72).
+        """
+        resp = self._ok(
+            await self._client.post("/api/search/metadata", json={"originalFileName": term}),
+            f"search for {term!r}",
+        )
+        items = (resp.json().get("assets") or {}).get("items") or []
+        return [
+            (str(a["id"]), str(a.get("originalFileName", ""))) for a in items[:limit] if a.get("id")
+        ]
+
     async def find_album(self, name: str) -> str | None:
         resp = self._ok(await self._client.get("/api/albums"), "list albums")
         for album in resp.json():

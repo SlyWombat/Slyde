@@ -32,6 +32,7 @@ import asyncio
 import io
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -40,9 +41,11 @@ from memento_core import AlbumData
 from .config import Settings
 from .frame import Frame
 from .frames import FrameService
+from .immich import ImmichClient
 from .immich_write import ImmichWriter
 from .naming import is_reserved_dest
 from .schemas import SyncItem, SyncResult
+from .thumbmatch import best_match
 
 _log = logging.getLogger(__name__)
 
@@ -228,9 +231,12 @@ async def link_frame_albums_to_immich(
     *,
     frame: Frame,
     frame_service: FrameService,
+    settings: Settings,
     prefix: str,
     writer: ImmichWriter,
     dry_run: bool = False,
+    resolve: bool = False,
+    immich_factory: Callable[[], ImmichClient] | None = None,
     result: SyncResult | None = None,
 ) -> tuple[SyncResult, LinkReport]:
     """Rebuild a frame's folder structure as Immich albums over the photos ALREADY in Immich (#72).
@@ -289,6 +295,21 @@ async def link_frame_albums_to_immich(
         len(report.ambiguous),
         " (dry run)" if dry_run else "",
     )
+    # Filenames can't settle everything: the frame truncates long names, and camera sequence names
+    # repeat across years. Those are decided on pixels instead, from the frame's own thumbnail.
+    if resolve and immich_factory is not None:
+        settled = await resolve_unlinked_by_thumbnail(
+            frame=frame,
+            frame_service=frame_service,
+            settings=settings,
+            writer=writer,
+            immich_factory=immich_factory,
+            report=report,
+            result=result,
+        )
+        result.prepared += settled
+        result.skipped -= settled
+
     if dry_run:
         return result, report
 
@@ -315,3 +336,92 @@ async def link_frame_albums_to_immich(
             result.failed += 1
             _log.warning("immich link: album %r failed: %s", album_name, exc)
     return result, report
+
+
+def name_stem(filename: str) -> str:
+    """The searchable part of a frame filename, with the frame's mangling undone.
+
+    The frame truncates a long name and re-appends ``.jpg``, leaving debris like ``…~2.jp.jpg`` or
+    ``….portrait..jpg``. Stripping that back gives a stem worth searching Immich for — a lead to
+    check with pixels, never an answer on its own (#72).
+    """
+    stem = filename.lower().removesuffix(".jpg")
+    for leftover in (".portrait.", ".portrait", ".mp", ".jpe", ".jp", ".j", "."):
+        if stem.endswith(leftover):
+            stem = stem[: -len(leftover)]
+            break
+    return stem.strip()
+
+
+async def resolve_unlinked_by_thumbnail(
+    *,
+    frame: Frame,
+    frame_service: FrameService,
+    settings: Settings,
+    writer: ImmichWriter,
+    immich_factory: Callable[[], ImmichClient],
+    report: LinkReport,
+    result: SyncResult | None = None,
+) -> int:
+    """Settle the photos filenames couldn't, by comparing the frame's own thumbnail (#72).
+
+    Handles both leftovers from the filename pass, because they need the same evidence:
+    *ambiguous* names, where several Immich assets share a filename and only pixels say which photo
+    is on the frame; and *missing* ones, where the frame's truncated filename needs a stem search
+    whose candidates must then be confirmed rather than trusted.
+
+    Mutates ``report.matched`` with what it settles and returns how many it added. Anything without
+    a clear winner is left unlinked — the whole point is to stop guessing, not to guess harder.
+    """
+    result = result or SyncResult()
+    unresolved = list(report.ambiguous) + list(report.missing)
+    if not unresolved:
+        return 0
+    _log.info("thumbnail match: %d photo(s) filenames couldn't settle", len(unresolved))
+    settled = 0
+    async with immich_factory() as immich:
+        for name in unresolved:
+            try:
+                # Candidates: the exact-name collisions, or a stem search for a mangled name.
+                if name in report.ambiguous:
+                    pairs = [(a, name) for a in await writer.find_assets_by_filename(name)]
+                else:
+                    stem = name_stem(name)
+                    pairs = (
+                        await writer.find_asset_candidates(
+                            stem, limit=settings.thumb_match_candidates
+                        )
+                        if len(stem) >= 6  # a 3-character stem matches half the library
+                        else []
+                    )
+                if not pairs:
+                    continue
+                reference = await frame_service.get_thumbnail(frame.id, name, quick=False)
+                candidates = [
+                    (asset_id, await immich.asset_bytes(asset_id, "thumbnail"))
+                    for asset_id, _ in pairs[: settings.thumb_match_candidates]
+                ]
+                match = best_match(
+                    reference,
+                    candidates,
+                    max_distance=settings.thumb_match_max_distance,
+                    min_margin=settings.thumb_match_min_margin,
+                )
+            except Exception as exc:  # a frame that won't serve one thumbnail isn't a failed run
+                _log.warning("thumbnail match: %s could not be resolved: %s", name, exc)
+                continue
+            if match is None:
+                continue
+            report.matched[name] = match.asset_id
+            settled += 1
+            result.items.append(
+                SyncItem(
+                    asset_id=match.asset_id,
+                    dest_name=name,
+                    status="uploaded",
+                    detail=f"matched by thumbnail (distance {match.distance}, "
+                    f"margin {match.margin}, {len(candidates)} candidates)",
+                )
+            )
+    _log.info("thumbnail match: settled %d of %d", settled, len(unresolved))
+    return settled

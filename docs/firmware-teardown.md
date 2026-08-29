@@ -4,7 +4,7 @@ Complete static teardown of the recovered vendor OTA package, done for #75 to un
 Nothing here touched the device.
 
 **Subject.** `Projects/memento-firmware/Memento_35.zip` — 122,937,593 bytes,
-md5 `57a7151d932a11f603e44c44fcb49968` (verified, `reversing/firmware-teardown/teardown.log`),
+md5 `57a7151d932a11f603e44c44fcb49968` (`teardown.py` re-checks this on every run and says so),
 1034 entries, 237 MiB uncompressed. Kept outside this repo (large, copyrighted).
 
 **How to re-derive everything below.** No binwalk, abootimg, simg2img, unzip, 7z, java,
@@ -133,7 +133,8 @@ upgrade_check=if itest ${upgrade_step} == 3; then run prepare; run storeargs; ru
 ```
 
 With `reboot_mode=update` (or `upgrade_step=3`, which is what the OTA's `updater-script` sets
-before it starts writing), U-Boot will, from **FAT on `mmc 0` — the external SD**, in order:
+before it starts writing), U-Boot will, from **a FAT filesystem on U-Boot's `mmc 0`**, in
+order:
 
 1. run `sdc_burn aml_sdc_burn.ini` — Amlogic's `optimus` raw partition burner. It writes
    partitions directly. **It does not go through recovery, so no OTA signature is checked.**
@@ -148,6 +149,13 @@ of mmc 0: \"sdc_update boot boot.img\""`.
 `reboot_mode` is set by `get_rebootmode` and the accepted values are exactly
 `normal`, `factory_reset`, `usb_burning`, `charging` (string table at U-Boot 0x953e4).
 Android reaches it via `reboot <mode>`.
+
+> **`mmc 0` is read here as removable media, but U-Boot's device numbering is its own** — it
+> does not follow the kernel's `aml_sdio.0`/`aml_sdhc.0` naming, and Amlogic boards differ.
+> The evidence points that way (`sdc_burn`'s own help says "in sdmmc card", the block is
+> guarded by `mmcinfo`, and it looks for a *FAT* filesystem, which the ext4 eMMC partitions
+> are not), but it is not settled by these bytes. Q1's read-only `aml_autoscript` test
+> verifies the numbering and the slot in the same experiment.
 
 Three caveats, stated plainly:
 
@@ -218,9 +226,11 @@ files, then deletes the trigger. It is bounded only by USB speed, needs no netwo
 not subject to the ~21 s control-channel tick documented in `docs/protocol.md`. It is a
 strictly better bulk-extraction route than `ReadFile` over TCP 2018.
 
-Two cautions: it **deletes** an existing `Memento_<name>` folder on the stick first, and the
-paths are decoded from IL, not observed on the device — the run should be watched the first
-time.
+Three cautions: it **deletes** an existing `Memento_<name>` folder on the stick first; the
+paths are decoded from IL, not observed on the device, so the first run should be watched;
+and `ms_UsbPath` is hard-coded to `.../sda1`, so a stick with no partition table (a
+"superfloppy", which vold would mount as `sda`) will not be seen at all — use a normally
+partitioned, FAT32-formatted stick.
 
 `Restore.txt` drives the mirror operation (`RestoreMementoBackup`, `MethodDef[545]`).
 
@@ -390,8 +400,8 @@ the cmdline comes entirely from U-Boot's `bootargs`.
 **Kernel** — a U-Boot uImage (`Linux-3.10.33`, load/entry 0x00208000, comp = 4 = LZO) wrapping
 an lzop stream; 11,085,888 bytes decompressed.
 `Linux version 3.10.33 (moment@Ubuntu-Moment-SL) (gcc 4.4.7 Ubuntu/Linaro) #52 SMP PREEMPT
-Fri Feb 9 13:31:10 EST 2018`. `CONFIG_IKCONFIG_PROC` is on, so the whole `.config` is
-recoverable and is committed as `reversing/firmware-teardown/kernel.config`.
+Fri Feb 9 13:31:10 EST 2018`. `CONFIG_IKCONFIG=y` (though `IKCONFIG_PROC` is not), so the whole `.config` is
+recoverable from the image and is committed as `reversing/firmware-teardown/kernel.config`.
 
 **SoC** — DTB root: `compatible = "AMLOGIC,T868_G9TV"`, `model = "AMLOGIC G9TV T868"`,
 four Cortex-A9 cores. This refines #74's "Amlogic Meson8": the part is the **T868 / G9TV**,
@@ -424,10 +434,19 @@ receiver (`meson-remote`); HDMI TX and Ethernet are both `status = "disable(d)"`
   `permissive`, `enforcing` and `SELinux: Unknown value of ro.boot.selinux. Got: "%s".
   Assuming enforcing.` — i.e. this `user` build was compiled **with** `ALLOW_DISABLE_SELINUX`.
   U-Boot's `bootargs` carries no `androidboot.selinux=`, so the shipped state is enforcing;
-  adding `androidboot.selinux=permissive` to `bootargs` would make it permissive, and
-  `bootargs` is writable from Android via the `ubootenv.var.*` property bridge
-  (`ro.mtd.ubootenv=ubootenv`, `ro.ubootenv.varible.prefix=ubootenv.var`) or `fw_setenv`
-  (`/system/etc/fw_env.config` points at `/dev/mtd1` and `/dev/mtd2`, 0x4000 each).
+  adding `androidboot.selinux=permissive` to `bootargs` would make it permissive. **How you
+  would write `bootargs` from Android is open.** `/system/etc/fw_env.config` names
+  `/dev/mtd1` and `/dev/mtd2`, but `kernel.config` has `# CONFIG_MTD is not set` — there is no
+  MTD subsystem in this kernel at all, so those nodes cannot exist and that file is stale
+  vendor carry-over (the board boots from eMMC: `root=/dev/mmcblk0p2`, `format ext4 EMMC`,
+  and the environment lives in the 8 MiB `env` eMMC partition). The `ubootenv.var.*` property
+  bridge (`ro.mtd.ubootenv=ubootenv`, `ro.ubootenv.varible.prefix=ubootenv.var`) *is* live —
+  the display stack reads `ubootenv.var.outputmode` through it — but no binary in `system/bin`
+  or `system/lib` names the backing device, `build.prop`'s whitelist of bridged variables does
+  not include `bootargs` or `upgrade_step`, and no `fw_setenv` is shipped. What is settled is
+  narrower and still useful: `init` honours `ro.boot.selinux`, and `bootargs` is a U-Boot
+  variable, so anything that can set U-Boot variables (the serial console, F3's
+  `aml_autoscript`) can turn SELinux permissive without touching `/system`.
 - `OTAUpgrade.apk` is **Amlogic stock** — `com.amlogic.update.*` and
   `com.amlapp.update.otaupgrade.*`, with `--update_package=`, `Sorry! Your cpu is not
   Amlogic,u can't run`. Nothing custom rides on it, confirming #75's suspicion.

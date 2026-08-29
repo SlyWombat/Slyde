@@ -109,73 +109,31 @@ reads exactly that many bytes on 2018; client sends `…Ended`; frame replies `�
 - `GetAlbums` / `GetThumbnailsList` return JSON/data files describing the frame's library.
 - `GetThumbnails` returns `<name>.thumb.png` images — **256×170**, ~50-80 KB.
 
-> **`ReadFile` does not work on firmware 6.02 (measured 2026-08-27, #72).** The flow above is
-> recovered from the app's code and holds for `GetThumbnails`/`GetThumbnailsList`/`GetAlbums`,
-> which were validated live. `ReadFile` is not: the frame replies `ReadFileStarted` with
-> **`m_FileSize = 0`** and an empty `m_DestinationFileName` for a stored photo, then sends nothing
-> and never answers the closing `ReadFileEnded`. Confirmed against a filename the thumbnail path
-> fetches successfully 0.7 s later, and under every payload variant: `dstfilename`, `srcfilename`,
-> both together, and each as a top-level `m_DestinationFileName`/`m_SourceFileName` field.
+> **`ReadFile` needs two things the other download paths hide (verified 2026-08-29, #72).** It
+> works on firmware 6.02 — an earlier note here said it didn't, which was wrong: both failures were
+> caller-side. Recovered by decompiling the frame's own `system/app/Cadre.apk` →
+> `assemblies/CadreAndroid.dll`:
 >
-> **So a full-resolution photo cannot be pulled off this frame.** The only image bytes it will
-> part with are 256×170 thumbnails. Anything that needs the originals has to get them elsewhere —
-> see `slyde_backend/immich_import.py`, which rebuilds the frame's folder structure over photos
-> already in Immich rather than importing the frame's copies.
+> 1. **An absolute path.** `ServerExecute` (action 0) hands `m_DestinationFileName` straight to
+>    `File.Open`. `GetThumbnails` (action 15) instead resolves a bare name via
+>    `CadreServerCore.GetThumbnail` → `Utils.AppendImageDir`; `ReadFile` does no resolution at all,
+>    so a bare filename fails to open and the transfer dies with no error on the wire. Photos live
+>    under **`/mnt/sdcard/Photos/`** (`Utils..cctor`: `ms_ImageDir = <external storage> + "/Photos/"`).
+> 2. **A non-zero `filesize` in the request.** `ReadFile` never stats the file — it streams from the
+>    size the *client* announces. `FileServer.SendFile` begins with
+>    `if (fileSize == 0) { log "Error: File size is 0 byte "; return; }`, so a size-less request is
+>    abandoned before the file is even opened. That is what produced `ReadFileStarted` with
+>    `m_FileSize = 0` and no bytes.
 >
-> Two traps this hid, both now fixed in `memento-core`: an unbounded `wait_for` never ends against
-> a frame that chats every tick (it waits for a reply that isn't coming while unrelated messages
-> reset the socket timeout), and a download must not lose its bytes to a missing confirmation.
-
-## Connect / session sequence (from `Client.cs`)
-1. Discover frame (above) → get IP + ClientInfoData.
-2. TCP connect 2017 (control), then TCP connect 2018 (file). Both must connect.
-3. On both connected, run state sequence: `SendTime → GetConfig → GetFrameTime → CheckUpdate
-   → GetThumbnailsList → GetAlbums → GetCurrentAlbum → GetThumbnails → … → Idle`.
-4. Keep-alive: send `CommandControlFlow Beacon(0)` every ~5 s (`BEACON_TIMEOUT`); frame
-   replies `BeaconDone(1)`. Command/transfer timeout 20 s / 60 s.
-5. Disconnect: `CommandControlFlow Disconnect(20)`; frame replies `DisconnectDone(21)`.
-
-## Config / setup data ranges (`SetupData.cs`, partial)
-- Brightness: MIN −255 / MAX 160 (display-specific: 25" −240..180, 35" −250..160), min download 50.
-- Image canvas: 3240 × 2160. CEST offset −32..32. MAX_AWAY_SCHEDULE 7. GUID length 36.
-- Calibration presets: Darker/Dark/Standard/Bright/Brighter/Vivid.
-- Orientation: Landscape / Portrait / Unknown.
-- Away-schedule time units: SECOND 1, MINUTE 60, HOUR 3600, DAY 86400, WEEK 604800, NEVER 2419200.
-
-## VERIFIED LIVE (2026-06-03, frame "Living Room" @ 192.168.10.113, fw 6.02)
-- Control framing, command enums, and the **DES** command-payload crypto are all confirmed:
-  GetFrameTime and GetConfig decrypt cleanly with key `M3m3nt0 ` / IV `UHDFram3`.
-- Replies are wrapped by Newtonsoft TypeNameHandling:
-  `{"$types":{"Cadre.CommandChangeSetup, CadreAndroid, ...":"1"},"$type":"1", <real fields>}`.
-  The firmware assembly is **CadreAndroid** (the frame runs Android). Ignore `$types`/`$type`.
-- We do NOT need to send `$type`; a plain `{field, m_Action, m_Socket:null}` object is accepted.
-- `GetFrameTime` → `{"DateTime":"MM/dd/yyyy HH:mm:ss","ServerTime":"False"}`.
-- `GetConfig` confirmed schema (the SetupData config object):
-  `Name, DisplayOn, IsAway, NightModeOn, ShuffleOn, PortraitMode, DisplayTime,
-  LightSensor[11], Brightness[11], BrightnessOffset{Standard,Dark,Darker,Bright,Brighter,Vivid}[11],
-  OffThresholdOffset, CalibrationTableName, ContrastOffset, ExposureOffset, SaturationOffset,
-  TemperatureOffset, AwayDay, AwayOffTime, AwayOnTime, AwayEnable, SoftwareVersion, HardwareVersion,
-  ScreenSize, Width, Height, Orientation, WiFiSSID, WiFiPSWD (clear!), TimeZoneName, SideBars,
-  SideBarsColor, GUID`. NOTE: the frame returns Wi-Fi SSID + password in cleartext on the LAN.
-
-## VERIFIED LIVE (2026-08-26, frame "Living Room" @ 192.168.10.141, fw 6.02) — slideshow timing
-Measured for the interlude work (#70), because both answers were unknown from the app source alone
-(the frame's own firmware is Android, not in `reversing/`):
-
-- **`ChangePictureDuration` accepts ARBITRARY second values.** The app's picker offers 15 rungs
-  (5/15/30/60/300/600/1800/3600/7200/14400/28800/43200/86400/604800/2419200), but that is only its
-  UI: `120`, `90`, `7` and `2419200` were each set and read back **exactly** via `GetConfig`. The
-  frame neither clamps nor rounds. Payload is `{"PictureDuration":"<n>"}` (value as a *string*).
-- **`DisplayImage` RE-ARMS the frame's slideshow countdown.** With `DisplayTime=60`, phase-locked to
-  a natural auto-advance and then issuing `DisplayImage` 40s in: the next auto-advance came **~62s
-  after the command**, not the ~20s a free-running timer would give. So the countdown restarts on
-  every display command. (This is what lets a manager park the timer at a *finite* value and have
-  the frame's own timer act as a dead-man switch — see `interlude.py`.)
-- **The frame closes the control session immediately after `DisplayImage`.** A long-lived session
-  gets `BrokenPipeError` on the next command.
-- **Session pacing is not optional.** Bulk `GetThumbnailsList` (1164 entries) followed by rapid
-  reconnects made the frame stop answering control for ~45-90s. It recovers on its own. Poll at the
-  ~10-15s cadence the UI uses, with a settle delay between ops (`FRAME_SETTLE_DELAY`).
+> No protocol call reports a photo's true length (`ThumbnailsList.txt` carries md5s, not sizes), so
+> a client must **over-announce and read until the frame goes quiet**, trimming at the JPEG
+> end-of-image marker. Over-announcing is safe precisely because the frame never compares the
+> announced size to the file. Implemented in `memento_core.client.download_image`.
+>
+> Verified live: `/mnt/sdcard/Photos/0000868046_og.jpg` → 423,308 bytes → **3240x2160** JPEG.
+>
+> Request keys, from the frame's `ParseJson`: `srcfilename`, `dstfilename`, `info`, `filesize`
+> (a **string**, read with `Int32.TryParse`).
 
 ## The service tick — a NEW connection is served only every ~21s (2026-08-26, #71)
 

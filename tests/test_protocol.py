@@ -135,3 +135,49 @@ def test_download_of_a_file_the_frame_declines_returns_empty_rather_than_hanging
     started = time.monotonic()
     assert client._download(Transfer.ReadFile, "photo.jpg") == b""
     assert time.monotonic() - started < 5.0
+
+
+def test_photo_path_makes_readfile_names_absolute() -> None:
+    """ReadFile hands its name straight to File.Open on the frame, so a bare filename never
+    resolves — unlike the thumbnail path, which goes through the app's AppendImageDir (#72)."""
+    from memento_core.client import PHOTO_DIR, photo_path
+
+    assert photo_path("a.jpg") == PHOTO_DIR + "a.jpg"
+    assert photo_path("/mnt/sdcard/Photos/a.jpg") == "/mnt/sdcard/Photos/a.jpg"  # already absolute
+
+
+def test_download_image_announces_a_size_and_trims_the_over_announcement() -> None:
+    """The frame streams from the size the CLIENT announces and never stats the file, so a photo
+    read must over-announce and trim at the JPEG end-of-image marker (#72)."""
+    from memento_core.client import PHOTO_DIR, FrameClient
+    from memento_core.protocol import Ports, Transfer, encode_reply
+
+    photo = b"\xff\xd8" + b"body" * 40 + b"\xff\xd9"
+    client = FrameClient("h", ports=Ports(), timeout=0.3, file_timeout=0.3)
+    client.control._sock = _ScriptedSocket(  # type: ignore[assignment]
+        [encode_reply(T_TRANSFER_FILE, int(Transfer.ReadFile) + 1, file_size=999999, cid=1)]
+    )
+    client.file._sock = _ScriptedSocket([photo])  # type: ignore[assignment]
+
+    got = client.download_image("holiday.jpg")
+    assert got == photo  # trimmed back to the real file, not the announced 999999
+
+    # The request is DES-encrypted into m_Data, so check what the frame would actually read.
+    import json as _json
+
+    from memento_core import crypto
+
+    raw = _json.loads(b"".join(client.control._sock.sent).split(b"|")[1])  # type: ignore[attr-defined]
+    request = _json.loads(crypto.des_decrypt(raw["m_Data"]))
+    assert request["filesize"] != "0"  # zero aborts: "Error: File size is 0 byte"
+    assert request["dstfilename"] == PHOTO_DIR + "holiday.jpg"  # absolute, or File.Open fails
+
+
+def test_recv_until_idle_stops_when_the_frame_goes_quiet() -> None:
+    """No protocol call reports a photo's true length, so the read ends on silence."""
+    from memento_core.protocol import Ports
+    from memento_core.transfer import FileChannel
+
+    ch = FileChannel("h", Ports(), timeout=0.2)
+    ch._sock = _ScriptedSocket([b"abc", b"def"])  # type: ignore[assignment]
+    assert ch.recv_until_idle(1_000_000) == b"abcdef"

@@ -391,7 +391,9 @@ class EmulatedFrame:
             self._reply(conn, T_TRANSFER_FILE, Transfer.SendAlbumsSucceeded)
         # Downloads (frame -> client)
         elif action == Transfer.ReadFile:
-            name = str(info.get("srcfilename") or info.get("dstfilename") or "")
+            # A real frame hands this name straight to File.Open, so clients must send an absolute
+            # path (/mnt/sdcard/Photos/<name>); take the basename so both forms work here (#72).
+            name = str(info.get("srcfilename") or info.get("dstfilename") or "").rsplit("/", 1)[-1]
             blob = self.state.get_photo(name) or b""
             self._serve_download(conn, file_sock, Transfer.ReadFileStarted, blob)
         elif action == Transfer.ReadFileEnded:

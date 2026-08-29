@@ -61,6 +61,34 @@ class FileChannel:
             if progress:
                 progress(sent, total)
 
+    def recv_until_idle(self, limit: int, *, sentinel: bytes | None = None) -> bytes:
+        """Read up to ``limit`` bytes, stopping when the frame goes quiet or ``sentinel`` lands.
+
+        The Memento frame's ``ReadFile`` never stats the file: it streams from whatever size the
+        CLIENT announced (#72). Since a client has no way to learn a photo's true length -- the
+        thumbnails list carries md5s, not sizes -- the only way to fetch one is to over-announce and
+        read until the bytes stop. ``sentinel`` (a JPEG end-of-image marker) ends the read the
+        instant the file is complete, so the common case costs no idle wait at all.
+        """
+        chunks: list[bytes] = []
+        received = 0
+        tail = b""
+        while received < limit:
+            try:
+                chunk = self.socket.recv(min(CHUNK, limit - received))
+            except TimeoutError:
+                break  # the frame has sent everything it had
+            if not chunk:
+                break
+            chunks.append(chunk)
+            received += len(chunk)
+            if sentinel:
+                # Check across the chunk boundary, so a marker split in two is still seen.
+                tail = (tail + chunk)[-(len(sentinel) + 8) :]
+                if tail.rstrip().endswith(sentinel):
+                    break
+        return b"".join(chunks)
+
     def recv_bytes(self, size: int, progress: Callable[[int, int], None] | None = None) -> bytes:
         chunks: list[bytes] = []
         received = 0

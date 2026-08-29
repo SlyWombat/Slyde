@@ -51,3 +51,9 @@ Thumbs.db
 
 # phone screen captures (may contain device IDs/serials)
 /Screenshot_*.png
+
+# Vendor firmware/app blobs — large, copyrighted, and never part of this repo (#72).
+# Keep them outside the tree (e.g. ../memento-firmware/).
+Memento_*.zip
+smartframepc.exe
+*.xapk

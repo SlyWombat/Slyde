@@ -29,6 +29,18 @@ THUMBNAILS_LIST_FILE = "ThumbnailsList.txt"
 
 _log = logging.getLogger(__name__)
 
+# Where the frame keeps its photos. ``ReadFile`` opens whatever path it is given verbatim, unlike
+# the thumbnail path which resolves a bare name through the app's own AppendImageDir (#72).
+PHOTO_DIR = "/mnt/sdcard/Photos/"
+JPEG_EOI = b"\xff\xd9"
+# Generous upper bound announced to the frame for a photo read; it is never compared to the file.
+MAX_PHOTO_BYTES = 32 * 1024 * 1024
+
+
+def photo_path(name: str) -> str:
+    """The frame-side absolute path for a stored photo (already-absolute names pass through)."""
+    return name if name.startswith("/") else PHOTO_DIR + name.rsplit("/", 1)[-1]
+
 
 class FrameError(RuntimeError):
     """Raised when the frame reports a failure for a requested operation."""
@@ -116,19 +128,34 @@ class FrameClient:
 
     # -- file transfer (generic) ----------------------------------------------
     # Transfer actions come in groups of 5: base, +1 Started, +2 Ended, +3 Succeeded, +4 Failed.
-    def _download(self, base: Transfer, dest: str) -> bytes:
+    def _download(
+        self,
+        base: Transfer,
+        dest: str,
+        *,
+        announce: int | None = None,
+        sentinel: bytes | None = None,
+    ) -> bytes:
+        """Run a download handshake. ``announce`` sends a client-declared size (``ReadFile`` only,
+        where the frame streams from it rather than from the file's real length, #72)."""
         self.file.connect()  # ensure the file channel exists before requesting the transfer
         started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
-        self.control.send(T_TRANSFER_FILE, base, data=json.dumps({"dstfilename": dest}))
+        request: JsonDict = {"dstfilename": dest}
+        if announce is not None:
+            request["filesize"] = str(announce)  # the frame parses this with Int32.TryParse
+        self.control.send(T_TRANSFER_FILE, base, data=json.dumps(request))
         s = self.control.wait_for(T_TRANSFER_FILE, [started, failed])
         if s.action == failed:
             raise FrameError(f"frame failed to start transfer {base.name}")
         if not s.file_size:
-            # The frame acknowledged the request and offered nothing. Firmware 6.02 does this for
-            # every ReadFile of a stored photo — the same filename the thumbnail path fetches in
-            # under a second (#72). There are no bytes coming, so don't read the file channel.
             _log.warning("frame offered no bytes for %r (%s started, file_size=0)", dest, base.name)
-        data = self.file.recv_bytes(s.file_size) if s.file_size else b""
+        if announce is not None:
+            # We announced the size, so it tells us nothing about the file: read until it stops.
+            data = self.file.recv_until_idle(s.file_size or announce, sentinel=sentinel)
+            if sentinel and (end := data.rfind(sentinel)) > 0:
+                data = data[: end + len(sentinel)]  # trim our over-announcement
+        else:
+            data = self.file.recv_bytes(s.file_size) if s.file_size else b""
         self.control.send(T_TRANSFER_FILE, ended, data=json.dumps({"dstfilename": dest}))
         try:
             self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
@@ -197,9 +224,27 @@ class FrameClient:
         p = Path(path)
         self.upload_image(p.read_bytes(), dest_name or p.name, **kwargs)  # type: ignore[arg-type]
 
-    def download_image(self, name: str) -> bytes:
-        """Download a stored image's full bytes back from the frame (ReadFile handshake)."""
-        return self._download(Transfer.ReadFile, name)
+    def download_image(self, name: str, *, max_bytes: int = MAX_PHOTO_BYTES) -> bytes:
+        """Download a stored photo's FULL-RESOLUTION bytes from the frame (ReadFile).
+
+        Two things the frame requires that its other download paths hide, both recovered from the
+        firmware's own ``CadreAndroid.dll`` (#72):
+
+        * **An absolute path.** ``GetThumbnails`` resolves a bare name through the frame's
+          ``AppendImageDir``; ``ReadFile`` does not -- it hands whatever we send straight to
+          ``File.Open``, so a bare filename simply fails to open and the transfer dies silently.
+        * **A non-zero ``filesize``.** ``ReadFile`` never stats the file; it streams from the size
+          the *client* announces, and ``SendFile`` bails out immediately on zero
+          ("Error: File size is 0 byte"). This is why every size-less request looked like a frame
+          that refuses to serve photos.
+
+        Since no protocol call reports a photo's true length, we over-announce ``max_bytes`` and
+        read until the frame stops (or a JPEG end-of-image marker lands), then trim. Over-announcing
+        is safe precisely because the frame never checks the size against the file.
+        """
+        return self._download(
+            Transfer.ReadFile, photo_path(name), announce=max_bytes, sentinel=JPEG_EOI
+        )
 
     def display_image(self, name: str) -> None:
         """Jump the frame's display to a specific stored image by name."""

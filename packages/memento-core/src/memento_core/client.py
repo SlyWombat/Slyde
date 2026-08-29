@@ -139,6 +139,10 @@ class FrameClient:
         """Run a download handshake. ``announce`` sends a client-declared size (``ReadFile`` only,
         where the frame streams from it rather than from the file's real length, #72)."""
         self.file.connect()  # ensure the file channel exists before requesting the transfer
+        # Over-announced reads end on silence, not on a byte count, so leftovers from an aborted
+        # transfer would be read as the head of this one. Start clean (#72).
+        if announce is not None and (dropped := self.file.drain()):
+            _log.warning("discarded %d stale byte(s) before reading %r", dropped, dest)
         started, ended, ok, failed = base + 1, base + 2, base + 3, base + 4
         request: JsonDict = {"dstfilename": dest}
         if announce is not None:

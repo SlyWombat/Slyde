@@ -57,14 +57,24 @@ class _ScriptedSocket:
     """A control socket that replays canned frames, then stalls — for testing the wait bounds."""
 
     def __init__(
-        self, chunks: list[bytes], *, chatter: bytes | None = None, pace: float = 0.0
+        self,
+        chunks: list[bytes],
+        *,
+        chatter: bytes | None = None,
+        pace: float = 0.0,
+        timeout: float = 1.0,
     ) -> None:
         self._chunks = list(chunks)
         self._chatter = chatter  # sent forever once the script runs out (a talkative frame)
         self._pace = pace
+        self._timeout = timeout
         self.sent: list[bytes] = []
 
     def recv(self, _size: int) -> bytes:
+        if self._timeout == 0.0:
+            # Non-blocking: a real socket reports "nothing pending" rather than handing over the
+            # bytes a later blocking read is waiting for. drain() relies on this.
+            raise BlockingIOError("nothing waiting")
         if self._chunks:
             return self._chunks.pop(0)
         if self._chatter is not None:
@@ -76,9 +86,20 @@ class _ScriptedSocket:
     def sendall(self, data: bytes) -> None:
         self.sent.append(data)
 
-    def settimeout(self, _t: float) -> None: ...
+    def settimeout(self, t: float) -> None:
+        self._timeout = t
+
     def setsockopt(self, *_a: object) -> None: ...
     def close(self) -> None: ...
+
+
+class _PendingSocket(_ScriptedSocket):
+    """A socket that hands over its bytes even when polled non-blocking — i.e. data IS waiting."""
+
+    def recv(self, size: int) -> bytes:
+        if self._chunks:
+            return self._chunks.pop(0)
+        raise BlockingIOError("drained")
 
 
 def _unrelated() -> bytes:
@@ -205,3 +226,17 @@ def test_download_survives_the_frame_hanging_up_on_the_closing_handshake() -> No
     client.file._sock = _ScriptedSocket([photo])  # type: ignore[assignment]
 
     assert client.download_image("a.jpg") == photo  # kept, despite the hang-up
+
+
+def test_a_photo_read_discards_leftovers_from_an_aborted_transfer() -> None:
+    """The transfer channel has no framing, so leftovers from an aborted download would be read as
+    the head of the next photo. It is drained, not reconnected: the frame sends on the FIRST socket
+    in its own list, so reopening would leave it writing to the socket we abandoned (#72)."""
+    from memento_core.protocol import Ports
+    from memento_core.transfer import FileChannel
+
+    ch = FileChannel("h", Ports(), timeout=0.3)
+    ch._sock = _PendingSocket([b"stale bytes from a truncated photo"])  # type: ignore[assignment]
+    assert ch.drain() == 34
+    assert ch._sock is not None  # still connected — the frame is still holding this socket
+    assert ch.drain() == 0  # nothing left

@@ -37,6 +37,34 @@ class FileChannel:
             raise
         self._sock = sock
 
+    def drain(self) -> int:
+        """Discard anything already waiting on the channel. Returns how many bytes were dropped.
+
+        The transfer channel has no framing: a read is bounded only by the size announced on the
+        control channel, so bytes left over from an aborted transfer are indistinguishable from the
+        head of the next file -- one truncated photo would silently corrupt every download after it.
+
+        This drains rather than reconnects on purpose. The frame sends on the FIRST socket in its
+        own file-socket list, so closing and reopening mid-session leaves it writing to the socket
+        we just abandoned (#72).
+        """
+        if self._sock is None:
+            return 0
+        dropped = 0
+        self._sock.settimeout(0.0)
+        try:
+            while True:
+                chunk = self._sock.recv(CHUNK)
+                if not chunk:
+                    break
+                dropped += len(chunk)
+        except (BlockingIOError, TimeoutError, OSError):
+            pass  # nothing (or nothing more) waiting: that is the normal case
+        finally:
+            if self._sock is not None:
+                self._sock.settimeout(self._timeout)
+        return dropped
+
     def close(self) -> None:
         if self._sock is not None:
             try:

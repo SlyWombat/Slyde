@@ -1,0 +1,18 @@
+### media (pre-user) table @0xaeeb8
+name                         size       offset  mask
+bootloader                  4 MiB            0  0
+reserved                   64 MiB            0  0
+cache                       0 MiB            0  0
+env                         8 MiB            0  0
+
+### user table @0xb0000
+name                         size       offset  mask
+logo                       32 MiB            0  1
+recovery                   32 MiB            0  1
+misc                       32 MiB            0  1
+boot                       32 MiB            0  1
+system                   1024 MiB            0  1
+cache                     256 MiB            0  2
+param                     128 MiB            0  1
+cri_data                   16 MiB            0  4
+data                         AUTO            0  4

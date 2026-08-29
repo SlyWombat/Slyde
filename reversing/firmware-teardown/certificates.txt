@@ -1,0 +1,48 @@
+### OTA package signature (META-INF/CERT.RSA)
+    serial       13508581129433461285
+    issuer       C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    not_before   151117201944Z
+    not_after    430404201944Z
+    key          rsaEncryption 2048 bit
+    sha256       f40112be72dc0a00d36f01df40d6749ff91f69576afb1cb8e761896e6c0fe9c7
+    spki_sha256  d9e4a47dada8be396c41fc1a7c448e707fd4926cb133046e28c1f5f9cf33c3dc
+    der_len      1105
+
+### device trust store (system/etc/security/otacerts.zip)
+    serial       13508581129433461285
+    issuer       C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    not_before   151117201944Z
+    not_after    430404201944Z
+    key          rsaEncryption 2048 bit
+    sha256       f40112be72dc0a00d36f01df40d6749ff91f69576afb1cb8e761896e6c0fe9c7
+    spki_sha256  d9e4a47dada8be396c41fc1a7c448e707fd4926cb133046e28c1f5f9cf33c3dc
+    der_len      1105
+
+### package copy (META-INF/com/android/otacert)
+    serial       13508581129433461285
+    issuer       C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+    not_before   151117201944Z
+    not_after    430404201944Z
+    key          rsaEncryption 2048 bit
+    sha256       f40112be72dc0a00d36f01df40d6749ff91f69576afb1cb8e761896e6c0fe9c7
+    spki_sha256  d9e4a47dada8be396c41fc1a7c448e707fd4926cb133046e28c1f5f9cf33c3dc
+    der_len      1105
+
+### system/app/Cadre.apk (META-INF/CERT.RSA)
+    sha256       cb61901a872831adc0fb46e80035d922b0fcfea47cc1f6daad84c3e0a800e4c0
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+
+### system/app/Home.apk (META-INF/CERT.RSA)
+    sha256       f40112be72dc0a00d36f01df40d6749ff91f69576afb1cb8e761896e6c0fe9c7
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+
+### system/app/OTAUpgrade.apk (META-INF/CERT.RSA)
+    sha256       cb61901a872831adc0fb46e80035d922b0fcfea47cc1f6daad84c3e0a800e4c0
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com
+
+### system/priv-app/Settings.apk (META-INF/CERT.RSA)
+    sha256       cb61901a872831adc0fb46e80035d922b0fcfea47cc1f6daad84c3e0a800e4c0
+    subject      C=CA, ST=Quebec, L=Terrebonne, O=Memento Electronics inc., OU=Memento smart frame, CN=Memento Electronics, emailAddress=info@mementosmartframe.com

@@ -1,8 +1,13 @@
 # Memento Smart Frame — Local Network Protocol
 
 Reverse-engineered from the official Windows app (`Assembly-CSharp.dll`, Unity/Sarbakan,
-namespace `Cadre`). The frame is the **server**; the app/our tool is the **client**.
-All of this runs purely on the LAN — no cloud needed (firmware 6.02+).
+namespace `Cadre`), then **reconciled against the frame's own server-side code** in #75
+(`system/app/Cadre.apk` → `assemblies/CadreAndroid.dll`, disassembled with
+`reversing/tools/cildasm.py`). The three `Action` enums, `CommandBroadcast.Commands` and every
+limit below matched value for value; the additions #75 produced are marked inline.
+The frame is the **server**; the app/our tool is the **client**.
+All of this runs purely on the LAN — no cloud needed (firmware 6.02+); the frame does however
+have a cloud pull channel of its own, documented at the end.
 
 ## Ports (TCP/UDP)
 | Port | Proto | Purpose | Source |
@@ -48,10 +53,15 @@ Socket tuning on 2017: `TTL=42`, `TCP_NODELAY`, 1000 ms send/recv timeout, 256 K
    ```
    MEMENTO_SMARTFRAME|<json>|<trailer>
    ```
-3. `<json>` fields (`Utils.ProcessBroadcast`): `name`, `softver`, `hardver`, `size`,
-   `orientation`, `ip`, `mac`, `guid`, `IsConnected` (bool), `TryAndBuyMode` (bool),
-   `ServerImageDownload` (bool), `hasInternet` (bool). A reply is accepted only if name,
-   softver, hardver, size, orientation and ip are all present/non-zero.
+3. `<json>` fields. The frame's own responder (`Cadre.ReceiveBroadcastThread.ListernerCallback`
+   in `CadreAndroid.dll`, recovered in #75) emits them in this order:
+   `name`, **`utf8_name`**, `softver`, `hardver`, `size`, `orientation`, `ip`, `mac`,
+   `IsConnected` (bool), `TryAndBuyMode` (bool), `guid`, `ServerImageDownload` (bool),
+   `hasInternet` (bool). `utf8_name` is `name` put through `Utils.EncodeJSONUTF8String`, and
+   was missing from this list. `Utils.ProcessBroadcast` on the client accepts a reply only if
+   name, softver, hardver, size, orientation and ip are all present/non-zero.
+   **The reply is always AES-encrypted on 6.02** — the responder calls `Cadre.Utils.Encrypt`
+   unconditionally. `ServerImageDownload` is not merely a flag: see "Cloud pull channel" below.
 
 ## Control channel (TCP 2017) — message framing
 Every message, both directions, is:
@@ -84,9 +94,18 @@ Action enum: `0 GetConfig, 2 SendConfig, 4 GetCurrentAlbum, 6 SendCurrentAlbum, 
 36 GetFrameTime` (+1 = the corresponding …Done reply carrying data in `sData`).
 
 ### `Cadre.CommandControlTransferFile`
-Fields: `m_Action` (int enum), `m_DestinationFileName`, `m_SourceFileName`,
-`m_FileInfoJSON`, `m_Data` (DES-encrypted JSON: `{srcfilename, dstfilename, filesize, info{}}`),
-`m_FileSize`.
+Fields (confirmed against the frame's own field table, #75): `m_Action` (int enum),
+`m_DestinationFileName`, `m_SourceFileName`, `m_FileInfoJSON`,
+`m_Data` (DES-encrypted JSON: `{srcfilename, dstfilename, filesize, info{}}`),
+`m_FileSize`, `mb_TransferingFileSuccess`.
+
+> **`info{}` resolved (#75).** The frame's `ParseJson` reads four keys — `srcfilename`,
+> `dstfilename`, `info` (defaulting to `{}` when absent) and `filesize` — while its
+> `EncryptJson` only ever *emits* `srcfilename`, `dstfilename` and `filesize`. The single key
+> the frame consumes from `info` is **`orientation`**, an `ImageMode` int:
+> `0 Normal, 1 Portrait, 2 Panoramique` (`CadreAndroid.ServerImageDownload.AddImage` builds
+> exactly `{"orientation":N}` and hands it to `CadreServerCore.SetNewImageInfo`). Omitting
+> `info` is safe.
 Action enum (groups of 5: base, Started, Ended, Succeeded, Failed):
 `0 ReadFile…, 5 WriteFile…, 10 GetThumbnailsList…, 15 GetThumbnails…, 20 GetAlbums…, 25 SendAlbums…`.
 
@@ -203,9 +222,72 @@ Individual thumbnails are fetched with `GetThumbnails` as `<imagename>.thumb.png
 
 > Confirmed against frame "Living Room": 33 albums (3 reserved + 30 user albums), 1164 images.
 
+## `GetConfig` / `SendConfig` payload — the `ConfigData` schema (#75)
+
+`sData` carries a DES-encrypted JSON serialisation of the frame's `ConfigData`. Field names
+read straight out of `CadreAndroid.dll`'s metadata, in declaration order:
+
+```
+s_Name  b_DisplayOn  b_IsAway  b_ShuffleOn  b_NightModeOn  b_PortaitMode  f_DisplayTime
+i_LightSensor  i_Brightness
+i_BrightnessOffsetStandard  i_BrightnessOffsetDark  i_BrightnessOffsetDarker
+i_BrightnessOffsetBright    i_BrightnessOffsetBrighter  i_BrightnessOffsetVivid
+s_CalibrationTableName  i_OffThresholdOffset
+i_ContrastOffset  i_ExposureOffset  i_SaturationOffset  i_TemperatureOffset
+i_AwayDay  i_AwayOffTime  i_AwayOnTime  b_AwayEnable
+f_SoftwareVersion  f_HardwareVersion  i_ScreenSize  i_Width  i_Height  s_Orientation
+s_WiFiSSID  s_WiFiPSWD  s_TimeZoneName  i_SideBars  i_SideBarsColor  s_GUID
+```
+
+Note `b_PortaitMode` — the vendor's typo, not ours. `i_AwayDay` indexes `AwayDays`
+(`0 Sunday … 6 Saturday, 7 Weekend, 8 Weekdays, 9 AllDay`); `i_SideBars` indexes `SideBars`
+(`0 Blurred, 1 Colored`).
+
+> **`GetConfig` returns the frame's Wi-Fi passphrase.** `s_WiFiSSID` / `s_WiFiPSWD` are stored
+> in plaintext in `/mnt/sdcard/SetupData.json` and travel in this payload, protected only by
+> the hard-coded DES key above. Treat a captured `GetConfig` reply as credential material.
+
+The device-side display parameters (`DisplayConfig`, applied by the app rather than sent) are
+`b_DisplayOn`, `i_BrightnessTarget`, `i_BrightnessThreshold`, `f_LowLuminanceThreshold`,
+`i_LowLuminanceTransparency`, `f_HighLuminanceThreshold`, `i_HighLuminanceTransparency`,
+`i_OffThreshold`, `i_ContrastOffset`, `i_ExposureOffset`, `i_SaturationOffset`,
+`i_TemperatureOffset`.
+
+## Cloud pull channel — `ServerImageDownload` (#75)
+
+The `ServerImageDownload` boolean in the discovery reply switches a channel that has nothing
+to do with the LAN protocol: `CadreAndroid.ServerImageDownload` polls Memento's cloud on
+`CadreServerCore.TimerInterval` and displays whatever it is handed.
+
+| endpoint | request | response |
+|----------|---------|----------|
+| `POST https://pictureshare.mementosmartframe.com/image.downloadurl` | `application/json` `{"frameId":"<guid>"}` | `{"url": …}` |
+| `GET <url>` | — | image bytes; headers `X-Amz-Meta-Filename`, `X-Amz-Meta-Orientation` (S3) |
+| `POST …/image.downloaded` | `{"frameId":…,"imageName":…}` | acknowledgement |
+| `POST …/image.delete` | `{"frameId":…,"imageName":…}` | remove from the bucket |
+| `POST …/frame.reset` | `{"frameId":…}` | revoke remote access |
+
+Also used by the frame: `GET https://builds.mementosmartframe.com/api/time.php?iso` for the
+clock, and `GET http://clients3.google.com/generate_204` for Android's connectivity check —
+the latter is the request noted above as stuck half-open when the frame is in its slow-tick
+mode. `frameId` is the GUID in `/mnt/sdcard/GUID.txt`.
+
+A downloaded image is written as `DownloadImage.tmp` in `/mnt/sdcard/Photos/`, renamed, added
+to the reserved album `Remote_$%^&(*@#!`, and displayed immediately. Whether the endpoints
+still answer is untested — see #75 Q7.
+
+## Bulk extraction without the protocol — USB `Backup.txt` (#75)
+
+Faster and simpler than `ReadFile` for whole-library work, and unaffected by the ~21 s tick:
+put an empty `Backup.txt` in the root of a FAT32 USB stick, plug it into the frame and reboot.
+`SplashActivity.CreateMementoBackup` copies `AlbumData.json`, `SetupData.json`,
+`CurrentAlbum.json` and **every file in `/mnt/sdcard/Photos/`** to `Memento_<frame name>/` on
+the stick, then deletes the trigger file. It wipes any existing `Memento_<name>` folder on the
+stick first. See `docs/firmware-teardown.md` F5/F6 for the full trigger list.
+
 ## Open items to confirm against the live device (Phase 2)
-- Exact `GetConfig`/`GetCurrentAlbum`/`GetAlbums` JSON schemas (read `SetupData.cs`,
-  `Albums.cs` for the serializers; verify on the wire).
-- Whether the discovery reply is sent AES-encrypted by firmware 6.x or plaintext.
+- `GetCurrentAlbum` / `GetAlbums` wire JSON (the `AlbumData` type is just
+  `s_AlbumName` + `l_ImagesName`; verify the on-the-wire container).
 - Album/photo data file format returned over 2018 for `GetAlbums`/`GetThumbnailsList`.
-- `m_FileInfoJSON` (`info{}`) contents the frame expects on upload (orientation, etc.).
+
+*Closed by #75: the `GetConfig` schema, the discovery reply's encryption, and `info{}`.*

@@ -1,0 +1,10 @@
+page_size    2048
+kernel       6044766 bytes @ 0x10008000
+ramdisk      591311 bytes @ 0x11000000
+second       22631 bytes @ 0x10f00000
+tags_addr    0x10000100
+name         ''
+cmdline      ''
+id           a5bde0adde2a9f5af91131aaf4b813e540e514f9
+sha1         3da983bef1cba79baf67e05670e66d139a0bfbfd
+size         6662808

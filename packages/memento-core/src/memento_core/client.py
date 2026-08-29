@@ -156,17 +156,19 @@ class FrameClient:
                 data = data[: end + len(sentinel)]  # trim our over-announcement
         else:
             data = self.file.recv_bytes(s.file_size) if s.file_size else b""
-        self.control.send(T_TRANSFER_FILE, ended, data=json.dumps({"dstfilename": dest}))
+        # The closing handshake is an acknowledgement: every byte is already in hand. A real frame
+        # tears its control session down about every 21s (the service tick, #71), so this exchange
+        # routinely fails mid-transfer — and losing a *completed* download to a missing receipt is
+        # absurd. It failed every photo of a bulk pull before this caught ConnectionError too (#72).
         try:
+            self.control.send(T_TRANSFER_FILE, ended, data=json.dumps({"dstfilename": dest}))
             self.control.wait_for(T_TRANSFER_FILE, [ok, failed])
-        except TimeoutError:
-            # The transfer's closing handshake is a confirmation, and we already hold every byte
-            # the frame promised — so a missing one is worth a note, never a lost download or a
-            # wait that outlives the data (#72).
+        except (TimeoutError, ConnectionError, OSError) as exc:
             _log.warning(
-                "frame never confirmed %s of %r; keeping the %d byte(s) it sent",
+                "frame never confirmed %s of %r (%s); keeping the %d byte(s) it sent",
                 base.name,
                 dest,
+                type(exc).__name__,
                 len(data),
             )
         return data

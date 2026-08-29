@@ -537,7 +537,7 @@ wheels = [
 
 [[package]]
 name = "memento-core"
-version = "0.1.3"
+version = "0.1.4"
 source = { editable = "packages/memento-core" }
 dependencies = [
     { name = "cryptography" },
@@ -548,7 +548,7 @@ requires-dist = [{ name = "cryptography", specifier = ">=41" }]
 
 [[package]]
 name = "memento-emulator"
-version = "0.1.3"
+version = "0.1.4"
 source = { editable = "packages/memento-emulator" }
 dependencies = [
     { name = "memento-core" },

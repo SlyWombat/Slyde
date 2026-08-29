@@ -181,3 +181,27 @@ def test_recv_until_idle_stops_when_the_frame_goes_quiet() -> None:
     ch = FileChannel("h", Ports(), timeout=0.2)
     ch._sock = _ScriptedSocket([b"abc", b"def"])  # type: ignore[assignment]
     assert ch.recv_until_idle(1_000_000) == b"abcdef"
+
+
+def test_download_survives_the_frame_hanging_up_on_the_closing_handshake() -> None:
+    """The frame drops its control session about every 21s (#71). The closing exchange is only an
+    acknowledgement — every byte is already in hand — so a teardown there must not lose a completed
+    download. Catching only TimeoutError failed every photo of a bulk pull (#72)."""
+    from memento_core.client import FrameClient
+    from memento_core.protocol import Ports, Transfer, encode_reply
+
+    photo = b"\xff\xd8" + b"x" * 200 + b"\xff\xd9"
+
+    class _DiesOnEnded(_ScriptedSocket):
+        def sendall(self, data: bytes) -> None:
+            if not self._chunks:  # the Started reply has been consumed: this is ReadFileEnded
+                raise ConnectionError("control channel closed by peer")
+            super().sendall(data)
+
+    client = FrameClient("h", ports=Ports(), timeout=0.3, file_timeout=0.3)
+    client.control._sock = _DiesOnEnded(  # type: ignore[assignment]
+        [encode_reply(T_TRANSFER_FILE, int(Transfer.ReadFile) + 1, file_size=999999, cid=1)]
+    )
+    client.file._sock = _ScriptedSocket([photo])  # type: ignore[assignment]
+
+    assert client.download_image("a.jpg") == photo  # kept, despite the hang-up

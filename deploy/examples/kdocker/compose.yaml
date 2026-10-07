@@ -6,6 +6,9 @@ services:
     image: slyde:latest
     container_name: slyde
     restart: unless-stopped
+    # Run under a dedicated service account: set SLYDE_UID / SLYDE_GID in .env and own the
+    # bind-mounted data dir by that uid:gid. Defaults to the image's own uid 1000.
+    user: "${SLYDE_UID:-1000}:${SLYDE_GID:-1000}"
     env_file: .env
     ports:
       - "8090:8080"

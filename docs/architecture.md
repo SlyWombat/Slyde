@@ -227,9 +227,14 @@ All via env (Pydantic `BaseSettings`), documented in `.env.example`. Representat
 | `FIRMWARE_GITHUB_TOKEN` | _(empty)_ | Token for release checks; only needed if `FIRMWARE_REPO` is private |
 | `MANAGER_BASE_URL` | _(derived)_ | Frame-reachable base URL of the manager (for update serve URLs) |
 | `DATABASE_URL` | `sqlite:///./memento.db` | State store (`/data/memento.db` in the image) |
+| `CACHE_DIR` | `./cache` | Prepared-image / preview / interlude cache (`/data/cache` in the image) |
 | `BIND_HOST` / `BIND_PORT` | `0.0.0.0` / `8080` | API + SPA bind |
 | `STATIC_DIR` | _(empty)_ | Built SPA directory to serve (set in the image) |
 | `LOG_LEVEL` | `INFO` | Logging |
+| `SLYDE_UID` / `SLYDE_GID` | `1000` / `1000` | Compose only: the uid:gid the container runs as (`user:`) |
+
+The image runs under any uid: it writes only under `/data`, sets `HOME=/tmp`, and needs no
+`/etc/passwd` entry — so the host can run it as a dedicated service account.
 
 Secrets are never logged. Frame Wi-Fi credentials returned by the device are never persisted or
 exposed by the API.

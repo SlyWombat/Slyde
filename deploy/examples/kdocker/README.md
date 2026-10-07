@@ -13,8 +13,8 @@ docker build -t slyde:latest .
 ## 2. Create the stack
 ```bash
 sudo install -d -o "$USER" -g "$USER" /data/stacks/slyde
-# The container runs as uid 1000 (the image's "app" user); a bind-mounted data dir must be
-# writable by that uid (a named volume would inherit it automatically).
+# The container runs as uid:gid 1000:1000 unless SLYDE_UID / SLYDE_GID are set in .env; the
+# bind-mounted data dir must be owned by whichever uid:gid it runs as.
 sudo install -d -o 1000 -g 1000 /data/memento/data
 cp deploy/examples/kdocker/compose.yaml /data/stacks/slyde/compose.yaml
 cp deploy/examples/kdocker/.env.example  /data/stacks/slyde/.env
@@ -32,6 +32,9 @@ curl -s http://localhost:8090/api/health
 Open `http://<host>:8090/` for the UI.
 
 ## Notes
+- **Service account:** to run the container as a dedicated account instead of uid 1000, set
+  `SLYDE_UID` / `SLYDE_GID` in `.env` and `sudo chown -R <uid>:<gid> /data/memento/data`.
+  The image writes only under `/data` and needs no home directory or named user.
 - **Networking:** with `FRAME_HOST` set, the default bridge network reaches the frame by unicast.
   To use UDP broadcast discovery instead, run the container with `network_mode: host`.
 - **Immich:** reach it by the host's address (`http://<host-ip>:2283`) so no cross-stack network

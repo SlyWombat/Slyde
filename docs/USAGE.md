@@ -32,6 +32,18 @@ That's it — `FRAME_CANVAS` defaults to the 35″ frame's 3240×2160; change it
 > Broadcast discovery needs the app on the same subnet as the frame; if they're separated
 > (VLANs, or Docker bridge networking), set `FRAME_HOST` to the frame's IP.
 
+### Running as a different user
+The container runs as uid:gid `1000:1000` by default. To run it under a dedicated account, set
+`SLYDE_UID` / `SLYDE_GID` in `.env` (compose passes them to `user:`) and make sure `/data` is
+writable by that uid. The image writes nothing outside `/data` and needs no home directory or
+named user, so any uid works. An existing data volume is still owned by uid 1000 — re-own it once:
+```bash
+docker compose down
+docker run --rm -v slyde_slyde-data:/data alpine chown -R "$SLYDE_UID:$SLYDE_GID" /data
+docker compose up -d
+```
+With a bind-mounted data directory, just `chown -R` the host directory instead.
+
 ## Using the app
 1. **Pick a frame.** The start screen lists frames found on your network — click one to manage it
    (or **Rescan**). If discovery can't reach it, set `FRAME_HOST` and it appears automatically.

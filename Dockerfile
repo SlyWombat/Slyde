@@ -14,8 +14,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     STATIC_DIR=/app/static \
     DATABASE_URL=sqlite:////data/memento.db \
+    CACHE_DIR=/data/cache \
     BIND_HOST=0.0.0.0 \
-    BIND_PORT=8080
+    BIND_PORT=8080 \
+    HOME=/tmp
 WORKDIR /app
 
 # Install the local packages. memento-core first so slyde-backend's dependency on it
@@ -26,8 +28,11 @@ RUN pip install ./packages/memento-core ./packages/slyde-backend
 
 COPY --from=web /web/dist ./static
 
-RUN useradd --create-home app && mkdir -p /data && chown app:app /data
-USER app
+# Runs as a bare numeric uid, so the host can pick any uid with compose `user:` (#77): nothing is
+# written outside /data, HOME is /tmp, and no /etc/passwd entry is needed. /data is pre-owned by
+# the default uid only so a fresh named volume is writable out of the box.
+RUN mkdir -p /data && chown 1000:1000 /data
+USER 1000:1000
 VOLUME ["/data"]
 EXPOSE 8080
 

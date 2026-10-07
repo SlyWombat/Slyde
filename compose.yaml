@@ -6,6 +6,9 @@ services:
     image: slyde:latest
     container_name: slyde
     restart: unless-stopped
+    # The uid:gid the container runs as. Set SLYDE_UID / SLYDE_GID in .env to run it under a
+    # dedicated account; /data must then be writable by that uid (see docs/USAGE.md).
+    user: "${SLYDE_UID:-1000}:${SLYDE_GID:-1000}"
     env_file: .env
     ports:
       - "8080:8080"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 
 import httpx
 
@@ -26,6 +27,22 @@ def _handler(request: httpx.Request) -> httpx.Response:
                 ],
             },
         )
+    if path == "/api/albums/a3":  # Immich 3: no asset list, only the count
+        return httpx.Response(200, json={"id": "a3", "assetCount": 3, "order": "asc"})
+    if path == "/api/search/metadata":
+        body = json.loads(request.content)
+        assert body["albumIds"] == ["a3"] and body["order"] == "asc"
+        pages = {
+            1: {
+                "items": [{"id": "y1", "originalFileName": "a.jpg", "type": "IMAGE"}] * 2,
+                "nextPage": "2",
+            },
+            2: {
+                "items": [{"id": "y3", "originalFileName": "c.mov", "type": "VIDEO"}],
+                "nextPage": None,
+            },
+        }
+        return httpx.Response(200, json={"assets": pages[body["page"]]})
     if path == "/api/assets/x1/thumbnail":
         return httpx.Response(200, content=b"JPEGBYTES")
     return httpx.Response(404)
@@ -56,17 +73,32 @@ def test_album_assets_and_bytes() -> None:
     asyncio.run(run())
 
 
+def test_album_assets_on_immich_3_come_from_a_paged_search() -> None:
+    async def run() -> None:
+        async with _client() as c:
+            assets = await c.album_assets("a3")
+        assert [(a.id, a.type) for a in assets] == [
+            ("y1", "IMAGE"),
+            ("y1", "IMAGE"),
+            ("y3", "VIDEO"),
+        ]
+
+    asyncio.run(run())
+
+
 def test_immich_client_is_read_only() -> None:
     """Guarantee (README "Read-only & one-way"): the client NEVER mutates Immich.
 
     Exercise every public method and assert every HTTP request it issues is a GET —
-    no POST/PUT/PATCH/DELETE ever reaches Immich. This is the enforcement behind the
+    no POST/PUT/PATCH/DELETE ever reaches Immich — except the metadata search, a query that
+    Immich only accepts as a POST. This is the enforcement behind the
     one-way read-only contract; if someone adds a mutating call, this test fails.
     """
     methods_seen: list[str] = []
 
     def recording(request: httpx.Request) -> httpx.Response:
-        methods_seen.append(request.method)
+        if not (request.method == "POST" and request.url.path == "/api/search/metadata"):
+            methods_seen.append(request.method)
         return _handler(request)
 
     async def run() -> None:
@@ -76,6 +108,7 @@ def test_immich_client_is_read_only() -> None:
         async with client as c:
             await c.list_albums()
             await c.album_assets("a1")
+            await c.album_assets("a3")  # Immich 3 path: the read-only search
             await c.asset_bytes("x1", "preview")
             # get_asset / original paths aren't mocked (the 404 -> ImmichError is fine);
             # we only care that the verb issued was still a GET.

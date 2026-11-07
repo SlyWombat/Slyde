@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -77,12 +80,77 @@ class Settings(BaseSettings):
         10.0, gt=0, description="Timeout for fetching a url-sourced interlude image"
     )
 
-    # SwitchBot AI Art Frame (#64) — driven via SwitchBot's official signed cloud OpenAPI ---------
+    # SwitchBot AI Art Frame (#64) — driven via SwitchBot's official signed cloud OpenAPI
+    # or Home Assistant's switchbot_art_frame integration (BLE wake + 10-slot FIFO delete).
     switchbot_token: str = Field(
         "", description="SwitchBot OpenAPI token (for the 'switchbot' backend)", repr=False
     )
     switchbot_secret: str = Field(
         "", description="SwitchBot OpenAPI secret (for the 'switchbot' backend)", repr=False
+    )
+    switchbot_device_id: str = Field(
+        "",
+        description="Optional explicit SwitchBot AI Art Frame deviceId/MAC to register when using "
+        "ha_service without OpenAPI account discovery",
+    )
+    switchbot_frame_size: Literal["7.3", "13.3", "31.5"] = Field(
+        "7.3",
+        description="SwitchBot AI Art Frame size in inches: 7.3 (480x800) | 13.3 (1200x1600) | "
+        "31.5 (1440x2560)",
+    )
+    switchbot_orientation: Literal["portrait", "landscape"] = Field(
+        "portrait",
+        description="SwitchBot AI Art Frame panel orientation: portrait | landscape",
+    )
+    switchbot_max_image_bytes: int = Field(
+        650_000,
+        ge=0,
+        description="Maximum JPEG payload size in bytes for SwitchBot uploads (650 KB stays "
+        "safely under SwitchBot's ~1 MiB base64 body limit; 0 disables the cap)",
+    )
+    switchbot_slideshow: Literal["off", "slyde", "frame"] = Field(
+        "off",
+        description="Who runs the slideshow of a kept-in-sync folder on a SwitchBot frame: 'off' "
+        "(sync the whole album, the classic behaviour) | 'slyde' (Slyde pushes ONE new photo every "
+        "interval, never repeating one before the whole album was shown; set the frame to a static "
+        "image in the SwitchBot app) | 'frame' (Slyde swaps a batch of 10 photos every interval "
+        "and the frame's own slideshow cycles them; with ha_service the photos are stored without "
+        "being shown, which needs ha-switchbot-art-frame with show_image's 'show' option)",
+    )
+    switchbot_slideshow_interval_minutes: int = Field(
+        60,
+        ge=1,
+        description="'slyde': minutes between photo changes; 'frame': minutes between swapping "
+        "in the next batch of 10",
+    )
+    switchbot_quiet_hours: str = Field(
+        "",
+        pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$",
+        description="Local-time window with no slideshow changes, e.g. 22:00-07:00 (saves the "
+        "frame's battery overnight; empty = none). 'Next photo' in the UI still works.",
+    )
+    switchbot_delivery_mode: Literal["cloud_only", "ha_service"] = Field(
+        "cloud_only",
+        description="How Slyde pushes to a SwitchBot frame: 'cloud_only' (SwitchBot OpenAPI "
+        "uploadImage) or 'ha_service' (Home Assistant switchbot_art_frame.show_image for BLE wake "
+        "+ 10-slot FIFO delete)",
+    )
+    ha_base_url: str = Field(
+        "",
+        description="Home Assistant base URL (e.g. http://homeassistant.local:8123; defaults to "
+        "http://supervisor/core when running as a Home Assistant Add-on with SUPERVISOR_TOKEN)",
+    )
+    ha_token: str = Field(
+        "",
+        description="Home Assistant Long-Lived Access Token (falls back to SUPERVISOR_TOKEN when "
+        "running as a Home Assistant Add-on)",
+        repr=False,
+    )
+    ha_art_frame_entity_id: str = Field(
+        "",
+        pattern=r"^(sensor\.[a-z0-9_]+)?$",
+        description="Home Assistant entity_id of the ha-switchbot-art-frame local images sensor "
+        "(e.g. sensor.art_frame_local_images)",
     )
 
     # Immich ------------------------------------------------------------------
@@ -247,6 +315,58 @@ class Settings(BaseSettings):
             raise ValueError(f"unsupported DATABASE_URL: {self.database_url!r}")
         return self.database_url[len(prefix) :]
 
+    @property
+    def shuffle_batch_size(self) -> int:
+        """Photos per Shuffle-Deck draw on a SwitchBot frame: 1 when Slyde runs the slideshow, the
+        frame's 10 local slots when the frame does, 0 (whole album, no shuffle) when off."""
+        return {"slyde": 1, "frame": 10}.get(self.switchbot_slideshow, 0)
+
+    @property
+    def effective_sync_interval_minutes(self) -> int:
+        """When Slyde runs the slideshow, the sync cycle IS the slideshow clock: one cycle per photo
+        change (album changes are picked up on the same cycle)."""
+        if self.switchbot_slideshow == "slyde":
+            return self.switchbot_slideshow_interval_minutes
+        return self.sync_interval_minutes
+
+    @property
+    def effective_ha_token(self) -> str:
+        """Configured Home Assistant token, or ``SUPERVISOR_TOKEN`` when running as a HA Add-on."""
+        return self.ha_token or os.environ.get("SUPERVISOR_TOKEN", "")
+
+    @property
+    def effective_ha_base_url(self) -> str:
+        """Configured Home Assistant URL, or ``http://supervisor/core`` inside a HA Add-on."""
+        if self.ha_base_url:
+            return self.ha_base_url.rstrip("/")
+        if os.environ.get("SUPERVISOR_TOKEN"):
+            return "http://supervisor/core"
+        return ""
+
+
+def load_ha_addon_options(options_path: Path = Path("/data/options.json")) -> None:
+    """Populate ``os.environ`` defaults from a Home Assistant Add-on ``/data/options.json`` file.
+
+    Only non-empty values are applied via ``setdefault`` so explicit environment variables win.
+    """
+    if not options_path.is_file():
+        return
+    try:
+        raw = json.loads(options_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict):
+        return
+    for key, val in raw.items():
+        if val is None or val == "":
+            continue
+        env_key = str(key).upper()
+        if isinstance(val, bool):
+            os.environ.setdefault(env_key, "true" if val else "false")
+        else:
+            os.environ.setdefault(env_key, str(val))
+
 
 def get_settings() -> Settings:
+    load_ha_addon_options()
     return Settings()

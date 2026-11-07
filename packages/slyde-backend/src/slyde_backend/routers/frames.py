@@ -23,6 +23,7 @@ from fastapi import (
 )
 
 from ..backends import available_backends, get_backend
+from ..backends.switchbot import SwitchBotBackend
 from ..config import Settings
 from ..delivery_service import DeliveryService
 from ..frame import Frame
@@ -62,6 +63,7 @@ from ..schemas import (
     LibraryView,
     RegisterFrameRequest,
     RenameFrameRequest,
+    SlideshowNext,
     SubscribeRequest,
     Subscription,
     SwitchBotFrameStatus,
@@ -386,13 +388,15 @@ async def set_library(
 
 
 @router.get("/{frame_id}/library", response_model=LibraryView)
-async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
-    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames."""
+async def frame_library(frame_id: str, store: StoreDep, request: Request) -> LibraryView:
+    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames.
+    On a slideshow frame, photos not on air are ``waiting`` for their turn."""
     if store.get_frame(frame_id) is None:  # 404 for unknown/detached frames, mirroring DELETE (#53)
         raise HTTPException(status_code=404, detail="frame not found")
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
+    idle = "waiting" if request.app.state.delivery_service.slideshow_active(frame_id) else "unknown"
     items = [
-        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, "unknown"))
+        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, idle))
         for aid, dest, _source, folder in store.list_library(frame_id)
     ]
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
@@ -412,12 +416,13 @@ async def remove_library_item(frame_id: str, asset_id: str, request: Request) ->
 
 
 @router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
-async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
+async def frame_detail(frame_id: str, store: StoreDep, settings: SettingsDep) -> FrameDetailInfo:
     """Registry detail + backend capabilities for a frame by id (#28)."""
     f = store.get_frame(frame_id)
     if f is None:
         raise HTTPException(status_code=404, detail="frame not found")
     caps = get_backend(f.backend).capabilities
+    switchbot = f.backend == SwitchBotBackend.name
     return FrameDetailInfo(
         id=f.id,
         backend=f.backend,
@@ -427,6 +432,11 @@ async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
         frame_code=f.frame_code,
         last_seen=f.last_seen,
         capabilities=CapabilitiesInfo(**vars(caps)),
+        slideshow=settings.switchbot_slideshow if switchbot else None,
+        slideshow_interval_minutes=settings.switchbot_slideshow_interval_minutes
+        if switchbot
+        else None,
+        quiet_hours=settings.switchbot_quiet_hours if switchbot else None,
     )
 
 
@@ -939,6 +949,23 @@ async def subscribe(
         lambda result: folder_sync.bind(frame_id, body.album_id, body.target_album, result=result),
     )
     return _job_info(job)
+
+
+@router.post("/{frame_id}/slideshow/next", response_model=SlideshowNext)
+async def slideshow_next(
+    frame_id: str, request: Request, background: BackgroundTasks, store: StoreDep
+) -> SlideshowNext:
+    """Show the next photo now (SwitchBot slideshow): draws the next Shuffle-Deck photo — or batch
+    of 10 in 'frame' mode — from the frame's library, ignoring the interval and quiet hours.
+    Delivery runs in the background right away."""
+    delivery = request.app.state.delivery_service
+    if not delivery.slideshow_active(frame_id):
+        raise HTTPException(status_code=409, detail="no SwitchBot slideshow configured")
+    if not store.list_library(frame_id):
+        raise HTTPException(status_code=409, detail="the frame's library is empty")
+    queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC), advance=True)
+    background.add_task(_drain_delivery, delivery)
+    return SlideshowNext(queued=queued)
 
 
 @router.post("/{frame_id}/folders/add-album", response_model=SyncJobInfo, status_code=202)

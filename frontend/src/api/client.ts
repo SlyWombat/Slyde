@@ -15,9 +15,16 @@ import type {
   LibraryView,
   Subscription,
   SyncJobInfo,
+  SwitchBotFrameStatus,
 } from "./types";
 
-const BASE = "/api";
+// Subpath-aware API base so Slyde works both at `/` and behind a reverse-proxy subpath such as
+// Home Assistant Ingress (`/api/hassio_ingress/<token>/`). Resolved against the document's base URL
+// (not its pathname), so it also holds when the SPA is opened as `.../index.html`.
+const BASE =
+  typeof document !== "undefined"
+    ? new URL("api", document.baseURI).pathname.replace(/\/$/, "")
+    : "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -68,6 +75,11 @@ export const api = {
   // The desired set + each photo's delivery state. Works for served/offline frames (no host calls).
   frameLibrary: (id: string) => request<LibraryView>(`/frames/${enc(id)}/library`),
   frameDetail: (id: string) => request<FrameDetailInfo>(`/frames/${enc(id)}/detail`),
+  switchbotStatus: (id: string) =>
+    request<SwitchBotFrameStatus>(`/frames/switchbot/${enc(id)}/status`),
+  // Draw the next slideshow photo (or batch) for a SwitchBot frame now.
+  slideshowNext: (id: string) =>
+    request<{ queued: number }>(`/frames/${enc(id)}/slideshow/next`, { method: "POST" }),
   // How an Immich asset renders on this frame's panel (LCD JPEG vs e-ink palette PNG) (#30/#39).
   framePreviewUrl: (id: string, assetId: string) =>
     `${BASE}/frames/${enc(id)}/preview/${enc(assetId)}`,

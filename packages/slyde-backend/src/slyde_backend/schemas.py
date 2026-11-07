@@ -96,7 +96,7 @@ class LibraryPhoto(BaseModel):
     asset_id: str
     dest_name: str
     folder: str = ""  # Phase 2 (#61): folder grouping; "" = the flat "All" view
-    state: str  # "delivered" | "pending" | "failed" | "unknown"
+    state: str  # "delivered" | "pending" | "failed" | "unknown" | "waiting" (slideshow deck)
 
 
 class LibraryView(BaseModel):
@@ -119,6 +119,10 @@ class CapabilitiesInfo(BaseModel):
     interludes: bool = False  # can show a recurring image between slideshow photos (#70)
 
 
+class SlideshowNext(BaseModel):
+    queued: int  # photos queued for delivery by "next photo"
+
+
 class FrameDetailInfo(BaseModel):
     """Registry detail for a frame by id (any backend) + its backend capabilities (#28)."""
 
@@ -130,6 +134,10 @@ class FrameDetailInfo(BaseModel):
     frame_code: str = ""
     last_seen: str | None = None
     capabilities: CapabilitiesInfo
+    # SwitchBot only: who runs the slideshow ('off' | 'slyde' | 'frame') and its interval.
+    slideshow: str | None = None
+    slideshow_interval_minutes: int | None = None
+    quiet_hours: str | None = None
 
 
 class InterludeConfig(BaseModel):
@@ -226,8 +234,8 @@ class SwitchBotFrameStatus(BaseModel):
     """Live status of a SwitchBot AI Art Frame, read from the vendor cloud API (#64)."""
 
     device_id: str
-    battery: int = 0  # 0-100
-    display_mode: int = 0  # 0 = static image, 1 = slideshow
+    battery: int | None = 0  # 0-100; None when unknown (Home Assistant bridge)
+    display_mode: int | None = 0  # 0 = static image, 1 = slideshow; None when unknown
     image_url: str = ""  # the image the frame is currently showing
     version: str = ""  # firmware, e.g. "V0.0-0.5"
 

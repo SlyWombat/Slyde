@@ -41,6 +41,11 @@ def test_delivery_loop_drains_on_its_own_cadence() -> None:
     class _DrainSpy:
         def __init__(self) -> None:
             self.drains = 0
+            self.ticks = 0
+
+        def tick_slideshows(self, *, now: datetime) -> int:
+            self.ticks += 1
+            return 0
 
         async def reconcile(self, *, now: datetime) -> dict[str, int]:
             return {}
@@ -49,7 +54,7 @@ def test_delivery_loop_drains_on_its_own_cadence() -> None:
             self.drains += 1
             return {"delivered": 1, "retried": 0, "failed": 0}
 
-    async def run() -> int:
+    async def run() -> _DrainSpy:
         spy = _DrainSpy()
         # sync interval 0 (subscription loop off); only the delivery loop runs.
         sched = SyncScheduler(_FakeSync(), 0, spy, delivery_interval_seconds=1)  # type: ignore[arg-type]
@@ -57,6 +62,7 @@ def test_delivery_loop_drains_on_its_own_cadence() -> None:
         sched.start()
         await asyncio.sleep(0.05)
         await sched.stop()
-        return spy.drains
+        return spy
 
-    assert asyncio.run(run()) >= 1
+    spy = asyncio.run(run())
+    assert spy.drains >= 1 and spy.ticks == spy.drains  # slideshow changes are checked each tick

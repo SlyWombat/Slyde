@@ -1,0 +1,78 @@
+configuration:
+  frame_backend:
+    name: Rahmen-Typ
+    description: Für den SwitchBot AI Art Frame "switchbot" wählen.
+  immich_base_url:
+    name: Immich-URL
+    description: Adresse deines Immich-Servers, z. B. https://immich.example.com
+  immich_api_key:
+    name: Immich-API-Key
+    description: >-
+      Benötigte Rechte: album.read, asset.read, asset.view (und asset.download nur bei
+      Bildgröße "original").
+  immich_asset_size:
+    name: Bildgröße aus Immich
+    description: >-
+      "preview" reicht für den 13,3"-Rahmen (1200×1600) und ist am schnellsten.
+  switchbot_delivery_mode:
+    name: Übertragungsweg
+    description: >-
+      "ha_service": über die Integration ha-switchbot-art-frame (BLE-Wecken, räumt alte Bilder
+      automatisch auf). "cloud_only": direkt über die SwitchBot-OpenAPI (Token + Secret nötig).
+  ha_art_frame_entity_id:
+    name: Rahmen-Entity
+    description: >-
+      Der "Local images"-Sensor des Rahmens aus ha-switchbot-art-frame, z. B.
+      sensor.art_frame_local_images.
+  switchbot_device_id:
+    name: SwitchBot-Geräte-ID (optional)
+    description: >-
+      Leer lassen. Nur die interne ID des Rahmens in Slyde; nachträglich ändern legt einen
+      zweiten Rahmen an.
+  switchbot_frame_size:
+    name: Rahmengröße (Zoll)
+  switchbot_orientation:
+    name: Ausrichtung
+  frame_fit:
+    name: Zuschnitt
+    description: '"smart" schneidet anhand von Gesichtern/Motiv zu.'
+  frame_crop_tolerance:
+    name: Zuschnitt-Toleranz
+  switchbot_max_image_bytes:
+    name: Maximale Bildgröße (Bytes)
+    description: SwitchBot nimmt höchstens ~650 KB an; größere JPEGs werden stärker komprimiert.
+  switchbot_slideshow:
+    name: Diashow
+    description: >-
+      "slyde" (empfohlen): Slyde schickt pro Intervall EIN neues Bild und zeigt jedes Bild
+      einmal, bevor sich eins wiederholt. Stelle den Rahmen in der SwitchBot-App
+      unbedingt auf "statisches Bild", sonst blättert er zusätzlich durch alte gespeicherte
+      Bilder.
+      "frame": Slyde tauscht pro Intervall alle 10 Bilder auf dem Rahmen aus, die Diashow
+      macht der Rahmen selbst (in der SwitchBot-App einstellen). Die Bilder werden nur
+      gespeichert, nicht angezeigt — dafür braucht ha-switchbot-art-frame die Option "show"
+      bei show_image; ältere Versionen lehnen die Übertragung sonst ab.
+      "off": jedes Bild sofort übertragen (ohne Diashow-Logik).
+      Die Diashow mischt alle Bilder des Rahmens: hinzugefügte, hochgeladene und
+      synchronisierte.
+  switchbot_slideshow_interval_minutes:
+    name: Diashow-Intervall (Minuten)
+    description: >-
+      Bei "slyde": wie oft ein neues Bild kommt (jeder Wechsel weckt den Rahmen per BLE/WLAN
+      und kostet Akku). Bei "frame": wie oft die 10 Bilder ausgetauscht werden.
+  switchbot_quiet_hours:
+    name: Nachtruhe
+    description: >-
+      Zeitfenster ohne Bildwechsel in Ortszeit, z. B. 22:00-07:00 — spart nachts Akku.
+      Leer = keine Nachtruhe. "Nächstes Bild" in Slyde funktioniert trotzdem.
+  sync_interval_minutes:
+    name: Album-Abgleich (Minuten)
+    description: >-
+      Wie oft Slyde Immich auf Änderungen prüft. Bei Diashow "slyde" ohne Wirkung — dann
+      wird bei jedem Bildwechsel abgeglichen.
+  switchbot_token:
+    name: SwitchBot-Token
+    description: Nur für Übertragungsweg "cloud_only".
+  switchbot_secret:
+    name: SwitchBot-Secret
+    description: Nur für Übertragungsweg "cloud_only".

@@ -21,10 +21,27 @@ from memento_core import FrameInfo, Ports
 
 from .base import FrameBackend, FrameCapabilities
 
-# The 7.3" Spectra-6 panel is 480x800 PORTRAIT. SwitchBot's cloud center-crops uploads to fill
-# (cover), so Slyde pre-fits each photo to this canvas (FRAME_FIT smart) before upload — the cloud's
-# crop is then a no-op. (Live-validated; see experiments/switchbot-frame/FINDINGS.md.)
+# Native portrait resolutions of the three first-gen SwitchBot AI Art Frame Spectra-6 panels.
+# SwitchBot's cloud center-crops uploads to fill (cover), so Slyde pre-fits each photo to the
+# panel's canvas (FRAME_FIT smart) before upload — the cloud's crop is then a no-op.
 SWITCHBOT_CANVAS = (480, 800)
+SWITCHBOT_PANELS: dict[str, tuple[int, int]] = {
+    "7.3": (480, 800),
+    "13.3": (1200, 1600),
+    "31.5": (1440, 2560),
+}
+# Hardware/cloud limits verified against the 1st-gen Art Frame + Fastify upload endpoint:
+SWITCHBOT_MAX_LOCAL_IMAGES = 10
+SWITCHBOT_MAX_IMAGE_BYTES = 650_000  # < 900,000 base64 chars (~1 MiB Fastify body limit)
+
+
+def switchbot_canvas(size: str = "7.3", orientation: str = "portrait") -> tuple[int, int]:
+    """Return the `(width, height)` canvas for a SwitchBot AI Art Frame size (`7.3`|`13.3`|`31.5`)
+    and orientation (`portrait`|`landscape`)."""
+    w, h = SWITCHBOT_PANELS.get(size.strip(), SWITCHBOT_CANVAS)
+    if orientation.strip().lower() == "landscape":
+        return (h, w)
+    return (w, h)
 
 
 class SwitchBotBackend(FrameBackend):

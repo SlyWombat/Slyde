@@ -357,6 +357,32 @@ def test_uploaded_photo_joins_the_library_and_survives_immich_recuration(
     assert upload_dest in dests and "beach-imm1.jpg" in dests  # upload kept + readable curated name
 
 
+def test_set_library_echoing_non_immich_items_keeps_them(served: ServedHarness) -> None:
+    """Curate re-PUTs the frame's whole library (uploads, synced folders included) plus the new
+    picks; a photo another source already owns stays that source's instead of failing the PUT."""
+    store = served.app.state.store
+    store.add_library_item("EF-ECHO", "up1", "up1.jpg", source="upload")
+    store.set_folder_sync_library("EF-ECHO", "Italien", [("sync1", "sync1.jpg")])
+
+    put = served.request(
+        "PUT",
+        "/api/frames/EF-ECHO/library",
+        json=[
+            {"asset_id": "up1", "dest_name": "up1.jpg"},
+            {"asset_id": "sync1", "dest_name": "sync1.jpg"},
+            {"asset_id": "imm1", "file_name": "Beach.JPG"},
+            {"asset_id": "imm1", "file_name": "Beach.JPG"},  # picked twice
+        ],
+    )
+    assert put.status_code == 202
+    rows = {aid: (src, folder) for aid, _dest, src, folder in store.list_library("EF-ECHO")}
+    assert rows == {
+        "up1": ("upload", ""),
+        "sync1": ("sync", "Italien"),
+        "imm1": ("immich", ""),
+    }
+
+
 def test_frame_wake_sequence_status_playlist_ack(served: ServedHarness) -> None:
     """#9: the real ESP32 frame's wake — dev/frame/status (action 2 -> fetch), dev/playlist/detail
     (.bmp list), download, callback/action_status (ack), then status goes idle (action 0)."""

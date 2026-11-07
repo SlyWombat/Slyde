@@ -374,13 +374,15 @@ class Store:
     def set_library(self, frame_id: str, items: list[tuple[str, str, str]]) -> None:
         """Replace a frame's **Immich-curated** set with ``items`` (asset_id, dest_name, folder),
         order preserved. App-uploaded/imported photos (``source != 'immich'``) are kept — not part
-        of the Immich curation a 'Set library' PUT manages (see uploads.py)."""
+        of the Immich curation a 'Set library' PUT manages (see uploads.py). An item whose asset
+        another source already holds (the UI echoes the whole library back), or a repeated asset,
+        is skipped rather than failing the PUT."""
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM library_item WHERE frame_id = ? AND source = 'immich'", (frame_id,)
             )
             conn.executemany(
-                "INSERT INTO library_item "
+                "INSERT OR IGNORE INTO library_item "
                 "(frame_id, asset_id, dest_name, position, source, folder) "
                 "VALUES (?, ?, ?, ?, 'immich', ?)",
                 [(frame_id, aid, dest, i, folder) for i, (aid, dest, folder) in enumerate(items)],

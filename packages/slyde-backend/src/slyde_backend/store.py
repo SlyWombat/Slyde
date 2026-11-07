@@ -7,10 +7,12 @@ engine (``synced_photo``) was retired in Phase 4 (#63)."""
 
 from __future__ import annotations
 
+import random
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from .frame import Frame
 
@@ -107,6 +109,24 @@ CREATE TABLE IF NOT EXISTS frame_alias (
     -- serial, …) to the single canonical frame.id, so the same device resolves to one Frame.
     alias    TEXT PRIMARY KEY,
     frame_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS shuffle_epoch (
+    -- Tracks the current Shuffle-Deck epoch and last rotation timestamp per (frame_id, folder)
+    -- so slot-limited frames (e.g. SwitchBot's 10 local slots) cycle through every photo in an
+    -- Immich album without replacement before any photo repeats.
+    frame_id       TEXT NOT NULL,
+    folder         TEXT NOT NULL,
+    current_epoch  INTEGER NOT NULL DEFAULT 1,
+    last_rotated   TEXT,
+    PRIMARY KEY (frame_id, folder)
+);
+CREATE TABLE IF NOT EXISTS shuffle_history (
+    frame_id       TEXT NOT NULL,
+    folder         TEXT NOT NULL,
+    asset_id       TEXT NOT NULL,
+    cycle_epoch    INTEGER NOT NULL DEFAULT 1,
+    shown_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (frame_id, folder, asset_id)
 );
 """
 
@@ -295,6 +315,8 @@ class Store:
                 "frame_setting",
                 "frame_interlude",
                 "frame_alias",
+                "shuffle_epoch",
+                "shuffle_history",
             ):
                 conn.execute(
                     f"UPDATE OR IGNORE {tbl} SET frame_id=? WHERE frame_id=?", (new_id, old_id)
@@ -364,6 +386,8 @@ class Store:
             conn.execute("DELETE FROM frame_display WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_setting WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM frame_interlude WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM shuffle_epoch WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM shuffle_history WHERE frame_id = ?", (frame_id,))
             conn.execute(
                 "DELETE FROM frame_alias WHERE frame_id = ? OR alias = ?", (frame_id, frame_id)
             )
@@ -675,6 +699,147 @@ class Store:
                     "SELECT * FROM delivery WHERE frame_id = ?", (frame_id,)
                 ).fetchall()
         return [_delivery(r) for r in rows]
+
+    # -- shuffle-deck rotation (sampling without replacement for slot-limited frames) ---------
+    def get_shuffle_epoch(self, frame_id: str, folder: str) -> tuple[int, str | None]:
+        """Return ``(current_epoch, last_rotated_iso)`` for ``(frame_id, folder)``."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT current_epoch, last_rotated FROM shuffle_epoch "
+                "WHERE frame_id = ? AND folder = ?",
+                (frame_id, folder),
+            ).fetchone()
+        return (int(row["current_epoch"]), row["last_rotated"]) if row else (1, None)
+
+    def should_rotate_shuffle_batch(
+        self,
+        frame_id: str,
+        folder: str,
+        *,
+        now: datetime,
+        interval_minutes: int,
+    ) -> bool:
+        """True if ``(frame_id, folder)`` has never rotated or at least ``interval_minutes`` have
+        elapsed since ``last_rotated``."""
+        _epoch, last_rotated = self.get_shuffle_epoch(frame_id, folder)
+        if not last_rotated or interval_minutes <= 0:
+            return True
+        try:
+            last_dt = datetime.fromisoformat(last_rotated)
+        except ValueError:
+            return True
+        if last_dt.tzinfo is None and now.tzinfo is not None:
+            last_dt = last_dt.replace(tzinfo=UTC)
+        elif last_dt.tzinfo is not None and now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        return (now - last_dt).total_seconds() >= interval_minutes * 60
+
+    def draw_shuffle_batch(
+        self,
+        frame_id: str,
+        folder: str,
+        candidate_ids: list[str],
+        batch_size: int,
+        *,
+        rng: random.Random | None = None,
+        now_iso: str | None = None,
+        avoid: Collection[str] = (),
+        touch_rotation: bool = True,
+    ) -> list[str]:
+        """Draw up to ``batch_size`` asset IDs from ``candidate_ids`` at random **without
+        replacement** across cycles (Shuffle-Deck / Urnenmodell ohne Zurücklegen).
+
+        Every asset in ``candidate_ids`` is guaranteed to be drawn once in random order before any
+        asset repeats in the next epoch. When an epoch has fewer than ``batch_size`` unseen photos
+        left, those remaining unseen photos are taken first, ``current_epoch`` increments, and the
+        rest of the batch is filled from the new epoch (excluding the photos already in this batch
+        so a batch never contains duplicates).
+
+        ``avoid`` (the batch on the frame now) is only drawn from a new epoch's pool when there
+        aren't enough other photos, so a rotation doesn't re-pick photos it is replacing.
+        ``touch_rotation=False`` tops up a held batch without restarting the rotation interval.
+        """
+        unique_candidates = list(dict.fromkeys(candidate_ids))
+        if not unique_candidates or batch_size <= 0:
+            return unique_candidates
+        r = rng if rng is not None else random.Random()
+        stamp = now_iso or datetime.now(UTC).isoformat()
+        avoid_set = set(avoid)
+
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT current_epoch FROM shuffle_epoch WHERE frame_id = ? AND folder = ?",
+                (frame_id, folder),
+            ).fetchone()
+            epoch = int(row["current_epoch"]) if row else 1
+
+            history: list[tuple[str, int]] = []  # (asset_id, epoch it counts as seen in)
+            if len(unique_candidates) <= batch_size:
+                chosen = r.sample(unique_candidates, len(unique_candidates))
+                history = [(aid, epoch) for aid in chosen]
+                next_epoch = epoch
+            else:
+                seen_rows = conn.execute(
+                    "SELECT asset_id FROM shuffle_history "
+                    "WHERE frame_id = ? AND folder = ? AND cycle_epoch >= ?",
+                    (frame_id, folder, epoch),
+                ).fetchall()
+                seen = {sr["asset_id"] for sr in seen_rows}
+                unseen = [aid for aid in unique_candidates if aid not in seen]
+
+                if len(unseen) >= batch_size:
+                    chosen = _pick(r, unseen, batch_size, avoid_set)
+                    history = [(aid, epoch) for aid in chosen]
+                    # If we just exhausted the unseen pool exactly, bump epoch for the next draw.
+                    next_epoch = epoch + 1 if len(unseen) == batch_size else epoch
+                else:
+                    # Take all remaining unseen from the current epoch, then advance to the next
+                    # epoch and fill the remainder from the rest of the album (excluding what we
+                    # just took).
+                    first_part = r.sample(unseen, len(unseen))
+                    next_epoch = epoch + 1
+                    taken = set(first_part)
+                    refill_pool = [aid for aid in unique_candidates if aid not in taken]
+                    second_part = _pick(r, refill_pool, batch_size - len(first_part), avoid_set)
+                    history = [(aid, epoch) for aid in first_part] + [
+                        (aid, next_epoch) for aid in second_part
+                    ]
+                    chosen = first_part + second_part
+
+            conn.executemany(
+                "INSERT INTO shuffle_history "
+                "(frame_id, folder, asset_id, cycle_epoch, shown_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(frame_id, folder, asset_id) DO UPDATE SET "
+                "cycle_epoch=excluded.cycle_epoch, shown_at=excluded.shown_at",
+                [(frame_id, folder, aid, ep, stamp) for aid, ep in history],
+            )
+            conn.execute(
+                "INSERT INTO shuffle_epoch (frame_id, folder, current_epoch, last_rotated) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(frame_id, folder) DO UPDATE SET "
+                "current_epoch=excluded.current_epoch, "
+                "last_rotated=COALESCE(excluded.last_rotated, shuffle_epoch.last_rotated)",
+                (frame_id, folder, next_epoch, stamp if touch_rotation else None),
+            )
+            return chosen
+
+    def forget_shuffle_draws(self, frame_id: str, folder: str, asset_ids: list[str]) -> None:
+        """Put drawn photos back into the current epoch's deck (they never reached the frame)."""
+        with self._conn() as conn:
+            conn.executemany(
+                "DELETE FROM shuffle_history WHERE frame_id = ? AND folder = ? AND asset_id = ?",
+                [(frame_id, folder, aid) for aid in asset_ids],
+            )
+
+
+def _pick(r: random.Random, pool: list[str], k: int, avoid: set[str]) -> list[str]:
+    """Sample ``k`` ids from ``pool``, taking ids in ``avoid`` only when the rest run out."""
+    fresh = [aid for aid in pool if aid not in avoid]
+    if len(fresh) >= k:
+        return r.sample(fresh, k)
+    stale = [aid for aid in pool if aid in avoid]
+    return r.sample(fresh, len(fresh)) + r.sample(stale, min(k - len(fresh), len(stale)))
 
 
 def _subscription(row: sqlite3.Row) -> Subscription:

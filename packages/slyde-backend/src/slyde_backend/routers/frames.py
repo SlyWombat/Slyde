@@ -23,6 +23,7 @@ from fastapi import (
 )
 
 from ..backends import available_backends, get_backend
+from ..backends.switchbot import SwitchBotBackend
 from ..config import Settings
 from ..delivery_service import DeliveryService
 from ..frame import Frame
@@ -62,6 +63,7 @@ from ..schemas import (
     LibraryView,
     RegisterFrameRequest,
     RenameFrameRequest,
+    SlideshowNext,
     SubscribeRequest,
     Subscription,
     SwitchBotFrameStatus,
@@ -412,12 +414,13 @@ async def remove_library_item(frame_id: str, asset_id: str, request: Request) ->
 
 
 @router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
-async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
+async def frame_detail(frame_id: str, store: StoreDep, settings: SettingsDep) -> FrameDetailInfo:
     """Registry detail + backend capabilities for a frame by id (#28)."""
     f = store.get_frame(frame_id)
     if f is None:
         raise HTTPException(status_code=404, detail="frame not found")
     caps = get_backend(f.backend).capabilities
+    switchbot = f.backend == SwitchBotBackend.name
     return FrameDetailInfo(
         id=f.id,
         backend=f.backend,
@@ -427,6 +430,11 @@ async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
         frame_code=f.frame_code,
         last_seen=f.last_seen,
         capabilities=CapabilitiesInfo(**vars(caps)),
+        slideshow=settings.switchbot_slideshow if switchbot else None,
+        slideshow_interval_minutes=settings.switchbot_slideshow_interval_minutes
+        if switchbot
+        else None,
+        quiet_hours=settings.switchbot_quiet_hours if switchbot else None,
     )
 
 
@@ -939,6 +947,22 @@ async def subscribe(
         lambda result: folder_sync.bind(frame_id, body.album_id, body.target_album, result=result),
     )
     return _job_info(job)
+
+
+@router.post("/{frame_id}/slideshow/next", response_model=SlideshowNext)
+async def slideshow_next(frame_id: str, request: Request, settings: SettingsDep) -> SlideshowNext:
+    """Show the next photo now (SwitchBot slideshow): draws the next Shuffle-Deck photo — or batch
+    of 10 in 'frame' mode — for the frame's kept-in-sync folders, ignoring the interval and quiet
+    hours. Delivery picks it up on its next drain (seconds)."""
+    if settings.shuffle_batch_size == 0:
+        raise HTTPException(status_code=409, detail="no SwitchBot slideshow configured")
+    if not request.app.state.folder_sync.list_bindings(frame_id):
+        raise HTTPException(status_code=409, detail="no folder of this frame is kept in sync")
+    try:
+        queued = await request.app.state.folder_sync.advance(frame_id)
+    except ImmichError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return SlideshowNext(queued=queued)
 
 
 @router.post("/{frame_id}/folders/add-album", response_model=SyncJobInfo, status_code=202)

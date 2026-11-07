@@ -18,22 +18,24 @@ drives it — issue #25).
 from __future__ import annotations
 
 import asyncio
+import io
 from collections.abc import Callable
 from datetime import datetime
 
 import httpx
+from PIL import Image
 
 from .backends.switchbot import SwitchBotBackend
 from .config import Settings
-from .delivery import RetryPolicy, TransientDeliveryError, reconcile
+from .delivery import PermanentDeliveryError, RetryPolicy, TransientDeliveryError, reconcile
 from .frames import FrameService, FrameUnavailable
 from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .library import FrameLibrary
 from .processing import prepare, profile_for
 from .store import DeliveryRow, Store
-from .switchbot import SwitchBotClient, SwitchBotError
-from .switchbot_service import switchbot_client_factory
+from .switchbot import SwitchBotError, SwitchBotRejectedError
+from .switchbot_service import SwitchBotTransport, switchbot_client_factory
 
 
 class DeliveryService:
@@ -46,7 +48,7 @@ class DeliveryService:
         immich_factory: Callable[[], ImmichClient],
         settings: Settings,
         uploads: ImageCache | None = None,
-        switchbot_factory: Callable[[], SwitchBotClient] | None = None,
+        switchbot_factory: Callable[[], SwitchBotTransport] | None = None,
     ) -> None:
         self._store = store
         self._library = library
@@ -56,8 +58,8 @@ class DeliveryService:
         self._settings = settings
         # Originals of app-pushed photos (not in Immich); sourced from here instead of Immich.
         self._uploads = uploads
-        # How to reach SwitchBot's cloud for a 'switchbot' frame's push delivery (injectable for
-        # tests); defaults to a client built from the configured token/secret.
+        # How to reach SwitchBot's cloud (or Home Assistant bridge) for a 'switchbot' frame's push
+        # delivery (injectable for tests); defaults to a client built from configured settings.
         self._switchbot_factory = switchbot_factory or switchbot_client_factory(settings)
         self._policy = RetryPolicy()
         self._lock = asyncio.Lock()  # serialise reconcile passes (PUT, scheduler, delivery timer)
@@ -107,8 +109,14 @@ class DeliveryService:
             raise TransientDeliveryError(f"frame {item.frame_id} not yet registered")
         # Reuse the already-prepared image if cached — no re-fetch/re-process on retry (#25).
         prepared = self._cache.get(frame.id, item.key)
+        profile = profile_for(frame, self._settings, canvas=self._settings.canvas)
+        if (
+            prepared is not None
+            and frame.backend == SwitchBotBackend.name
+            and _image_size(prepared) != profile.canvas
+        ):
+            prepared = None  # prepared for another panel size/orientation (settings changed)
         if prepared is None:
-            profile = profile_for(frame, self._settings, canvas=self._settings.canvas)
             # App-uploaded photos aren't in Immich — source their original locally if we have it.
             source = self._uploads.get(frame.id, item.key) if self._uploads else None
             if source is None:
@@ -130,6 +138,7 @@ class DeliveryService:
             # cloud renders it onto the panel on the frame's next wake (~30s) — we don't block on
             # that confirmation; a transport/API hiccup is transient, so it's retried like any push.
             await self._push_switchbot(frame.id, prepared)
+            self._store.touch_frame(frame.id)  # a confirmed push is our only sign of life from it
             return
         try:  # connected: push over the LAN — an offline frame is a transient (retried) failure.
             # Pass the frame's stable id (not a fixed address) so delivery resolves its CURRENT IP
@@ -142,10 +151,23 @@ class DeliveryService:
         """Deliver ``image`` to a SwitchBot AI Art Frame via its signed cloud API (uploadImage).
 
         A transport/API failure (cloud down, rate-limited, frame unreachable) is transient — raised
-        as ``TransientDeliveryError`` so the queue retries with backoff and never drops the photo.
+        as ``TransientDeliveryError`` so the queue retries with backoff and never drops the photo. A
+        refusal no retry can fix (``SwitchBotRejectedError``, e.g. Home Assistant rejecting the
+        image) is permanent, so it fails once instead of retrying forever.
         """
         try:
             async with self._switchbot_factory() as client:
                 await client.upload_image_bytes(device_id, image)
+        except SwitchBotRejectedError as exc:
+            raise PermanentDeliveryError(f"switchbot push rejected: {exc}") from exc
         except (SwitchBotError, httpx.HTTPError, OSError) as exc:
             raise TransientDeliveryError(f"switchbot push failed: {exc}") from exc
+
+
+def _image_size(data: bytes) -> tuple[int, int] | None:
+    """Pixel size of an encoded image (header only), or None if it can't be read."""
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            return img.size
+    except (OSError, ValueError):
+        return None

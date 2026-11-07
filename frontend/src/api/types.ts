@@ -207,4 +207,17 @@ export interface FrameDetailInfo {
   frame_code: string;
   last_seen: string | null;
   capabilities: CapabilitiesInfo;
+  /** SwitchBot only: who runs the slideshow, and its interval. */
+  slideshow?: "off" | "slyde" | "frame" | null;
+  slideshow_interval_minutes?: number | null;
+  quiet_hours?: string | null;
+}
+
+/** Live status of a SwitchBot frame (vendor cloud or Home Assistant); null = unknown. */
+export interface SwitchBotFrameStatus {
+  device_id: string;
+  battery: number | null;
+  display_mode: number | null;
+  image_url: string;
+  version: string;
 }

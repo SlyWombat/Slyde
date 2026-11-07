@@ -1,0 +1,6 @@
+# Home Assistant add-on build (config.yaml sits next to it at the repo root, so the Supervisor
+# builds the regular Dockerfile with the whole repo as context).
+# The Supervisor mounts the add-on's /data owned by root, so the add-on runs as root rather than
+# the image's default uid 1000.
+args:
+  SLYDE_USER: "0:0"

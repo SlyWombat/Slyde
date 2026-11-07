@@ -4,7 +4,8 @@ Targets the documented Immich API (auth via the ``x-api-key`` header). Endpoints
 place so they are easy to adjust for a given Immich version; behaviour is covered by mocked tests.
 
 READ-ONLY CONTRACT: this client only ever reads from Immich. Every request goes through ``_get``
-(HTTP GET); there are deliberately no create/update/delete methods. Photos flow one way only —
+(HTTP GET) or ``_search`` (``POST /api/search/metadata`` — a query, which Immich only offers as a
+POST); there are deliberately no create/update/delete methods. Photos flow one way only —
 Immich -> frame. Enforced by ``tests/test_immich.py::test_immich_client_is_read_only``. Do not add
 mutating calls here; the frame integration never needs them.
 """
@@ -69,6 +70,15 @@ class ImmichClient:
             raise ImmichError(f"Immich GET {path} -> {resp.status_code}: {resp.text[:200]}")
         return resp
 
+    async def _search(self, query: dict[str, object]) -> dict[str, object]:
+        """Run a read-only metadata search (POST is just how Immich takes the query body)."""
+        path = "/api/search/metadata"
+        resp = await self._client.post(path, json=query)
+        if resp.status_code >= 400:
+            raise ImmichError(f"Immich POST {path} -> {resp.status_code}: {resp.text[:200]}")
+        data = resp.json().get("assets") or {}
+        return data if isinstance(data, dict) else {}
+
     async def list_albums(self) -> list[ImmichAlbum]:
         data = (await self._get("/api/albums")).json()
         return [
@@ -82,14 +92,31 @@ class ImmichClient:
 
     async def album_assets(self, album_id: str) -> list[ImmichAsset]:
         data = (await self._get(f"/api/albums/{album_id}")).json()
+        raw = data.get("assets")
+        if raw is None and int(data.get("assetCount", 0) or 0) > 0:
+            # Immich 3 dropped the asset list from GET /api/albums/{id} (only ``assetCount`` is
+            # left); the album's assets now come from a metadata search, paged.
+            raw = await self._search_album(album_id, order=str(data.get("order") or "desc"))
         return [
             ImmichAsset(
                 id=a["id"],
                 file_name=a.get("originalFileName", a.get("id", "")),
                 type=a.get("type", "IMAGE"),
             )
-            for a in data.get("assets", [])
+            for a in raw or []
         ]
+
+    async def _search_album(self, album_id: str, *, order: str) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        page: object = 1
+        while page:
+            result = await self._search(
+                {"albumIds": [album_id], "page": int(str(page)), "size": 1000, "order": order}
+            )
+            batch = result.get("items")
+            items.extend(batch if isinstance(batch, list) else [])
+            page = result.get("nextPage")
+        return items
 
     async def get_asset(self, asset_id: str) -> ImmichAsset:
         a = (await self._get(f"/api/assets/{asset_id}")).json()

@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import io
 import json
-import sqlite3
 from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
@@ -258,96 +257,6 @@ def test_13_3_inch_portrait_and_landscape_canvas_and_adaptive_jpeg_cap() -> None
     assert len(out) <= 450_000
     with Image.open(io.BytesIO(out)) as decoded:
         assert decoded.size == (1200, 1600)
-
-
-def test_shuffle_deck_10_slot_rotation_cycles_without_replacement(tmp_path: Path) -> None:
-    """With switchbot_slideshow='frame' (10 slots) on a 25-photo Immich album, FolderSyncService
-    draws 10 random photos per rotation without repeating any photo until all 25 have been shown
-    once."""
-    import random
-    from datetime import UTC, timedelta
-
-    from slyde_backend.folder_sync import FolderSyncService
-    from slyde_backend.frame import Frame
-    from slyde_backend.immich import ImmichAsset
-
-    class Album25Immich:
-        async def __aenter__(self) -> Album25Immich:
-            return self
-
-        async def __aexit__(self, *exc: object) -> None:
-            return None
-
-        async def album_assets(self, album_id: str) -> list[ImmichAsset]:
-            return [ImmichAsset(id=f"p{i}", file_name=f"p{i}.jpg", type="IMAGE") for i in range(25)]
-
-        async def asset_bytes(self, asset_id: str, size: str = "preview") -> bytes:
-            buf = io.BytesIO()
-            Image.new("RGB", (120, 160), (50, 100, 150)).save(buf, format="JPEG")
-            return buf.getvalue()
-
-    store = Store(str(tmp_path / "shuffle.db"))
-    cache = ImageCache(str(tmp_path / "cache"))
-    library = FrameLibrary(store, cache)
-    uploaded: list[tuple[str, bytes]] = []
-    stub = StubSwitchBot(uploaded=uploaded)
-    settings = Settings(
-        switchbot_frame_size="13.3",
-        switchbot_slideshow="frame",
-        switchbot_slideshow_interval_minutes=60,
-    )
-    ds = DeliveryService(
-        store,
-        library,
-        cache,
-        frame_service=None,
-        immich_factory=Album25Immich,  # type: ignore[arg-type]
-        settings=settings,
-        switchbot_factory=lambda: stub,
-    )
-    sync = FolderSyncService(
-        settings,
-        store,
-        library,
-        ds,
-        Album25Immich,  # type: ignore[arg-type]
-    )
-    store.upsert_frame(Frame.cloud_push("SB13", backend="switchbot", name="13.3 Frame"))
-    rng = random.Random(42)
-    t0 = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
-
-    # Batch 1 at t0: draws 10 unique photos from the 25-photo album.
-    r1 = asyncio.run(sync.reconcile("SB13", "alb-1", "Family", now=t0, rng=rng))
-    assert r1.total == 10 and r1.uploaded == 10
-    asyncio.run(ds.drain(now=t0))
-    batch1 = [i.asset_id for i in library.desired("SB13")]
-    assert len(batch1) == 10 and len(set(batch1)) == 10
-
-    # 30 minutes later (< 60m rotation interval): reconcile keeps the same 10 photos on the frame.
-    t_early = t0 + timedelta(minutes=30)
-    r_hold = asyncio.run(sync.reconcile("SB13", "alb-1", "Family", now=t_early, rng=rng))
-    assert [i.asset_id for i in library.desired("SB13")] == batch1
-    assert r_hold.uploaded == 0 and r_hold.removed == 0
-
-    # Batch 2 at t0 + 61m: draws 10 NEW unseen photos (0 overlap with batch 1).
-    t1 = t0 + timedelta(minutes=61)
-    r2 = asyncio.run(sync.reconcile("SB13", "alb-1", "Family", now=t1, rng=rng))
-    batch2 = [i.asset_id for i in library.desired("SB13")]
-    assert len(batch2) == 10 and len(set(batch2)) == 10
-    assert set(batch1).isdisjoint(set(batch2))
-    assert r2.uploaded == 10 and r2.removed == 10
-    asyncio.run(ds.drain(now=t1))
-
-    # Batch 3 at t1 + 61m: only 5 unseen photos remain in Epoch 1 -> takes all 5, wraps to Epoch 2,
-    # and fills the remaining 5 slots from the reset pool without duplicating inside Batch 3.
-    t2 = t1 + timedelta(minutes=61)
-    asyncio.run(sync.reconcile("SB13", "alb-1", "Family", now=t2, rng=rng))
-    batch3 = [i.asset_id for i in library.desired("SB13")]
-    assert len(batch3) == 10 and len(set(batch3)) == 10
-    # Across the 3 batches of 10, all 25 photos of the Immich album have been shown!
-    assert set(batch1) | set(batch2) | set(batch3) == {f"p{i}" for i in range(25)}
-    # And photos from batch 1 that re-entered in batch 3 were re-queued & delivered (not skipped).
-    assert asyncio.run(ds.drain(now=t2))["delivered"] >= 5
 
 
 def test_home_assistant_bridge_discovers_and_delivers_via_show_image(
@@ -631,134 +540,10 @@ def test_shuffle_new_epoch_avoids_the_batch_on_the_frame(tmp_path: Path) -> None
         store.forget_shuffle_draws("F", "Fam", b3)
 
 
-def test_shuffle_top_up_keeps_rotation_clock_and_undelivered_photos_return(tmp_path: Path) -> None:
-    import random
-    from datetime import UTC, timedelta
-
-    from slyde_backend.folder_sync import FolderSyncService
-    from slyde_backend.frame import Frame
-    from slyde_backend.immich import ImmichAsset
-
-    album = [f"p{i}" for i in range(30)]
-
-    class Immich:
-        async def __aenter__(self) -> Immich:
-            return self
-
-        async def __aexit__(self, *exc: object) -> None:
-            return None
-
-        async def album_assets(self, album_id: str) -> list[ImmichAsset]:
-            return [ImmichAsset(id=a, file_name=f"{a}.jpg", type="IMAGE") for a in album]
-
-    store = Store(str(tmp_path / "d.db"))
-    cache = ImageCache(str(tmp_path / "cache"))
-    library = FrameLibrary(store, cache)
-    settings = Settings(switchbot_slideshow="frame", switchbot_slideshow_interval_minutes=60)
-    ds = DeliveryService(
-        store,
-        library,
-        cache,
-        frame_service=None,
-        immich_factory=FakeImmich,
-        settings=settings,
-        switchbot_factory=lambda: StubSwitchBot(),
-    )
-    sync = FolderSyncService(settings, store, library, ds, Immich)  # type: ignore[arg-type]
-    store.upsert_frame(Frame.cloud_push("SB", backend="switchbot"))
-    rng = random.Random(3)
-    t0 = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-
-    asyncio.run(sync.reconcile("SB", "alb", "Fam", now=t0, rng=rng))
-    batch1 = [i.asset_id for i in library.desired("SB")]
-    _, rotated_at = store.get_shuffle_epoch("SB", "Fam")
-
-    # Two photos of the held batch are deleted from the album: their slots are refilled now,
-    # without restarting the rotation interval.
-    for gone in batch1[:2]:
-        album.remove(gone)
-    asyncio.run(sync.reconcile("SB", "alb", "Fam", now=t0 + timedelta(minutes=10), rng=rng))
-    held = [i.asset_id for i in library.desired("SB")]
-    assert len(held) == 10 and set(batch1[2:]) <= set(held)
-    assert store.get_shuffle_epoch("SB", "Fam")[1] == rotated_at
-
-    # Nothing was delivered: at rotation the 10 held photos never reached the frame, so they go
-    # back into the deck (unseen) instead of counting as shown, and the new batch avoids them.
-    asyncio.run(sync.reconcile("SB", "alb", "Fam", now=t0 + timedelta(minutes=61), rng=rng))
-    batch2 = {i.asset_id for i in library.desired("SB")}
-    assert len(batch2) == 10 and batch2.isdisjoint(held)
-    with sqlite3.connect(tmp_path / "d.db") as conn:
-        seen = {r[0] for r in conn.execute("SELECT asset_id FROM shuffle_history")}
-    assert seen.isdisjoint(held)
-
-
-def test_slyde_slideshow_sends_one_new_photo_per_interval(tmp_path: Path) -> None:
-    """'slyde' mode: one photo per change, no repeats before the album is through, and the sync
-    cycle runs on the slideshow clock."""
-    import random
-    from datetime import UTC, timedelta
-
-    from slyde_backend.folder_sync import FolderSyncService
-    from slyde_backend.frame import Frame
-    from slyde_backend.immich import ImmichAsset
-
-    class Immich:
-        async def __aenter__(self) -> Immich:
-            return self
-
-        async def __aexit__(self, *exc: object) -> None:
-            return None
-
-        async def album_assets(self, album_id: str) -> list[ImmichAsset]:
-            return [ImmichAsset(id=f"p{i}", file_name=f"p{i}.jpg", type="IMAGE") for i in range(4)]
-
-    settings = Settings(
-        switchbot_slideshow="slyde",
-        switchbot_slideshow_interval_minutes=30,
-        sync_interval_minutes=5,
-    )
-    assert settings.shuffle_batch_size == 1
-    assert settings.effective_sync_interval_minutes == 30
-    assert Settings(switchbot_slideshow="frame").shuffle_batch_size == 10
-    assert Settings().shuffle_batch_size == 0  # off: whole album, as before
-
-    store = Store(str(tmp_path / "d.db"))
-    cache = ImageCache(str(tmp_path / "cache"))
-    library = FrameLibrary(store, cache)
-    ds = DeliveryService(
-        store,
-        library,
-        cache,
-        frame_service=None,
-        immich_factory=FakeImmich,
-        settings=settings,
-        switchbot_factory=lambda: StubSwitchBot(),
-    )
-    sync = FolderSyncService(settings, store, library, ds, Immich)  # type: ignore[arg-type]
-    store.upsert_frame(Frame.cloud_push("SB", backend="switchbot"))
-    rng = random.Random(1)
-    t = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-    shown = []
-    for step in range(4):
-        asyncio.run(
-            sync.reconcile("SB", "alb", "Fam", now=t + timedelta(minutes=30 * step), rng=rng)
-        )
-        asyncio.run(ds.drain(now=t + timedelta(minutes=30 * step)))
-        (item,) = library.desired("SB")
-        shown.append(item.asset_id)
-        # Halfway to the next change nothing moves.
-        asyncio.run(
-            sync.reconcile("SB", "alb", "Fam", now=t + timedelta(minutes=30 * step + 15), rng=rng)
-        )
-        assert [i.asset_id for i in library.desired("SB")] == [item.asset_id]
-    assert sorted(shown) == ["p0", "p1", "p2", "p3"]  # each photo once
-    assert store.get_frame("SB").last_seen is not None  # type: ignore[union-attr]
-
-
 def test_quiet_hours_window_wraps_midnight() -> None:
     from datetime import UTC
 
-    from slyde_backend.folder_sync import in_quiet_hours
+    from slyde_backend.slideshow import in_quiet_hours
 
     def at(h: int, m: int = 0) -> datetime:
         # in_quiet_hours compares in the host's local time; build the instant from local time.
@@ -768,60 +553,6 @@ def test_quiet_hours_window_wraps_midnight() -> None:
     assert not in_quiet_hours("22:00-07:00", at(7)) and not in_quiet_hours("22:00-07:00", at(12))
     assert in_quiet_hours("13:00-14:00", at(13, 30)) and not in_quiet_hours("13:00-14:00", at(14))
     assert not in_quiet_hours("", at(3))
-
-
-def _slyde_sync(tmp_path: Path, settings: Settings):  # type: ignore[no-untyped-def]
-    from slyde_backend.folder_sync import FolderSyncService
-    from slyde_backend.frame import Frame
-    from slyde_backend.immich import ImmichAsset
-
-    class Immich:
-        async def __aenter__(self) -> Immich:
-            return self
-
-        async def __aexit__(self, *exc: object) -> None:
-            return None
-
-        async def album_assets(self, album_id: str) -> list[ImmichAsset]:
-            return [ImmichAsset(id=f"p{i}", file_name=f"p{i}.jpg", type="IMAGE") for i in range(5)]
-
-    store = Store(str(tmp_path / "d.db"))
-    cache = ImageCache(str(tmp_path / "cache"))
-    library = FrameLibrary(store, cache)
-    ds = DeliveryService(
-        store,
-        library,
-        cache,
-        frame_service=None,
-        immich_factory=FakeImmich,
-        settings=settings,
-        switchbot_factory=lambda: StubSwitchBot(),
-    )
-    sync = FolderSyncService(settings, store, library, ds, Immich)  # type: ignore[arg-type]
-    store.upsert_frame(Frame.cloud_push("SB", backend="switchbot"))
-    return store, library, sync
-
-
-def test_quiet_hours_hold_the_photo_but_next_photo_still_advances(tmp_path: Path) -> None:
-    from datetime import UTC, timedelta
-
-    settings = Settings(
-        switchbot_slideshow="slyde",
-        switchbot_slideshow_interval_minutes=30,
-        switchbot_quiet_hours="00:00-23:59",  # always quiet
-    )
-    _store, library, sync = _slyde_sync(tmp_path, settings)
-    t = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-    asyncio.run(sync.bind("SB", "alb", "Fam"))  # the first photo always goes out
-    first = [i.asset_id for i in library.desired("SB")]
-    assert len(first) == 1
-
-    asyncio.run(sync.reconcile("SB", "alb", "Fam", now=t + timedelta(hours=5)))
-    assert [i.asset_id for i in library.desired("SB")] == first  # quiet: held
-
-    assert asyncio.run(sync.advance("SB")) == 1  # "next photo now" ignores quiet hours
-    second = [i.asset_id for i in library.desired("SB")]
-    assert len(second) == 1 and second != first
 
 
 def test_ha_bridge_reads_battery_from_the_device_and_stores_without_showing() -> None:

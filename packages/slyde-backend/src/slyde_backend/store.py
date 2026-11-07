@@ -128,6 +128,14 @@ CREATE TABLE IF NOT EXISTS shuffle_history (
     shown_at       TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (frame_id, folder, asset_id)
 );
+CREATE TABLE IF NOT EXISTS slideshow_batch (
+    -- The library photos a slideshow frame has on air now (1 in 'slyde' mode, 10 in 'frame'):
+    -- only these are delivered; the rest of the library waits in the Shuffle-Deck.
+    frame_id  TEXT NOT NULL,
+    asset_id  TEXT NOT NULL,
+    position  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (frame_id, asset_id)
+);
 """
 
 # Per-frame setting fields + their defaults (the observed Sungale family values).
@@ -317,6 +325,7 @@ class Store:
                 "frame_alias",
                 "shuffle_epoch",
                 "shuffle_history",
+                "slideshow_batch",
             ):
                 conn.execute(
                     f"UPDATE OR IGNORE {tbl} SET frame_id=? WHERE frame_id=?", (new_id, old_id)
@@ -388,6 +397,7 @@ class Store:
             conn.execute("DELETE FROM frame_interlude WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM shuffle_epoch WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM shuffle_history WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM slideshow_batch WHERE frame_id = ?", (frame_id,))
             conn.execute(
                 "DELETE FROM frame_alias WHERE frame_id = ? OR alias = ?", (frame_id, frame_id)
             )
@@ -823,6 +833,24 @@ class Store:
                 (frame_id, folder, next_epoch, stamp if touch_rotation else None),
             )
             return chosen
+
+    def slideshow_batch(self, frame_id: str) -> list[str]:
+        """The asset ids a slideshow frame has on air, in draw order."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT asset_id FROM slideshow_batch WHERE frame_id = ? ORDER BY position",
+                (frame_id,),
+            ).fetchall()
+        return [r["asset_id"] for r in rows]
+
+    def set_slideshow_batch(self, frame_id: str, asset_ids: list[str]) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM slideshow_batch WHERE frame_id = ?", (frame_id,))
+            conn.executemany(
+                "INSERT OR IGNORE INTO slideshow_batch (frame_id, asset_id, position) "
+                "VALUES (?, ?, ?)",
+                [(frame_id, aid, i) for i, aid in enumerate(asset_ids)],
+            )
 
     def forget_shuffle_draws(self, frame_id: str, folder: str, asset_ids: list[str]) -> None:
         """Put drawn photos back into the current epoch's deck (they never reached the frame)."""

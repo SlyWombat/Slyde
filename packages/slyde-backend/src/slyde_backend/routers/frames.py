@@ -388,13 +388,15 @@ async def set_library(
 
 
 @router.get("/{frame_id}/library", response_model=LibraryView)
-async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
-    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames."""
+async def frame_library(frame_id: str, store: StoreDep, request: Request) -> LibraryView:
+    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames.
+    On a slideshow frame, photos not on air are ``waiting`` for their turn."""
     if store.get_frame(frame_id) is None:  # 404 for unknown/detached frames, mirroring DELETE (#53)
         raise HTTPException(status_code=404, detail="frame not found")
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
+    idle = "waiting" if request.app.state.delivery_service.slideshow_active(frame_id) else "unknown"
     items = [
-        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, "unknown"))
+        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, idle))
         for aid, dest, _source, folder in store.list_library(frame_id)
     ]
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
@@ -950,18 +952,19 @@ async def subscribe(
 
 
 @router.post("/{frame_id}/slideshow/next", response_model=SlideshowNext)
-async def slideshow_next(frame_id: str, request: Request, settings: SettingsDep) -> SlideshowNext:
+async def slideshow_next(
+    frame_id: str, request: Request, background: BackgroundTasks, store: StoreDep
+) -> SlideshowNext:
     """Show the next photo now (SwitchBot slideshow): draws the next Shuffle-Deck photo — or batch
-    of 10 in 'frame' mode — for the frame's kept-in-sync folders, ignoring the interval and quiet
-    hours. Delivery picks it up on its next drain (seconds)."""
-    if settings.shuffle_batch_size == 0:
+    of 10 in 'frame' mode — from the frame's library, ignoring the interval and quiet hours.
+    Delivery runs in the background right away."""
+    delivery = request.app.state.delivery_service
+    if not delivery.slideshow_active(frame_id):
         raise HTTPException(status_code=409, detail="no SwitchBot slideshow configured")
-    if not request.app.state.folder_sync.list_bindings(frame_id):
-        raise HTTPException(status_code=409, detail="no folder of this frame is kept in sync")
-    try:
-        queued = await request.app.state.folder_sync.advance(frame_id)
-    except ImmichError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not store.list_library(frame_id):
+        raise HTTPException(status_code=409, detail="the frame's library is empty")
+    queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC), advance=True)
+    background.add_task(_drain_delivery, delivery)
     return SlideshowNext(queued=queued)
 
 

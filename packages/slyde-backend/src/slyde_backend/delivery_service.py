@@ -33,6 +33,7 @@ from .imagecache import ImageCache
 from .immich import ImmichClient, ImmichError
 from .library import FrameLibrary
 from .processing import prepare, profile_for
+from .slideshow import Slideshow
 from .store import DeliveryRow, Store
 from .switchbot import SwitchBotError, SwitchBotRejectedError
 from .switchbot_service import SwitchBotTransport, switchbot_client_factory
@@ -49,6 +50,7 @@ class DeliveryService:
         settings: Settings,
         uploads: ImageCache | None = None,
         switchbot_factory: Callable[[], SwitchBotTransport] | None = None,
+        slideshow: Slideshow | None = None,
     ) -> None:
         self._store = store
         self._library = library
@@ -61,24 +63,53 @@ class DeliveryService:
         # How to reach SwitchBot's cloud (or Home Assistant bridge) for a 'switchbot' frame's push
         # delivery (injectable for tests); defaults to a client built from configured settings.
         self._switchbot_factory = switchbot_factory or switchbot_client_factory(settings)
+        # Which library photos a SwitchBot slideshow frame has on air (injectable for tests).
+        self._slideshow = slideshow or Slideshow(settings, store, library)
         self._policy = RetryPolicy()
         self._lock = asyncio.Lock()  # serialise reconcile passes (PUT, scheduler, delivery timer)
 
-    def enqueue_desired(self, frame_id: str, *, now: datetime) -> int:
+    def enqueue_desired(self, frame_id: str, *, now: datetime, advance: bool = False) -> int:
         """Queue a delivery for each curated photo that isn't already on the frame; returns how many
         were queued. Photos already ``delivered`` with the same asset are skipped, so re-saving a
         library (or adding one photo to a large album) delivers only the delta — not the whole set
-        (#46)."""
-        delivered = self._store.delivered_payloads(frame_id)
+        (#46).
+
+        A SwitchBot frame running the slideshow gets only the photos on air (``Slideshow``); the
+        delivery rows of every other photo are dropped, so a photo is pushed again when its turn
+        comes back. ``advance`` draws the next photo/batch now."""
+        if self._slideshow.active(self._store.get_frame(frame_id)):
+            items = self._slideshow.on_air(frame_id, now=now, advance=advance)
+            on_air = {i.dest_name for i in items}
+            for row in self._store.list_deliveries(frame_id):
+                if row.key not in on_air:
+                    self._store.delete_delivery(frame_id, row.key)
+            # Ticked every few seconds: a photo on air that is queued (or failed) keeps its row and
+            # its retry backoff instead of being re-queued each tick.
+            known = {r.key: r.payload for r in self._store.list_deliveries(frame_id)}
+        else:
+            items = self._library.desired(frame_id)
+            known = self._store.delivered_payloads(frame_id)
         queued = 0
-        for item in self._library.desired(frame_id):
-            if delivered.get(item.dest_name) == item.asset_id:
+        for item in items:
+            if known.get(item.dest_name) == item.asset_id:
                 continue  # already on the frame, unchanged — don't re-queue or re-deliver
             self._store.enqueue_delivery(
                 frame_id, item.dest_name, item.asset_id, next_attempt_at=now.isoformat()
             )
             queued += 1
         return queued
+
+    def tick_slideshows(self, *, now: datetime) -> int:
+        """Move every slideshow frame on to its next photo/batch when its interval is up (the
+        scheduler's tick); returns photos queued."""
+        return sum(
+            self.enqueue_desired(f.id, now=now)
+            for f in self._store.list_frames()
+            if self._slideshow.active(f)
+        )
+
+    def slideshow_active(self, frame_id: str) -> bool:
+        return self._slideshow.active(self._store.get_frame(frame_id))
 
     async def reconcile(self, *, now: datetime, limit: int = 100) -> dict[str, int]:
         """Drain one batch of the due delivery queue (bounded by ``limit``)."""

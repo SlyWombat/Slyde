@@ -50,7 +50,8 @@ configuration:
       slideshow itself (set it in the SwitchBot app). The photos are only stored, not shown —
       this needs ha-switchbot-art-frame with the "show" option of show_image; older versions
       reject the upload.
-      "off": transfer the whole album (no slideshow logic).
+      "off": transfer every photo right away (no slideshow logic).
+      The slideshow draws from all of the frame's photos: added, uploaded and kept in sync.
   switchbot_slideshow_interval_minutes:
     name: Slideshow interval (minutes)
     description: >-

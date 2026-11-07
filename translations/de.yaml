@@ -44,15 +44,17 @@ configuration:
   switchbot_slideshow:
     name: Diashow
     description: >-
-      "slyde" (empfohlen): Slyde schickt pro Intervall EIN neues Bild und zeigt jedes Bild des
-      Albums einmal, bevor sich eins wiederholt. Stelle den Rahmen in der SwitchBot-App
+      "slyde" (empfohlen): Slyde schickt pro Intervall EIN neues Bild und zeigt jedes Bild
+      einmal, bevor sich eins wiederholt. Stelle den Rahmen in der SwitchBot-App
       unbedingt auf "statisches Bild", sonst blättert er zusätzlich durch alte gespeicherte
       Bilder.
       "frame": Slyde tauscht pro Intervall alle 10 Bilder auf dem Rahmen aus, die Diashow
       macht der Rahmen selbst (in der SwitchBot-App einstellen). Die Bilder werden nur
       gespeichert, nicht angezeigt — dafür braucht ha-switchbot-art-frame die Option "show"
       bei show_image; ältere Versionen lehnen die Übertragung sonst ab.
-      "off": das ganze Album übertragen (ohne Diashow-Logik).
+      "off": jedes Bild sofort übertragen (ohne Diashow-Logik).
+      Die Diashow mischt alle Bilder des Rahmens: hinzugefügte, hochgeladene und
+      synchronisierte.
   switchbot_slideshow_interval_minutes:
     name: Diashow-Intervall (Minuten)
     description: >-

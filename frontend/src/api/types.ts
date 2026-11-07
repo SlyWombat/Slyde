@@ -148,7 +148,7 @@ export interface LibraryPhoto {
   asset_id: string;
   dest_name: string;
   folder: string; // "" = the flat "All" view (#61)
-  state: "delivered" | "pending" | "failed" | "unknown";
+  state: "delivered" | "pending" | "failed" | "unknown" | "waiting"; // waiting: slideshow deck
 }
 
 /** A frame's desired set (curation) joined with per-photo delivery state (#28). */

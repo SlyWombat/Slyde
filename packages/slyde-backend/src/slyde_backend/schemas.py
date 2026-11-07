@@ -96,7 +96,7 @@ class LibraryPhoto(BaseModel):
     asset_id: str
     dest_name: str
     folder: str = ""  # Phase 2 (#61): folder grouping; "" = the flat "All" view
-    state: str  # "delivered" | "pending" | "failed" | "unknown"
+    state: str  # "delivered" | "pending" | "failed" | "unknown" | "waiting" (slideshow deck)
 
 
 class LibraryView(BaseModel):

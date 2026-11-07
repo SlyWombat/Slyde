@@ -131,12 +131,14 @@ const STATE_TONE: Record<LibraryPhoto["state"], Tone> = {
   pending: "pending",
   failed: "fail",
   unknown: "idle",
+  waiting: "idle",
 };
 const STATE_LABEL: Record<LibraryPhoto["state"], string> = {
   delivered: "on frame",
   pending: "delivering",
   failed: "failed",
   unknown: "queued",
+  waiting: "in slideshow",
 };
 
 /**

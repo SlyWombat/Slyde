@@ -14,11 +14,12 @@ Pick one with the `switchbot_slideshow` option:
 | | `slyde` (recommended) | `frame` |
 |---|---|---|
 | What happens | Every `switchbot_slideshow_interval_minutes` Slyde sends **one** new photo. | Every interval Slyde replaces **all 10** photos on the frame; the frame's own slideshow cycles them. |
-| Order | Random, every album photo shown once before any repeats (Shuffle-Deck). | Same, in batches of 10. |
+| Photos | All of the frame's library: photos added on Curate, uploaded, and kept in sync. | Same. |
+| Order | Random, every photo shown once before any repeats (Shuffle-Deck). | Same, in batches of 10. |
 | SwitchBot app | **Set the frame to a static image.** Otherwise it also cycles through the photos it still stores. | Set up the slideshow (interval) in the SwitchBot app. |
 | Caveat | Each change wakes the frame (BLE + Wi-Fi), so very short intervals cost battery. Set `switchbot_quiet_hours` (e.g. `22:00-07:00`) to skip changes overnight. | Photos are stored without being shown (`show: false`), which needs a version of ha-switchbot-art-frame whose `show_image` has the `show` option; older versions reject the upload. |
 
-`off` transfers the whole album without any slideshow logic.
+`off` transfers every photo right away, without any slideshow logic.
 
 ## Installation on Home Assistant OS
 

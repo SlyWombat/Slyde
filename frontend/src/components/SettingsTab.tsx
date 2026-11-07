@@ -216,14 +216,16 @@ function SlideshowCard({ frameId, detail }: { frameId: string; detail?: FrameDet
       )}
       {mode === "slyde" && (
         <Banner tone="idle">
-          Slyde sends one new photo per interval and shows each photo once before any repeats. Set
+          Slyde sends one new photo per interval, picked from the frame&apos;s whole library —
+          added, uploaded or kept in sync — and shows each photo once before any repeats. Set
           the frame to a <b>static image</b> in the SwitchBot app — otherwise its own slideshow
           also cycles through the photos it still stores.
         </Banner>
       )}
       {mode === "frame" && (
         <Banner tone="idle">
-          Every interval Slyde replaces the frame&apos;s 10 photos, storing them without showing
+          Every interval Slyde replaces the frame&apos;s 10 photos with 10 more from its library,
+          storing them without showing
           each one; the slideshow you set in the SwitchBot app cycles them. Needs
           ha-switchbot-art-frame with the <code>show</code> option of <code>show_image</code>.
         </Banner>

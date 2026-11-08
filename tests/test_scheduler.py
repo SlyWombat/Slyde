@@ -43,7 +43,7 @@ def test_delivery_loop_drains_on_its_own_cadence() -> None:
             self.drains = 0
             self.ticks = 0
 
-        def tick_slideshows(self, *, now: datetime) -> int:
+        async def tick_slideshows(self, *, now: datetime) -> int:
             self.ticks += 1
             return 0
 

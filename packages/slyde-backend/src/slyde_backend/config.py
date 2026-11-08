@@ -110,9 +110,9 @@ class Settings(BaseSettings):
     )
     switchbot_slideshow: Literal["off", "slyde", "frame"] = Field(
         "off",
-        description="Who runs the slideshow of a kept-in-sync folder on a SwitchBot frame: 'off' "
-        "(sync the whole album, the classic behaviour) | 'slyde' (Slyde pushes ONE new photo every "
-        "interval, never repeating one before the whole album was shown; set the frame to a static "
+        description="Who runs the slideshow over a SwitchBot frame's library: 'off' (deliver every "
+        "photo, the classic behaviour) | 'slyde' (Slyde pushes ONE new photo every interval, never "
+        "repeating one before the whole library was shown; set the frame to a static "
         "image in the SwitchBot app) | 'frame' (Slyde swaps a batch of 10 photos every interval "
         "and the frame's own slideshow cycles them; with ha_service the photos are stored without "
         "being shown, which needs ha-switchbot-art-frame with show_image's 'show' option)",
@@ -128,6 +128,13 @@ class Settings(BaseSettings):
         pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$",
         description="Local-time window with no slideshow changes, e.g. 22:00-07:00 (saves the "
         "frame's battery overnight; empty = none). 'Next photo' in the UI still works.",
+    )
+    switchbot_presence_entity: str = Field(
+        "",
+        pattern=r"^$|^[a-z_]+\.[a-z0-9_]+$",
+        description="Home Assistant entity that says someone is home (zone.home, a person, a "
+        "group, binary_sensor or input_boolean): the slideshow only changes while it reads "
+        "home/on or a count above 0. Empty = always.",
     )
     switchbot_delivery_mode: Literal["cloud_only", "ha_service"] = Field(
         "cloud_only",
@@ -320,14 +327,6 @@ class Settings(BaseSettings):
         """Photos per Shuffle-Deck draw on a SwitchBot frame: 1 when Slyde runs the slideshow, the
         frame's 10 local slots when the frame does, 0 (whole album, no shuffle) when off."""
         return {"slyde": 1, "frame": 10}.get(self.switchbot_slideshow, 0)
-
-    @property
-    def effective_sync_interval_minutes(self) -> int:
-        """When Slyde runs the slideshow, the sync cycle IS the slideshow clock: one cycle per photo
-        change (album changes are picked up on the same cycle)."""
-        if self.switchbot_slideshow == "slyde":
-            return self.switchbot_slideshow_interval_minutes
-        return self.sync_interval_minutes
 
     @property
     def effective_ha_token(self) -> str:

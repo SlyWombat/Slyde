@@ -8,6 +8,8 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
+
 from slyde_backend.config import Settings
 from slyde_backend.delivery_service import DeliveryService
 from slyde_backend.folder_sync import FolderSyncService
@@ -15,7 +17,8 @@ from slyde_backend.frame import Frame
 from slyde_backend.imagecache import ImageCache
 from slyde_backend.immich import ImmichAsset
 from slyde_backend.library import FrameLibrary, LibraryItem
-from slyde_backend.slideshow import DECK, Slideshow
+from slyde_backend.presence import Presence, is_present
+from slyde_backend.slideshow import DECK, Slideshow, SlideshowConfig
 from slyde_backend.store import Store
 from test_switchbot_backend import FakeImmich, StubSwitchBot
 
@@ -183,12 +186,162 @@ def test_tick_moves_only_slideshow_frames(tmp_path: Path) -> None:
     h.curate(["p0", "p1"])
     h.store.upsert_frame(Frame.cloud_push("EF", backend="served"))
     h.library.set_desired("EF", [LibraryItem("x", "x.jpg")])
-    assert h.ds.tick_slideshows(now=T) == 1  # SB's first photo; EF isn't a slideshow frame
-    assert h.ds.tick_slideshows(now=T + timedelta(minutes=1)) == 0
-    assert h.ds.tick_slideshows(now=T + timedelta(minutes=5)) == 1
+    # SB's first photo; EF isn't a slideshow frame.
+    assert asyncio.run(h.ds.tick_slideshows(now=T)) == 1
+    assert asyncio.run(h.ds.tick_slideshows(now=T + timedelta(minutes=1))) == 0
+    assert asyncio.run(h.ds.tick_slideshows(now=T + timedelta(minutes=5))) == 1
 
 
 def test_off_delivers_the_whole_library(tmp_path: Path) -> None:
     h = Harness(tmp_path, Settings())
     h.curate(["p0", "p1", "p2"])
     assert h.step(T) == 3 and h.on_air() == []
+
+
+# -- per-frame settings (UI) and presence ------------------------------------------------------
+
+
+class FakeHA:
+    """Home Assistant's /api/states for presence entities; flip ``states`` to come and go."""
+
+    def __init__(self, states: dict[str, str]) -> None:
+        self.states = states
+        self.requests = 0
+
+    def transport(self) -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests += 1
+            assert request.headers["Authorization"] == "Bearer tok"
+            if request.url.path == "/api/states":
+                return httpx.Response(
+                    200,
+                    json=[
+                        {"entity_id": e, "state": s, "attributes": {"friendly_name": e}}
+                        for e, s in self.states.items()
+                    ],
+                )
+            entity = request.url.path.rsplit("/", 1)[-1]
+            if entity not in self.states:
+                return httpx.Response(404)
+            return httpx.Response(200, json={"entity_id": entity, "state": self.states[entity]})
+
+        return httpx.MockTransport(handler)
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def _presence_harness(tmp_path: Path, ha: FakeHA, clock: Clock, **settings: object) -> Harness:
+    s = Settings(
+        switchbot_slideshow="slyde",
+        switchbot_slideshow_interval_minutes=30,
+        ha_base_url="http://ha",
+        ha_token="tok",
+        **settings,  # type: ignore[arg-type]
+    )
+    h = Harness(tmp_path, s)
+    presence = Presence(s, transport=ha.transport(), clock=clock)
+    h.ds._slideshow = Slideshow(s, h.store, h.library, rng=random.Random(1), presence=presence)
+    return h
+
+
+def test_presence_states() -> None:
+    assert is_present("home") and is_present("on") and is_present("2")
+    assert is_present("not_home") is False and is_present("off") is False
+    assert is_present("0") is False  # zone.home: nobody in the zone
+    assert is_present("unavailable") is None and is_present("Büro") is None  # neither: unknown
+
+
+def test_frame_settings_override_the_configured_defaults(tmp_path: Path) -> None:
+    settings = Settings(switchbot_slideshow="slyde", switchbot_quiet_hours="22:00-07:00")
+    h = Harness(tmp_path, settings)
+    show = h.ds.slideshow
+    assert show.config("SB").interval_minutes == 60  # the add-on default
+    h.store.set_slideshow_setting("SB", 10, "", "zone.home")
+    assert show.config("SB") == SlideshowConfig(10, "", "zone.home")
+
+    h.curate(["p0", "p1", "p2"])
+    h.store.set_slideshow_setting("SB", 10, "", "")
+    h.step(T)
+    first = h.on_air()
+    assert h.step(T + timedelta(minutes=10)) == 1 and h.on_air() != first  # 10, not 60
+
+
+def test_slideshow_pauses_while_nobody_is_home(tmp_path: Path) -> None:
+    ha = FakeHA({"zone.home": "1"})
+    clock = Clock()
+    h = _presence_harness(tmp_path, ha, clock, switchbot_presence_entity="zone.home")
+    h.curate([f"p{i}" for i in range(5)])
+    asyncio.run(h.ds.tick_slideshows(now=T))
+    asyncio.run(h.ds.drain(now=T))
+    first = h.on_air()
+
+    ha.states["zone.home"] = "0"  # everybody left
+    clock.t = 120  # presence cache (60 s) expired
+    later = T + timedelta(hours=3)
+    assert asyncio.run(h.ds.tick_slideshows(now=later)) == 0
+    assert h.on_air() == first  # held while away
+
+    assert h.step(later, advance=True) == 1  # "next photo now" still works while away
+    held = h.on_air()
+
+    ha.states["zone.home"] = "2"  # someone is back: the overdue change happens on the next tick
+    clock.t = 240
+    assert asyncio.run(h.ds.tick_slideshows(now=later + timedelta(minutes=31))) == 1
+    assert h.on_air() != held
+
+
+def test_presence_is_cached_and_fails_open(tmp_path: Path) -> None:
+    ha = FakeHA({})  # the entity doesn't exist (typo, deleted): never blocks the slideshow
+    clock = Clock()
+    h = _presence_harness(tmp_path, ha, clock, switchbot_presence_entity="person.nobody")
+    h.curate(["p0", "p1"])
+    asyncio.run(h.ds.tick_slideshows(now=T))
+    for n in range(5):  # ticks every few seconds within the minute: one request
+        asyncio.run(h.ds.tick_slideshows(now=T + timedelta(seconds=5 * n)))
+    assert ha.requests == 1
+    first = h.on_air()
+    clock.t = 61
+    assert asyncio.run(h.ds.tick_slideshows(now=T + timedelta(minutes=30))) == 1
+    assert h.on_air() != first and ha.requests == 2
+
+
+def test_slideshow_settings_api(tmp_path: Path) -> None:
+    from test_served_backend import ServedHarness
+
+    served = ServedHarness(
+        Settings(
+            frame_backend="sungale-cloud",
+            frame_discovery=False,
+            database_url=f"sqlite:///{tmp_path}/m.db",
+            cache_dir=f"{tmp_path}/cache",
+            switchbot_slideshow="slyde",
+            switchbot_slideshow_interval_minutes=180,
+            switchbot_quiet_hours="22:00-07:00",
+        )
+    )
+    try:
+        served.app.state.store.upsert_frame(Frame.cloud_push("SB", backend="switchbot"))
+        got = served.request("GET", "/api/frames/SB/slideshow").json()
+        assert got["interval_minutes"] == 180 and got["quiet_hours"] == "22:00-07:00"
+        assert got["mode"] == "slyde" and got["defaults"]["interval_minutes"] == 180
+        assert got["ha_available"] is False and got["someone_home"] is None
+
+        body = {"interval_minutes": 45, "quiet_hours": "23:30-06:15", "presence_entity": ""}
+        put = served.request("PUT", "/api/frames/SB/slideshow", json=body)
+        assert put.status_code == 200 and put.json()["interval_minutes"] == 45
+        detail = served.request("GET", "/api/frames/SB/detail").json()
+        assert detail["slideshow_interval_minutes"] == 45
+        assert detail["quiet_hours"] == "23:30-06:15"
+
+        bad = {"interval_minutes": 0, "quiet_hours": "25:00-07:00", "presence_entity": "Zone Home"}
+        assert served.request("PUT", "/api/frames/SB/slideshow", json=bad).status_code == 422
+        assert served.request("GET", "/api/frames/nope/slideshow").status_code == 404
+        assert served.request("GET", "/api/frames/SB/slideshow/presence-entities").json() == []
+    finally:
+        served.close()

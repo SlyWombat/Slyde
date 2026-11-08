@@ -13,6 +13,9 @@ import type {
   InterludeConfig,
   InterludeStatus,
   LibraryView,
+  PresenceEntity,
+  SlideshowSettings,
+  SlideshowSettingsUpdate,
   Subscription,
   SyncJobInfo,
   SwitchBotFrameStatus,
@@ -80,6 +83,15 @@ export const api = {
   // Draw the next slideshow photo (or batch) for a SwitchBot frame now.
   slideshowNext: (id: string) =>
     request<{ queued: number }>(`/frames/${enc(id)}/slideshow/next`, { method: "POST" }),
+  slideshowSettings: (id: string) => request<SlideshowSettings>(`/frames/${enc(id)}/slideshow`),
+  setSlideshowSettings: (id: string, body: SlideshowSettingsUpdate) =>
+    request<SlideshowSettings>(`/frames/${enc(id)}/slideshow`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  // Home Assistant entities that can say whether someone is home (for the presence picker).
+  presenceEntities: (id: string) =>
+    request<PresenceEntity[]>(`/frames/${enc(id)}/slideshow/presence-entities`),
   // How an Immich asset renders on this frame's panel (LCD JPEG vs e-ink palette PNG) (#30/#39).
   framePreviewUrl: (id: string, assetId: string) =>
     `${BASE}/frames/${enc(id)}/preview/${enc(assetId)}`,

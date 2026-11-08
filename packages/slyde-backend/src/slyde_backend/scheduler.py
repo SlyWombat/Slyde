@@ -97,7 +97,7 @@ class SyncScheduler:
             await asyncio.sleep(self._delivery_interval)
             try:
                 now = datetime.now(UTC)
-                self._delivery.tick_slideshows(now=now)  # a slideshow change is due on its minute
+                await self._delivery.tick_slideshows(now=now)  # a slideshow change is due on time
                 await self._delivery.drain(now=now)
             except Exception:
                 _log.exception("delivery drain failed")

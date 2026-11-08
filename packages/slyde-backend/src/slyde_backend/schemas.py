@@ -123,6 +123,31 @@ class SlideshowNext(BaseModel):
     queued: int  # photos queued for delivery by "next photo"
 
 
+QUIET_HOURS_PATTERN = r"^$|^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$"
+ENTITY_PATTERN = r"^$|^[a-z_]+\.[a-z0-9_]+$"
+
+
+class SlideshowSettingsUpdate(BaseModel):
+    """A SwitchBot frame's slideshow settings, as set in the UI."""
+
+    interval_minutes: int = Field(ge=1, le=43200)
+    quiet_hours: str = Field("", pattern=QUIET_HOURS_PATTERN)  # "HH:MM-HH:MM" local, "" = none
+    presence_entity: str = Field("", pattern=ENTITY_PATTERN)  # HA entity, "" = always
+
+
+class SlideshowSettings(SlideshowSettingsUpdate):
+    mode: str  # 'off' | 'slyde' | 'frame' (add-on option, not per frame)
+    defaults: SlideshowSettingsUpdate  # the configured values a frame starts from
+    ha_available: bool  # whether Slyde can reach Home Assistant (for presence)
+    someone_home: bool | None = None  # the presence entity's answer, None = unknown / not set
+
+
+class PresenceEntityInfo(BaseModel):
+    entity_id: str
+    name: str
+    state: str
+
+
 class FrameDetailInfo(BaseModel):
     """Registry detail for a frame by id (any backend) + its backend capabilities (#28)."""
 

@@ -221,3 +221,23 @@ export interface SwitchBotFrameStatus {
   image_url: string;
   version: string;
 }
+
+/** A SwitchBot frame's slideshow settings (per frame; the add-on options are the defaults). */
+export interface SlideshowSettingsUpdate {
+  interval_minutes: number;
+  quiet_hours: string; // "HH:MM-HH:MM" local time, "" = none
+  presence_entity: string; // Home Assistant entity, "" = always
+}
+
+export interface SlideshowSettings extends SlideshowSettingsUpdate {
+  mode: "off" | "slyde" | "frame";
+  defaults: SlideshowSettingsUpdate;
+  ha_available: boolean;
+  someone_home: boolean | null; // null = unknown or no presence entity
+}
+
+export interface PresenceEntity {
+  entity_id: string;
+  name: string;
+  state: string;
+}

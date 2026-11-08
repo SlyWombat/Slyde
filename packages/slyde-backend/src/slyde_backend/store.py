@@ -136,6 +136,13 @@ CREATE TABLE IF NOT EXISTS slideshow_batch (
     position  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (frame_id, asset_id)
 );
+CREATE TABLE IF NOT EXISTS slideshow_setting (
+    -- A frame's slideshow settings, set in the UI; no row = the configured defaults.
+    frame_id         TEXT PRIMARY KEY,
+    interval_minutes INTEGER NOT NULL,
+    quiet_hours      TEXT NOT NULL DEFAULT '',
+    presence_entity  TEXT NOT NULL DEFAULT ''
+);
 """
 
 # Per-frame setting fields + their defaults (the observed Sungale family values).
@@ -326,6 +333,7 @@ class Store:
                 "shuffle_epoch",
                 "shuffle_history",
                 "slideshow_batch",
+                "slideshow_setting",
             ):
                 conn.execute(
                     f"UPDATE OR IGNORE {tbl} SET frame_id=? WHERE frame_id=?", (new_id, old_id)
@@ -398,6 +406,7 @@ class Store:
             conn.execute("DELETE FROM shuffle_epoch WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM shuffle_history WHERE frame_id = ?", (frame_id,))
             conn.execute("DELETE FROM slideshow_batch WHERE frame_id = ?", (frame_id,))
+            conn.execute("DELETE FROM slideshow_setting WHERE frame_id = ?", (frame_id,))
             conn.execute(
                 "DELETE FROM frame_alias WHERE frame_id = ? OR alias = ?", (frame_id, frame_id)
             )
@@ -850,6 +859,30 @@ class Store:
                 "INSERT OR IGNORE INTO slideshow_batch (frame_id, asset_id, position) "
                 "VALUES (?, ?, ?)",
                 [(frame_id, aid, i) for i, aid in enumerate(asset_ids)],
+            )
+
+    def slideshow_setting(self, frame_id: str) -> tuple[int, str, str] | None:
+        """``(interval_minutes, quiet_hours, presence_entity)`` set for a frame, or ``None``."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT interval_minutes, quiet_hours, presence_entity FROM slideshow_setting "
+                "WHERE frame_id = ?",
+                (frame_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return int(row["interval_minutes"]), row["quiet_hours"], row["presence_entity"]
+
+    def set_slideshow_setting(
+        self, frame_id: str, interval_minutes: int, quiet_hours: str, presence_entity: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO slideshow_setting "
+                "(frame_id, interval_minutes, quiet_hours, presence_entity) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(frame_id) DO UPDATE SET interval_minutes=excluded.interval_minutes, "
+                "quiet_hours=excluded.quiet_hours, presence_entity=excluded.presence_entity",
+                (frame_id, interval_minutes, quiet_hours, presence_entity),
             )
 
     def forget_shuffle_draws(self, frame_id: str, folder: str, asset_ids: list[str]) -> None:

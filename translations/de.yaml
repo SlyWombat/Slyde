@@ -58,6 +58,8 @@ configuration:
   switchbot_slideshow_interval_minutes:
     name: Diashow-Intervall (Minuten)
     description: >-
+      Standardwert; Intervall, Nachtruhe und Anwesenheit lassen sich pro Rahmen in den
+      Slyde-Einstellungen ändern.
       Bei "slyde": wie oft ein neues Bild kommt (jeder Wechsel weckt den Rahmen per BLE/WLAN
       und kostet Akku). Bei "frame": wie oft die 10 Bilder ausgetauscht werden.
   switchbot_quiet_hours:
@@ -65,11 +67,16 @@ configuration:
     description: >-
       Zeitfenster ohne Bildwechsel in Ortszeit, z. B. 22:00-07:00 — spart nachts Akku.
       Leer = keine Nachtruhe. "Nächstes Bild" in Slyde funktioniert trotzdem.
+  switchbot_presence_entity:
+    name: Nur wenn jemand zu Hause ist
+    description: >-
+      Home-Assistant-Entität, z. B. zone.home, person.anna, group.familie oder ein
+      binary_sensor. Die Diashow wechselt nur, solange sie home/on meldet (zone.home:
+      mindestens 1 Person). Leer = immer.
   sync_interval_minutes:
     name: Album-Abgleich (Minuten)
     description: >-
-      Wie oft Slyde Immich auf Änderungen prüft. Bei Diashow "slyde" ohne Wirkung — dann
-      wird bei jedem Bildwechsel abgeglichen.
+      Wie oft Slyde synchronisierte Alben in Immich auf Änderungen prüft.
   switchbot_token:
     name: SwitchBot-Token
     description: Nur für Übertragungsweg "cloud_only".

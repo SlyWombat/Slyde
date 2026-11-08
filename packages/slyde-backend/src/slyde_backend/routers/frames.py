@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -61,9 +62,12 @@ from ..schemas import (
     LibraryItemModel,
     LibraryPhoto,
     LibraryView,
+    PresenceEntityInfo,
     RegisterFrameRequest,
     RenameFrameRequest,
     SlideshowNext,
+    SlideshowSettings,
+    SlideshowSettingsUpdate,
     SubscribeRequest,
     Subscription,
     SwitchBotFrameStatus,
@@ -416,13 +420,16 @@ async def remove_library_item(frame_id: str, asset_id: str, request: Request) ->
 
 
 @router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
-async def frame_detail(frame_id: str, store: StoreDep, settings: SettingsDep) -> FrameDetailInfo:
+async def frame_detail(
+    frame_id: str, request: Request, store: StoreDep, settings: SettingsDep
+) -> FrameDetailInfo:
     """Registry detail + backend capabilities for a frame by id (#28)."""
     f = store.get_frame(frame_id)
     if f is None:
         raise HTTPException(status_code=404, detail="frame not found")
     caps = get_backend(f.backend).capabilities
     switchbot = f.backend == SwitchBotBackend.name
+    show = request.app.state.delivery_service.slideshow.config(f.id) if switchbot else None
     return FrameDetailInfo(
         id=f.id,
         backend=f.backend,
@@ -433,10 +440,8 @@ async def frame_detail(frame_id: str, store: StoreDep, settings: SettingsDep) ->
         last_seen=f.last_seen,
         capabilities=CapabilitiesInfo(**vars(caps)),
         slideshow=settings.switchbot_slideshow if switchbot else None,
-        slideshow_interval_minutes=settings.switchbot_slideshow_interval_minutes
-        if switchbot
-        else None,
-        quiet_hours=settings.switchbot_quiet_hours if switchbot else None,
+        slideshow_interval_minutes=show.interval_minutes if show else None,
+        quiet_hours=show.quiet_hours if show else None,
     )
 
 
@@ -966,6 +971,77 @@ async def slideshow_next(
     queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC), advance=True)
     background.add_task(_drain_delivery, delivery)
     return SlideshowNext(queued=queued)
+
+
+def _switchbot_frame(store: Store, frame_id: str) -> Frame:
+    f = store.get_frame(frame_id)
+    if f is None or f.backend != SwitchBotBackend.name:
+        raise HTTPException(status_code=404, detail="no SwitchBot frame with this id")
+    return f
+
+
+def _slideshow_settings(request: Request, settings: Settings, frame_id: str) -> SlideshowSettings:
+    slideshow = request.app.state.delivery_service.slideshow
+    config = slideshow.config(frame_id)
+    return SlideshowSettings(
+        interval_minutes=config.interval_minutes,
+        quiet_hours=config.quiet_hours,
+        presence_entity=config.presence_entity,
+        mode=settings.switchbot_slideshow,
+        defaults=SlideshowSettingsUpdate(
+            interval_minutes=settings.switchbot_slideshow_interval_minutes,
+            quiet_hours=settings.switchbot_quiet_hours,
+            presence_entity=settings.switchbot_presence_entity,
+        ),
+        ha_available=slideshow.presence.configured,
+        someone_home=slideshow.presence.home(config.presence_entity)
+        if config.presence_entity
+        else None,
+    )
+
+
+@router.get("/{frame_id}/slideshow", response_model=SlideshowSettings)
+async def get_slideshow(
+    frame_id: str, request: Request, store: StoreDep, settings: SettingsDep
+) -> SlideshowSettings:
+    """A SwitchBot frame's slideshow settings (interval, quiet hours, presence) and who is home."""
+    _switchbot_frame(store, frame_id)
+    presence_entity = request.app.state.delivery_service.slideshow.config(frame_id).presence_entity
+    if presence_entity:
+        await request.app.state.delivery_service.slideshow.presence.refresh({presence_entity})
+    return _slideshow_settings(request, settings, frame_id)
+
+
+@router.put("/{frame_id}/slideshow", response_model=SlideshowSettings)
+async def put_slideshow(
+    frame_id: str,
+    body: SlideshowSettingsUpdate,
+    request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
+) -> SlideshowSettings:
+    """Set a SwitchBot frame's slideshow interval, quiet hours and presence entity. Takes effect
+    on the next slideshow tick (seconds); the interval counts from the last change."""
+    _switchbot_frame(store, frame_id)
+    store.set_slideshow_setting(
+        frame_id, body.interval_minutes, body.quiet_hours, body.presence_entity
+    )
+    if body.presence_entity:  # answer "is anyone home?" right away for the picked entity
+        await request.app.state.delivery_service.slideshow.presence.check(body.presence_entity)
+    return _slideshow_settings(request, settings, frame_id)
+
+
+@router.get("/{frame_id}/slideshow/presence-entities", response_model=list[PresenceEntityInfo])
+async def presence_entities(
+    frame_id: str, request: Request, store: StoreDep
+) -> list[PresenceEntityInfo]:
+    """Home Assistant entities that can say whether someone is home (zone, person, group, …)."""
+    _switchbot_frame(store, frame_id)
+    try:
+        found = await request.app.state.delivery_service.slideshow.presence.entities()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Home Assistant: {exc}") from exc
+    return [PresenceEntityInfo(**vars(e)) for e in found]
 
 
 @router.post("/{frame_id}/folders/add-album", response_model=SyncJobInfo, status_code=202)

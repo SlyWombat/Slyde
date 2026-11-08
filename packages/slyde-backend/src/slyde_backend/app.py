@@ -64,7 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         scheduler = SyncScheduler(
             folder_sync,
-            settings.effective_sync_interval_minutes,
+            settings.sync_interval_minutes,
             delivery_service,
             settings.delivery_interval_seconds,
             current_preview=_refresh_current_previews,

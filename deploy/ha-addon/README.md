@@ -21,6 +21,13 @@ Pick one with the `switchbot_slideshow` option:
 
 `off` transfers every photo right away, without any slideshow logic.
 
+Interval, quiet hours and **"only while someone is home"** are set per frame in Slyde under
+*Settings → Slideshow*; the add-on options `switchbot_slideshow_interval_minutes`,
+`switchbot_quiet_hours` and `switchbot_presence_entity` are only the defaults. For presence pick
+`zone.home` (changes while at least one person is home), a `person`, a `group` of people, or any
+`binary_sensor`/`input_boolean` that is `on` when someone is home. While nobody is home the photo
+stays; the change that came due happens when someone is back. "Next photo now" always works.
+
 ## Installation on Home Assistant OS
 
 1. Install **[SwitchBot Art Frame Tools (`ha-switchbot-art-frame`)](https://github.com/se0siris/ha-switchbot-art-frame)** via HACS in Home Assistant and configure it with your Art Frame and SwitchBot account. Note the sensor entity ID (e.g. `sensor.art_frame_eeff_local_images`).

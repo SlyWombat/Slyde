@@ -99,14 +99,18 @@ class DeliveryService:
             queued += 1
         return queued
 
-    def tick_slideshows(self, *, now: datetime) -> int:
+    async def tick_slideshows(self, *, now: datetime) -> int:
         """Move every slideshow frame on to its next photo/batch when its interval is up (the
-        scheduler's tick); returns photos queued."""
-        return sum(
-            self.enqueue_desired(f.id, now=now)
-            for f in self._store.list_frames()
-            if self._slideshow.active(f)
-        )
+        scheduler's tick), after re-reading who is home; returns photos queued."""
+        frames = [f.id for f in self._store.list_frames() if self._slideshow.active(f)]
+        if not frames:
+            return 0
+        await self._slideshow.refresh_presence(frames)
+        return sum(self.enqueue_desired(f, now=now) for f in frames)
+
+    @property
+    def slideshow(self) -> Slideshow:
+        return self._slideshow
 
     def slideshow_active(self, frame_id: str) -> bool:
         return self._slideshow.active(self._store.get_frame(frame_id))

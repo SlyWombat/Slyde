@@ -55,6 +55,7 @@ configuration:
   switchbot_slideshow_interval_minutes:
     name: Slideshow interval (minutes)
     description: >-
+      Default; each frame can override interval, quiet hours and presence in Slyde's settings.
       "slyde": how often a new photo arrives (each change wakes the frame over BLE/Wi-Fi and
       costs battery). "frame": how often the 10 photos are replaced.
   switchbot_quiet_hours:
@@ -62,11 +63,16 @@ configuration:
     description: >-
       Local-time window without photo changes, e.g. 22:00-07:00 — saves battery overnight.
       Empty = none. "Next photo" in Slyde still works.
+  switchbot_presence_entity:
+    name: Only while someone is home
+    description: >-
+      Home Assistant entity, e.g. zone.home, person.anna, group.family or a binary_sensor.
+      The slideshow only changes while it reads home/on (zone.home: at least 1 person).
+      Empty = always.
   sync_interval_minutes:
     name: Album check (minutes)
     description: >-
-      How often Slyde checks Immich for changes. Ignored with slideshow "slyde" — the album is
-      checked on every photo change then.
+      How often Slyde checks kept-in-sync albums in Immich for changes.
   switchbot_token:
     name: SwitchBot token
     description: Only for delivery "cloud_only".

@@ -1,5 +1,5 @@
 name: Slyde Frame Manager
-version: "0.4.0"
+version: "0.5.0"
 slug: slyde
 description: "Sync & rotate Immich photo albums onto a SwitchBot AI Art Frame (13.3\"/7.3\"/31.5\"), Memento, or Sungale e-paper frame"
 url: "https://github.com/SlyWombat/Slyde"
@@ -32,6 +32,7 @@ options:
   switchbot_slideshow: "slyde"
   switchbot_slideshow_interval_minutes: 60
   switchbot_quiet_hours: ""
+  switchbot_presence_entity: ""
   sync_interval_minutes: 60
   switchbot_token: ""
   switchbot_secret: ""
@@ -51,6 +52,7 @@ schema:
   switchbot_slideshow: "list(slyde|frame|off)"
   switchbot_slideshow_interval_minutes: "int(1,43200)"
   switchbot_quiet_hours: "match(^$|^([01][0-9]|2[0-3]):[0-5][0-9]-([01][0-9]|2[0-3]):[0-5][0-9]$)?"
+  switchbot_presence_entity: "match(^$|^[a-z_]+[.][a-z0-9_]+$)?"
   sync_interval_minutes: "int(0,10080)"
   switchbot_token: "password?"
   switchbot_secret: "password?"

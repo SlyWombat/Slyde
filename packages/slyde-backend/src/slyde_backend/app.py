@@ -88,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # SwitchBot AI Art Frames are account-scoped: this lists/registers them + reads live status
         # (the 'switchbot' backend pushes to SwitchBot's cloud; delivery rides the same queue, #64).
         app.state.switchbot = SwitchBotService(settings, store)
+        app.state.switchbot.seed_configured_frame()
         # The interlude conductor: shows a recurring non-photo image between a frame's photos, and
         # hands the slideshow straight back to the frame whenever that image isn't there (#70).
         # It starts by restoring any frame a previous process left parked mid-interlude.

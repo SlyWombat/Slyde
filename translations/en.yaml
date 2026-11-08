@@ -1,0 +1,81 @@
+configuration:
+  frame_backend:
+    name: Frame type
+    description: Choose "switchbot" for the SwitchBot AI Art Frame.
+  immich_base_url:
+    name: Immich URL
+    description: Address of your Immich server, e.g. https://immich.example.com
+  immich_api_key:
+    name: Immich API key
+    description: >-
+      Needs album.read, asset.read, asset.view (and asset.download only for image size
+      "original").
+  immich_asset_size:
+    name: Image size from Immich
+    description: '"preview" is enough for the 13.3" frame (1200×1600) and fastest.'
+  switchbot_delivery_mode:
+    name: Delivery
+    description: >-
+      "ha_service": through the ha-switchbot-art-frame integration (BLE wake-up, frees old
+      images automatically). "cloud_only": straight to the SwitchBot OpenAPI (token + secret).
+  ha_art_frame_entity_id:
+    name: Frame entity
+    description: >-
+      The frame's "Local images" sensor from ha-switchbot-art-frame, e.g.
+      sensor.art_frame_local_images.
+  switchbot_device_id:
+    name: SwitchBot device id (optional)
+    description: >-
+      Leave empty. Only Slyde's internal id for the frame; changing it later adds a second
+      frame.
+  switchbot_frame_size:
+    name: Frame size (inches)
+  switchbot_orientation:
+    name: Orientation
+  frame_fit:
+    name: Crop
+    description: '"smart" crops around faces / the subject.'
+  frame_crop_tolerance:
+    name: Crop tolerance
+  switchbot_max_image_bytes:
+    name: Max image size (bytes)
+    description: SwitchBot accepts ~650 KB at most; larger JPEGs are compressed harder.
+  switchbot_slideshow:
+    name: Slideshow
+    description: >-
+      "slyde" (recommended): Slyde sends ONE new photo per interval and shows every photo of the
+      album once before any repeats. Set the frame to a static image in the SwitchBot app,
+      otherwise it also cycles through old stored photos.
+      "frame": Slyde replaces all 10 photos on the frame per interval and the frame runs the
+      slideshow itself (set it in the SwitchBot app). The photos are only stored, not shown —
+      this needs ha-switchbot-art-frame with the "show" option of show_image; older versions
+      reject the upload.
+      "off": transfer every photo right away (no slideshow logic).
+      The slideshow draws from all of the frame's photos: added, uploaded and kept in sync.
+  switchbot_slideshow_interval_minutes:
+    name: Slideshow interval (minutes)
+    description: >-
+      Default; each frame can override interval, quiet hours and presence in Slyde's settings.
+      "slyde": how often a new photo arrives (each change wakes the frame over BLE/Wi-Fi and
+      costs battery). "frame": how often the 10 photos are replaced.
+  switchbot_quiet_hours:
+    name: Quiet hours
+    description: >-
+      Local-time window without photo changes, e.g. 22:00-07:00 — saves battery overnight.
+      Empty = none. "Next photo" in Slyde still works.
+  switchbot_presence_entity:
+    name: Only while someone is home
+    description: >-
+      Home Assistant entity, e.g. zone.home, person.anna, group.family or a binary_sensor.
+      The slideshow only changes while it reads home/on (zone.home: at least 1 person).
+      Empty = always.
+  sync_interval_minutes:
+    name: Album check (minutes)
+    description: >-
+      How often Slyde checks kept-in-sync albums in Immich for changes.
+  switchbot_token:
+    name: SwitchBot token
+    description: Only for delivery "cloud_only".
+  switchbot_secret:
+    name: SwitchBot secret
+    description: Only for delivery "cloud_only".

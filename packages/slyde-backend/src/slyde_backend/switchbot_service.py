@@ -13,16 +13,42 @@ Credentials come from ``Settings`` (``SWITCHBOT_TOKEN`` / ``SWITCHBOT_SECRET``);
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any, Protocol
 
 from .backends.switchbot import SwitchBotBackend
 from .config import Settings
 from .frame import Frame
 from .store import Store
-from .switchbot import ArtFrameStatus, SwitchBotClient
+from .switchbot import (
+    ArtFrameStatus,
+    HomeAssistantArtFrameClient,
+    SwitchBotClient,
+    SwitchBotDevice,
+)
 
 
-def switchbot_client_factory(settings: Settings) -> Callable[[], SwitchBotClient]:
-    """A factory that builds a ``SwitchBotClient`` from configured creds (never hardcoded)."""
+class SwitchBotTransport(Protocol):
+    async def __aenter__(self) -> SwitchBotTransport: ...
+    async def __aexit__(self, *exc: object) -> None: ...
+    async def art_frames(self) -> list[SwitchBotDevice]: ...
+    async def art_frame_status(self, device_id: str) -> ArtFrameStatus: ...
+    async def upload_image_bytes(
+        self, device_id: str, image: bytes, *, mime: str = "image/jpeg"
+    ) -> Any: ...
+
+
+def switchbot_client_factory(settings: Settings) -> Callable[[], SwitchBotTransport]:
+    """A factory that builds a ``SwitchBotClient`` or ``HomeAssistantArtFrameClient`` from
+    configured creds (never hardcoded)."""
+    if settings.switchbot_delivery_mode == "ha_service":
+        return lambda: HomeAssistantArtFrameClient(
+            settings.effective_ha_base_url,
+            settings.effective_ha_token,
+            settings.ha_art_frame_entity_id,
+            device_id=settings.switchbot_device_id,
+            # The frame runs the slideshow: fill its slots without flipping through each upload.
+            show_on_upload=settings.switchbot_slideshow != "frame",
+        )
     return lambda: SwitchBotClient(settings.switchbot_token, settings.switchbot_secret)
 
 
@@ -32,7 +58,7 @@ class SwitchBotService:
         settings: Settings,
         store: Store,
         *,
-        client_factory: Callable[[], SwitchBotClient] | None = None,
+        client_factory: Callable[[], SwitchBotTransport] | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -40,7 +66,13 @@ class SwitchBotService:
 
     @property
     def configured(self) -> bool:
-        """Whether a token + secret are present (delivery/discovery need them)."""
+        """Whether credentials for the selected SwitchBot delivery mode are present."""
+        if self._settings.switchbot_delivery_mode == "ha_service":
+            return bool(
+                self._settings.effective_ha_base_url
+                and self._settings.effective_ha_token
+                and self._settings.ha_art_frame_entity_id
+            )
         return bool(self._settings.switchbot_token and self._settings.switchbot_secret)
 
     async def discover_frames(self, *, register: bool = True) -> list[Frame]:
@@ -62,6 +94,24 @@ class SwitchBotService:
                 frame = self._store.get_frame(frame.id) or frame
             frames.append(frame)
         return frames
+
+    def seed_configured_frame(self) -> Frame | None:
+        """If an explicit ``SWITCHBOT_DEVICE_ID`` (or ``HA_ART_FRAME_ENTITY_ID`` in ``ha_service``
+        mode) is configured, ensure it is registered in ``Store`` on startup so the Web UI shows it
+        immediately without requiring a manual ``POST /api/frames/switchbot/discover`` call."""
+        device_id = self._settings.switchbot_device_id.strip()
+        if not device_id and self._settings.switchbot_delivery_mode == "ha_service":
+            device_id = self._settings.ha_art_frame_entity_id.strip()
+        if not device_id:
+            return None
+        existing = self._store.get_frame(device_id)
+        if existing is not None:
+            return existing  # never overwrite a discovered or user-given name on restart
+        frame = Frame.cloud_push(
+            device_id, backend=SwitchBotBackend.name, name="SwitchBot Art Frame"
+        )
+        self._store.upsert_frame(frame)
+        return self._store.get_frame(frame.id) or frame
 
     async def status(self, device_id: str) -> ArtFrameStatus:
         """Live battery / display-mode / current-image / firmware for one frame (status view)."""

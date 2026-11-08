@@ -102,26 +102,39 @@ class FolderSyncService:
         folder: str,
         *,
         result: SyncResult | None = None,
+        now: datetime | None = None,
     ) -> SyncResult:
-        """Set the bound folder's sync rows to the album's current images and queue the delta."""
+        """Set the bound folder's sync rows to the album's current images and queue the delta.
+
+        On a SwitchBot frame running the slideshow, the queue then carries only the photos on air
+        (see ``slideshow.py``); the folder still mirrors the whole album."""
         result = result if result is not None else SyncResult()
+        now = now or datetime.now(UTC)
         async with self._immich_factory() as client:
             assets = [a for a in await client.album_assets(immich_album_id) if a.type == "IMAGE"]
+
+        prior_items = [
+            i for i in self._library.desired(frame_id) if i.folder == folder and i.source == "sync"
+        ]
         items = [
             LibraryItem(a.id, dest_name_for(a.file_name, a.id), source="sync", folder=folder)
             for a in assets
         ]
+
         result.total = len(items)
         result.prepared = len(items)
 
-        prior = {i.dest_name for i in self._library.desired(frame_id) if i.folder == folder}
+        prior = {i.dest_name for i in prior_items}
+        # Also drops the delivery row of every photo that left the set, so one that is re-added to
+        # the album is delivered again.
         self._library.set_folder_sync(frame_id, folder, items)
-        now = datetime.now(UTC)
+        departed = prior - {i.dest_name for i in items}
+
         # The delivery queue's delta-skip (#46) already avoids re-delivering photos that are on the
         # frame, so a steady-state reconcile queues nothing — no separate "on device" bookkeeping.
         result.uploaded = self._delivery.enqueue_desired(frame_id, now=now)
         result.skipped = result.total - result.uploaded
-        result.removed = len(prior - {i.dest_name for i in items})
+        result.removed = len(departed)
         self._store.touch_subscription(
             frame_id,
             immich_album_id,

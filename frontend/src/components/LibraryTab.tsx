@@ -7,6 +7,7 @@ import { useFrame } from "../lib/frames";
 import { useSyncJob } from "../lib/useSyncJob";
 import {
   Button,
+  ConfirmButton,
   EmptyState,
   ErrorState,
   Pill,
@@ -260,6 +261,7 @@ export function LibraryTab({ frameId }: { frameId: string }) {
           frameId={frameId}
           folder={folder}
           binding={bindings.data?.find((b) => b.target_album === folder)}
+          onEmptied={() => setFolder(null)} // its chip is gone with its last photo
         />
       )}
       {folder === null && <NewFolderSync frameId={frameId} />}
@@ -338,23 +340,27 @@ function NewFolderSync({ frameId }: { frameId: string }) {
 }
 
 /** Bind/unbind a selected folder to an Immich album (keep-in-sync, #62). Works for any frame type —
- *  this is how served frames get keep-in-sync, not just connected ones. */
+ *  this is how served frames get keep-in-sync, not just connected ones. `onEmptied` is set for a
+ *  folder that already exists: it can be emptied, or have its photos replaced by an album. */
 function FolderSync({
   frameId,
   folder,
   binding,
+  onEmptied,
 }: {
   frameId: string;
   folder: string;
   binding?: Subscription;
+  onEmptied?: () => void;
 }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [albumId, setAlbumId] = useState("");
+  const [changing, setChanging] = useState(false); // a bound folder's album picker is folded away
   const albums = useQuery({
     queryKey: ["immich-albums"],
     queryFn: api.immichAlbums,
-    enabled: !binding,
+    enabled: !binding || changing,
   });
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["subscriptions", frameId] });
@@ -375,6 +381,7 @@ function FolderSync({
     if (addStatus === "done") {
       const r = addInfo?.result;
       qc.invalidateQueries({ queryKey: ["frame-library", frameId] });
+      setChanging(false);
       toast(
         `Added ${r?.uploaded ?? 0} to “${folder}”` +
           (r && r.skipped > 0 ? ` · ${r.skipped} already there` : "") +
@@ -382,6 +389,26 @@ function FolderSync({
       );
     }
   }, [addStatus, addInfo, frameId, folder, qc, toast]);
+  const {
+    info: replaceInfo,
+    start: startReplace,
+    running: replacing,
+    startError: replaceStartError,
+  } = useSyncJob(frameId);
+  const replaceStatus = replaceInfo?.status;
+  useEffect(() => {
+    if (replaceStatus === "done") {
+      const r = replaceInfo?.result;
+      setChanging(false);
+      setAlbumId("");
+      toast(`“${folder}” now has ${r?.total ?? 0} photos · ${r?.removed ?? 0} removed.`);
+    } else if (replaceStatus && replaceStatus !== "running") {
+      toast(replaceInfo?.error || `Couldn't replace “${folder}”.`, "fail");
+    }
+  }, [replaceStatus, replaceInfo, folder, toast]);
+  useEffect(() => {
+    if (replaceStartError) toast(replaceStartError, "fail");
+  }, [replaceStartError, toast]);
   const stop = useMutation({
     mutationFn: () => api.unsubscribe(frameId, binding!.immich_album_id),
     onSuccess: () => {
@@ -390,39 +417,110 @@ function FolderSync({
     },
     onError: (e) => toast((e as Error).message, "fail"),
   });
+  const empty = useMutation({
+    mutationFn: () => api.emptyFolder(frameId, folder),
+    onSuccess: (r) => {
+      invalidate();
+      toast(`Removed ${r.removed} photos from “${folder}”.`);
+      onEmptied?.();
+    },
+    onError: (e) => toast((e as Error).message, "fail"),
+  });
+
+  const busy = bind.isPending || adding || replacing || empty.isPending;
+  const albumSelect = (
+    <select
+      className="rounded bg-ink px-2 py-1 text-slate-200"
+      disabled={busy}
+      value={albumId}
+      onChange={(e) => setAlbumId(e.target.value)}
+    >
+      <option value="">Choose album…</option>
+      {(albums.data ?? []).map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+    </select>
+  );
+  const replaceButton = (
+    <ConfirmButton
+      className="px-2 py-0.5 text-xs"
+      disabled={!albumId || busy}
+      confirmLabel="Replace everything"
+      onConfirm={() => startReplace(() => api.replaceAlbum(frameId, folder, albumId))}
+      title="Keep this folder in sync with this album only — all other photos in it are removed"
+    >
+      {replacing ? "Replacing…" : "Replace folder"}
+    </ConfirmButton>
+  );
+  const addOnceButton = (label: string, title: string) => (
+    <Button
+      className="px-2 py-0.5 text-xs"
+      disabled={!albumId || busy}
+      onClick={() => albumId && startAdd(() => api.addAlbumOnce(frameId, folder, albumId))}
+      title={title}
+    >
+      {adding ? "Adding…" : label}
+    </Button>
+  );
+  const emptyButton = (
+    <ConfirmButton
+      className="px-2 py-0.5 text-xs"
+      disabled={busy}
+      confirmLabel="Remove all photos"
+      onConfirm={() => empty.mutate()}
+      title="Remove every photo in this folder from the frame and stop syncing it (Immich stays)"
+    >
+      {empty.isPending ? "Emptying…" : "Empty folder"}
+    </ConfirmButton>
+  );
 
   if (binding) {
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-slate-300">
-        <StatusDot tone="active" />
-        <span>⟳ Kept in sync from Immich{binding.last_result ? ` · ${binding.last_result}` : ""}</span>
-        <Button
-          className="ml-auto px-2 py-0.5 text-xs"
-          disabled={stop.isPending}
-          onClick={() => stop.mutate()}
-        >
-          {stop.isPending ? "Stopping…" : "Stop sync"}
-        </Button>
+      <div className="space-y-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-slate-300">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusDot tone="active" />
+          <span>
+            ⟳ Kept in sync from Immich{binding.last_result ? ` · ${binding.last_result}` : ""}
+          </span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button
+              className="px-2 py-0.5 text-xs"
+              disabled={busy}
+              aria-expanded={changing}
+              onClick={() => setChanging(!changing)}
+            >
+              Change album
+            </Button>
+            <Button
+              className="px-2 py-0.5 text-xs"
+              disabled={stop.isPending || busy}
+              onClick={() => stop.mutate()}
+              title="Stop following the album. The photos stay in this folder."
+            >
+              {stop.isPending ? "Stopping…" : "Stop sync"}
+            </Button>
+            {emptyButton}
+          </div>
+        </div>
+        {changing && (
+          <div className="flex flex-wrap items-center gap-2">
+            {albumSelect}
+            {replaceButton}
+            {addOnceButton(
+              "Add photos only",
+              "Add this album's photos once and keep everything else, including the current sync",
+            )}
+          </div>
+        )}
       </div>
     );
   }
-  const busy = bind.isPending || adding;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
       <span>“{folder}” from an Immich album:</span>
-      <select
-        className="rounded bg-ink px-2 py-1 text-slate-200"
-        disabled={busy}
-        value={albumId}
-        onChange={(e) => setAlbumId(e.target.value)}
-      >
-        <option value="">Choose album…</option>
-        {(albums.data ?? []).map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </select>
+      {albumSelect}
       <Button
         className="px-2 py-0.5 text-xs"
         disabled={!albumId || busy}
@@ -431,14 +529,9 @@ function FolderSync({
       >
         {bind.isPending ? "Binding…" : "Keep in sync"}
       </Button>
-      <Button
-        className="px-2 py-0.5 text-xs"
-        disabled={!albumId || busy}
-        onClick={() => albumId && startAdd(() => api.addAlbumOnce(frameId, folder, albumId))}
-        title="Add the album's photos once — later album changes are ignored"
-      >
-        {adding ? "Adding…" : "Add once"}
-      </Button>
+      {addOnceButton("Add once", "Add the album's photos once — later album changes are ignored")}
+      {onEmptied && replaceButton}
+      {onEmptied && <div className="ml-auto">{emptyButton}</div>}
     </div>
   );
 }

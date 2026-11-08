@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import io
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import ClassVar
 
 import httpx
@@ -22,7 +22,7 @@ from memento_emulator import EmulatedFrame
 from slyde_backend.app import create_app
 from slyde_backend.config import Settings
 from slyde_backend.firmware import FirmwareTrack
-from slyde_backend.immich import ImmichAlbum, ImmichAsset
+from slyde_backend.immich import ImmichAlbum, ImmichAsset, ImmichError
 
 
 def _png_bytes() -> bytes:
@@ -459,6 +459,110 @@ def test_add_album_once_drops_a_snapshot_with_no_binding(
     add_once()
     assert cats() == {"c1", "c2", "c3"}
     assert client.get(f"{F}/subscriptions").json() == []
+
+
+def _folder_harness(client: ApiHarness) -> Callable[[str], set[str]]:
+    from slyde_backend.frame import Frame
+
+    client.app.state.store.upsert_frame(Frame.connected(HOST, backend="memento-lan"))
+    client.app.state.folder_sync._immich_factory = MutableImmich
+
+    def photos(folder: str) -> set[str]:
+        items = client.get(f"{F}/library").json()["items"]
+        return {i["asset_id"] for i in items if i["folder"] == folder}
+
+    return photos
+
+
+def _run_folder_job(client: ApiHarness, path: str, body: dict[str, str]) -> dict:
+    return _await_job(client, client.post(f"{F}/{path}", json=body).json())
+
+
+def test_empty_folder_removes_its_photos_and_ends_the_binding(
+    client: ApiHarness, frame: EmulatedFrame, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photos = _folder_harness(client)
+    folder = "2026/09 Italien"  # album-style names contain slashes
+    MutableImmich.assets = [_cat(1), _cat(2)]
+    _run_folder_job(client, "subscriptions", {"album_id": "a1", "target_album": folder})
+    MutableImmich.assets = [_cat(3)]
+    _run_folder_job(client, "folders/add-album", {"album_id": "a2", "folder": folder})
+    MutableImmich.assets = [_cat(4)]
+    _run_folder_job(client, "folders/add-album", {"album_id": "a3", "folder": "Dogs"})
+    assert photos(folder) == {"c1", "c2", "c3"}
+
+    deleted: list[str] = []
+
+    async def delete_photo(host: str, filename: str) -> None:
+        deleted.append(filename)
+
+    monkeypatch.setattr(client.app.state.frame, "delete_photo", delete_photo)
+    r = client.post(f"{F}/folders/empty", json={"folder": folder})
+
+    assert r.status_code == 200 and r.json() == {"removed": 3}
+    assert photos(folder) == set()
+    assert photos("Dogs") == {"c4"}
+    assert client.get(f"{F}/subscriptions").json() == []  # the next sync can't refill it
+    assert len(deleted) == 3
+
+
+def test_replace_album_leaves_only_the_new_album_in_the_folder(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    photos = _folder_harness(client)
+    MutableImmich.assets = [_cat(1), _cat(2)]
+    _run_folder_job(client, "subscriptions", {"album_id": "old", "target_album": "Cats"})
+    MutableImmich.assets = [_cat(3)]
+    _run_folder_job(client, "folders/add-album", {"album_id": "once", "folder": "Cats"})
+    MutableImmich.assets = [_cat(4)]
+    _run_folder_job(client, "folders/add-album", {"album_id": "once", "folder": "Dogs"})
+
+    MutableImmich.assets = [_cat(2), _cat(5)]
+    job = _run_folder_job(client, "folders/replace-album", {"album_id": "new", "folder": "Cats"})
+
+    assert job["status"] == "done", job
+    assert job["result"]["removed"] == 2  # c1 from the old album, c3 added by hand
+    assert photos("Cats") == {"c2", "c5"}
+    assert photos("Dogs") == {"c4"}
+    subs = client.get(f"{F}/subscriptions").json()
+    assert [(s["immich_album_id"], s["target_album"]) for s in subs] == [("new", "Cats")]
+
+
+def test_replace_album_keeps_the_folder_when_immich_fails(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    photos = _folder_harness(client)
+    MutableImmich.assets = [_cat(1)]
+    _run_folder_job(client, "subscriptions", {"album_id": "old", "target_album": "Cats"})
+
+    class BrokenImmich(MutableImmich):
+        async def album_assets(self, album_id: str) -> list[ImmichAsset]:
+            raise ImmichError("album not found")
+
+    client.app.state.folder_sync._immich_factory = BrokenImmich
+    job = _run_folder_job(client, "folders/replace-album", {"album_id": "new", "folder": "Cats"})
+
+    assert job["status"] != "done"
+    assert photos("Cats") == {"c1"}
+    subs = client.get(f"{F}/subscriptions").json()
+    assert [s["immich_album_id"] for s in subs] == ["old"]
+
+
+def test_adding_an_album_to_a_bound_folder_survives_the_next_sync(
+    client: ApiHarness, frame: EmulatedFrame
+) -> None:
+    photos = _folder_harness(client)
+    MutableImmich.assets = [_cat(1)]
+    _run_folder_job(client, "subscriptions", {"album_id": "a1", "target_album": "Cats"})
+    MutableImmich.assets = [_cat(2)]
+    _run_folder_job(client, "folders/add-album", {"album_id": "a2", "folder": "Cats"})
+    assert photos("Cats") == {"c1", "c2"}
+
+    MutableImmich.assets = [_cat(1)]
+    asyncio.run(client.app.state.folder_sync.run_due())
+
+    assert photos("Cats") == {"c1", "c2"}
+    assert len(client.get(f"{F}/subscriptions").json()) == 1
 
 
 # -- interlude: a recurring non-photo image between the photos (#70) ----------------------------

@@ -105,6 +105,21 @@ def test_deck_spans_curated_uploaded_and_synced_photos(tmp_path: Path) -> None:
     assert sorted(shown) == ["c0", "c1", "s0", "s1", "s2", "u0"]
 
 
+def test_emptying_the_folder_on_air_moves_on_to_the_rest(tmp_path: Path) -> None:
+    settings = Settings(switchbot_slideshow="slyde", switchbot_slideshow_interval_minutes=600)
+    h = Harness(tmp_path, settings)
+    h.library.add("SB", LibraryItem("a", "a.jpg", folder="Old"))
+    h.step(T)
+    assert h.on_air() == ["a"]
+    h.library.add("SB", LibraryItem("b", "b.jpg", folder="Other"))
+    sync = FolderSyncService(settings, h.store, h.library, h.ds, FakeImmich)  # type: ignore[arg-type]
+
+    assert asyncio.run(sync.empty_folder("SB", "Old")) == 1  # no LAN delete on a cloud frame
+
+    h.step(T + timedelta(minutes=1))  # long before the interval is up
+    assert h.on_air() == ["b"]
+
+
 def test_frame_mode_swaps_batches_of_ten_without_replacement(tmp_path: Path) -> None:
     h = Harness(
         tmp_path, Settings(switchbot_slideshow="frame", switchbot_slideshow_interval_minutes=60)

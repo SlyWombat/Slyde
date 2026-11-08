@@ -341,6 +341,14 @@ class AddAlbumOnceRequest(BaseModel):
     folder: str = Field(min_length=1, max_length=64)
 
 
+class EmptyFolderRequest(BaseModel):
+    folder: str = Field(min_length=1, max_length=64)
+
+
+class EmptyFolderResult(BaseModel):
+    removed: int
+
+
 class Subscription(BaseModel):
     immich_album_id: str
     target_album: str

@@ -18,6 +18,7 @@ drives it — issue #25).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 from collections.abc import Callable
 from datetime import datetime
@@ -107,6 +108,17 @@ class DeliveryService:
             return 0
         await self._slideshow.refresh_presence(frames)
         return sum(self.enqueue_desired(f, now=now) for f in frames)
+
+    async def remove_from_device(self, frame_id: str, dest_names: list[str]) -> None:
+        """Delete photos that left the library from a LAN frame's storage. Best-effort: a sleeping
+        frame keeps them (so stop at the first miss), but they're no longer curated so they won't
+        re-deliver. Frames without a LAN address (served, vendor cloud) have nothing to delete."""
+        frame = self._store.get_frame(frame_id)
+        if frame is None or not frame.address:
+            return
+        with contextlib.suppress(FrameUnavailable):
+            for dest_name in dest_names:
+                await self._frames.delete_photo(frame_id, dest_name)
 
     @property
     def slideshow(self) -> Slideshow:

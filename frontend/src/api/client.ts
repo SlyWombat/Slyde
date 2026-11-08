@@ -158,6 +158,19 @@ export const api = {
       body: JSON.stringify({ album_id: albumId, folder }),
     }),
 
+  // Keep a folder in sync with this album and nothing else. Background job, like addAlbumOnce.
+  replaceAlbum: (host: string, folder: string, albumId: string) =>
+    request<SyncJobInfo>(`/frames/${enc(host)}/folders/replace-album`, {
+      method: "POST",
+      body: JSON.stringify({ album_id: albumId, folder }),
+    }),
+  // Remove every photo from a folder and end its keep-in-sync binding.
+  emptyFolder: (host: string, folder: string) =>
+    request<{ removed: number }>(`/frames/${enc(host)}/folders/empty`, {
+      method: "POST",
+      body: JSON.stringify({ folder }),
+    }),
+
   // -- interlude (a recurring image between the photos, #70) ----------------
   interlude: (id: string) => request<InterludeStatus>(`/frames/${enc(id)}/interlude`),
   setInterlude: (id: string, config: Partial<InterludeConfig>) =>

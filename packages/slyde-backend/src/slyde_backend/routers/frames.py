@@ -52,6 +52,8 @@ from ..schemas import (
     ConfigPatch,
     CurrentImage,
     DeliverySummary,
+    EmptyFolderRequest,
+    EmptyFolderResult,
     FrameDetailInfo,
     FrameInfo,
     FrameStatus,
@@ -1061,6 +1063,33 @@ async def add_album_once(
         ),
     )
     return _job_info(job)
+
+
+@router.post("/{frame_id}/folders/replace-album", response_model=SyncJobInfo, status_code=202)
+async def replace_album(
+    frame_id: str, body: AddAlbumOnceRequest, request: Request, jobs: JobsDep
+) -> SyncJobInfo:
+    """Keep a Library folder in sync with this Immich album and nothing else: the folder's other
+    photos leave and any earlier binding ends. Runs as a background job, like ``subscribe``."""
+    folder_sync = request.app.state.folder_sync
+    job = jobs.start(
+        frame_id,
+        body.folder,
+        lambda result: folder_sync.replace_album(
+            frame_id, body.album_id, body.folder, result=result
+        ),
+    )
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/folders/empty", response_model=EmptyFolderResult)
+async def empty_folder(
+    frame_id: str, body: EmptyFolderRequest, request: Request
+) -> EmptyFolderResult:
+    """Remove every photo from a Library folder and end its keep-in-sync binding. The folder name
+    travels in the body because album-style names contain slashes."""
+    removed = await request.app.state.folder_sync.empty_folder(frame_id, body.folder)
+    return EmptyFolderResult(removed=removed)
 
 
 @router.delete("/{frame_id}/subscriptions/{album_id}", status_code=204)

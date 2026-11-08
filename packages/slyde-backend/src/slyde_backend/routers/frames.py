@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+import httpx
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -23,6 +24,7 @@ from fastapi import (
 )
 
 from ..backends import available_backends, get_backend
+from ..backends.switchbot import SwitchBotBackend
 from ..config import Settings
 from ..delivery_service import DeliveryService
 from ..frame import Frame
@@ -50,6 +52,8 @@ from ..schemas import (
     ConfigPatch,
     CurrentImage,
     DeliverySummary,
+    EmptyFolderRequest,
+    EmptyFolderResult,
     FrameDetailInfo,
     FrameInfo,
     FrameStatus,
@@ -60,8 +64,12 @@ from ..schemas import (
     LibraryItemModel,
     LibraryPhoto,
     LibraryView,
+    PresenceEntityInfo,
     RegisterFrameRequest,
     RenameFrameRequest,
+    SlideshowNext,
+    SlideshowSettings,
+    SlideshowSettingsUpdate,
     SubscribeRequest,
     Subscription,
     SwitchBotFrameStatus,
@@ -386,13 +394,15 @@ async def set_library(
 
 
 @router.get("/{frame_id}/library", response_model=LibraryView)
-async def frame_library(frame_id: str, store: StoreDep) -> LibraryView:
-    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames."""
+async def frame_library(frame_id: str, store: StoreDep, request: Request) -> LibraryView:
+    """A frame's curated set + each photo's delivery state (#28); also for offline/served frames.
+    On a slideshow frame, photos not on air are ``waiting`` for their turn."""
     if store.get_frame(frame_id) is None:  # 404 for unknown/detached frames, mirroring DELETE (#53)
         raise HTTPException(status_code=404, detail="frame not found")
     states = {d.key: d.state for d in store.list_deliveries(frame_id)}
+    idle = "waiting" if request.app.state.delivery_service.slideshow_active(frame_id) else "unknown"
     items = [
-        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, "unknown"))
+        LibraryPhoto(asset_id=aid, dest_name=dest, folder=folder, state=states.get(dest, idle))
         for aid, dest, _source, folder in store.list_library(frame_id)
     ]
     return LibraryView(items=items, deliveries=DeliverySummary(**store.delivery_summary(frame_id)))
@@ -412,12 +422,16 @@ async def remove_library_item(frame_id: str, asset_id: str, request: Request) ->
 
 
 @router.get("/{frame_id}/detail", response_model=FrameDetailInfo)
-async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
+async def frame_detail(
+    frame_id: str, request: Request, store: StoreDep, settings: SettingsDep
+) -> FrameDetailInfo:
     """Registry detail + backend capabilities for a frame by id (#28)."""
     f = store.get_frame(frame_id)
     if f is None:
         raise HTTPException(status_code=404, detail="frame not found")
     caps = get_backend(f.backend).capabilities
+    switchbot = f.backend == SwitchBotBackend.name
+    show = request.app.state.delivery_service.slideshow.config(f.id) if switchbot else None
     return FrameDetailInfo(
         id=f.id,
         backend=f.backend,
@@ -427,6 +441,9 @@ async def frame_detail(frame_id: str, store: StoreDep) -> FrameDetailInfo:
         frame_code=f.frame_code,
         last_seen=f.last_seen,
         capabilities=CapabilitiesInfo(**vars(caps)),
+        slideshow=settings.switchbot_slideshow if switchbot else None,
+        slideshow_interval_minutes=show.interval_minutes if show else None,
+        quiet_hours=show.quiet_hours if show else None,
     )
 
 
@@ -941,6 +958,94 @@ async def subscribe(
     return _job_info(job)
 
 
+@router.post("/{frame_id}/slideshow/next", response_model=SlideshowNext)
+async def slideshow_next(
+    frame_id: str, request: Request, background: BackgroundTasks, store: StoreDep
+) -> SlideshowNext:
+    """Show the next photo now (SwitchBot slideshow): draws the next Shuffle-Deck photo — or batch
+    of 10 in 'frame' mode — from the frame's library, ignoring the interval and quiet hours.
+    Delivery runs in the background right away."""
+    delivery = request.app.state.delivery_service
+    if not delivery.slideshow_active(frame_id):
+        raise HTTPException(status_code=409, detail="no SwitchBot slideshow configured")
+    if not store.list_library(frame_id):
+        raise HTTPException(status_code=409, detail="the frame's library is empty")
+    queued = delivery.enqueue_desired(frame_id, now=datetime.now(UTC), advance=True)
+    background.add_task(_drain_delivery, delivery)
+    return SlideshowNext(queued=queued)
+
+
+def _switchbot_frame(store: Store, frame_id: str) -> Frame:
+    f = store.get_frame(frame_id)
+    if f is None or f.backend != SwitchBotBackend.name:
+        raise HTTPException(status_code=404, detail="no SwitchBot frame with this id")
+    return f
+
+
+def _slideshow_settings(request: Request, settings: Settings, frame_id: str) -> SlideshowSettings:
+    slideshow = request.app.state.delivery_service.slideshow
+    config = slideshow.config(frame_id)
+    return SlideshowSettings(
+        interval_minutes=config.interval_minutes,
+        quiet_hours=config.quiet_hours,
+        presence_entity=config.presence_entity,
+        mode=settings.switchbot_slideshow,
+        defaults=SlideshowSettingsUpdate(
+            interval_minutes=settings.switchbot_slideshow_interval_minutes,
+            quiet_hours=settings.switchbot_quiet_hours,
+            presence_entity=settings.switchbot_presence_entity,
+        ),
+        ha_available=slideshow.presence.configured,
+        someone_home=slideshow.presence.home(config.presence_entity)
+        if config.presence_entity
+        else None,
+    )
+
+
+@router.get("/{frame_id}/slideshow", response_model=SlideshowSettings)
+async def get_slideshow(
+    frame_id: str, request: Request, store: StoreDep, settings: SettingsDep
+) -> SlideshowSettings:
+    """A SwitchBot frame's slideshow settings (interval, quiet hours, presence) and who is home."""
+    _switchbot_frame(store, frame_id)
+    presence_entity = request.app.state.delivery_service.slideshow.config(frame_id).presence_entity
+    if presence_entity:
+        await request.app.state.delivery_service.slideshow.presence.refresh({presence_entity})
+    return _slideshow_settings(request, settings, frame_id)
+
+
+@router.put("/{frame_id}/slideshow", response_model=SlideshowSettings)
+async def put_slideshow(
+    frame_id: str,
+    body: SlideshowSettingsUpdate,
+    request: Request,
+    store: StoreDep,
+    settings: SettingsDep,
+) -> SlideshowSettings:
+    """Set a SwitchBot frame's slideshow interval, quiet hours and presence entity. Takes effect
+    on the next slideshow tick (seconds); the interval counts from the last change."""
+    _switchbot_frame(store, frame_id)
+    store.set_slideshow_setting(
+        frame_id, body.interval_minutes, body.quiet_hours, body.presence_entity
+    )
+    if body.presence_entity:  # answer "is anyone home?" right away for the picked entity
+        await request.app.state.delivery_service.slideshow.presence.check(body.presence_entity)
+    return _slideshow_settings(request, settings, frame_id)
+
+
+@router.get("/{frame_id}/slideshow/presence-entities", response_model=list[PresenceEntityInfo])
+async def presence_entities(
+    frame_id: str, request: Request, store: StoreDep
+) -> list[PresenceEntityInfo]:
+    """Home Assistant entities that can say whether someone is home (zone, person, group, …)."""
+    _switchbot_frame(store, frame_id)
+    try:
+        found = await request.app.state.delivery_service.slideshow.presence.entities()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Home Assistant: {exc}") from exc
+    return [PresenceEntityInfo(**vars(e)) for e in found]
+
+
 @router.post("/{frame_id}/folders/add-album", response_model=SyncJobInfo, status_code=202)
 async def add_album_once(
     frame_id: str, body: AddAlbumOnceRequest, request: Request, jobs: JobsDep
@@ -958,6 +1063,33 @@ async def add_album_once(
         ),
     )
     return _job_info(job)
+
+
+@router.post("/{frame_id}/folders/replace-album", response_model=SyncJobInfo, status_code=202)
+async def replace_album(
+    frame_id: str, body: AddAlbumOnceRequest, request: Request, jobs: JobsDep
+) -> SyncJobInfo:
+    """Keep a Library folder in sync with this Immich album and nothing else: the folder's other
+    photos leave and any earlier binding ends. Runs as a background job, like ``subscribe``."""
+    folder_sync = request.app.state.folder_sync
+    job = jobs.start(
+        frame_id,
+        body.folder,
+        lambda result: folder_sync.replace_album(
+            frame_id, body.album_id, body.folder, result=result
+        ),
+    )
+    return _job_info(job)
+
+
+@router.post("/{frame_id}/folders/empty", response_model=EmptyFolderResult)
+async def empty_folder(
+    frame_id: str, body: EmptyFolderRequest, request: Request
+) -> EmptyFolderResult:
+    """Remove every photo from a Library folder and end its keep-in-sync binding. The folder name
+    travels in the body because album-style names contain slashes."""
+    removed = await request.app.state.folder_sync.empty_folder(frame_id, body.folder)
+    return EmptyFolderResult(removed=removed)
 
 
 @router.delete("/{frame_id}/subscriptions/{album_id}", status_code=204)

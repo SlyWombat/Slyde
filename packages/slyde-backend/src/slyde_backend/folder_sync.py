@@ -50,6 +50,56 @@ class FolderSyncService:
         """Stop keeping a folder in sync. The already-delivered photos stay in the library."""
         return self._store.remove_subscription(frame_id, immich_album_id)
 
+    async def empty_folder(self, frame_id: str, folder: str) -> int:
+        """Remove every photo from a folder and stop keeping it in sync, so the next cycle doesn't
+        fill it again; returns how many photos left. Immich itself is not touched. A slideshow
+        showing one of them moves on at its next tick."""
+        self._unbind_folder(frame_id, folder)
+        photos = [i for i in self._library.desired(frame_id) if i.folder == folder]
+        self._library.remove(frame_id, photos)
+        await self._delivery.remove_from_device(frame_id, [i.dest_name for i in photos])
+        return len(photos)
+
+    async def replace_album(
+        self,
+        frame_id: str,
+        immich_album_id: str,
+        folder: str,
+        *,
+        result: SyncResult | None = None,
+    ) -> SyncResult:
+        """Make a folder mirror ``immich_album_id`` and nothing else: every other photo in it
+        leaves, and the album replaces any album the folder was bound to. Photos in both stay on
+        the frame. If Immich can't be read, the folder and its binding are left as they were."""
+        now = datetime.now(UTC)
+        before = {i.dest_name for i in self._library.desired(frame_id) if i.folder == folder}
+        result = await self.reconcile(frame_id, immich_album_id, folder, result=result, now=now)
+        self._unbind_folder(frame_id, folder)
+        self._store.add_subscription(frame_id, immich_album_id, folder)
+        self._store.touch_subscription(frame_id, immich_album_id, f"{result.total} photos")
+        # The reconcile set the folder's sync rows; what's left outside them is the rest to drop.
+        self._library.remove(
+            frame_id,
+            [
+                i
+                for i in self._library.desired(frame_id)
+                if i.folder == folder and i.source != "sync"
+            ],
+        )
+        after = {i.dest_name for i in self._library.desired(frame_id) if i.folder == folder}
+        gone = before - after
+        result.removed = len(gone)
+        await self._delivery.remove_from_device(frame_id, sorted(gone))
+        result.uploaded += self._delivery.enqueue_desired(frame_id, now=now)
+        result.skipped = max(result.total - result.uploaded, 0)
+        await self._delivery.drain(now=now)  # deliver the new photos now (interactive)
+        return result
+
+    def _unbind_folder(self, frame_id: str, folder: str) -> None:
+        for sub in self._store.list_subscriptions(frame_id):
+            if sub.target_album == folder:
+                self._store.remove_subscription(frame_id, sub.immich_album_id)
+
     async def bind(
         self,
         frame_id: str,
@@ -102,26 +152,39 @@ class FolderSyncService:
         folder: str,
         *,
         result: SyncResult | None = None,
+        now: datetime | None = None,
     ) -> SyncResult:
-        """Set the bound folder's sync rows to the album's current images and queue the delta."""
+        """Set the bound folder's sync rows to the album's current images and queue the delta.
+
+        On a SwitchBot frame running the slideshow, the queue then carries only the photos on air
+        (see ``slideshow.py``); the folder still mirrors the whole album."""
         result = result if result is not None else SyncResult()
+        now = now or datetime.now(UTC)
         async with self._immich_factory() as client:
             assets = [a for a in await client.album_assets(immich_album_id) if a.type == "IMAGE"]
+
+        prior_items = [
+            i for i in self._library.desired(frame_id) if i.folder == folder and i.source == "sync"
+        ]
         items = [
             LibraryItem(a.id, dest_name_for(a.file_name, a.id), source="sync", folder=folder)
             for a in assets
         ]
+
         result.total = len(items)
         result.prepared = len(items)
 
-        prior = {i.dest_name for i in self._library.desired(frame_id) if i.folder == folder}
+        prior = {i.dest_name for i in prior_items}
+        # Also drops the delivery row of every photo that left the set, so one that is re-added to
+        # the album is delivered again.
         self._library.set_folder_sync(frame_id, folder, items)
-        now = datetime.now(UTC)
+        departed = prior - {i.dest_name for i in items}
+
         # The delivery queue's delta-skip (#46) already avoids re-delivering photos that are on the
         # frame, so a steady-state reconcile queues nothing — no separate "on device" bookkeeping.
         result.uploaded = self._delivery.enqueue_desired(frame_id, now=now)
         result.skipped = result.total - result.uploaded
-        result.removed = len(prior - {i.dest_name for i in items})
+        result.removed = len(departed)
         self._store.touch_subscription(
             frame_id,
             immich_album_id,

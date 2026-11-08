@@ -71,6 +71,13 @@ class FrameLibrary:
             frame_id, item.asset_id, item.dest_name, source=item.source, folder=item.folder
         )
 
+    def remove(self, frame_id: str, items: list[LibraryItem]) -> None:
+        """Drop ``items`` from the library, with their cached images and queued deliveries."""
+        for item in items:
+            self._cache.delete(frame_id, item.dest_name)
+            self._store.delete_delivery(frame_id, item.dest_name)
+            self._store.delete_library_item_by_dest(frame_id, item.dest_name)
+
     def desired(self, frame_id: str) -> list[LibraryItem]:
         return [
             LibraryItem(aid, dest, source, folder)

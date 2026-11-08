@@ -30,9 +30,11 @@ COPY --from=web /web/dist ./static
 
 # Runs as a bare numeric uid, so the host can pick any uid with compose `user:` (#77): nothing is
 # written outside /data, HOME is /tmp, and no /etc/passwd entry is needed. /data is pre-owned by
-# the default uid only so a fresh named volume is writable out of the box.
+# the default uid only so a fresh named volume is writable out of the box. The Home Assistant add-on
+# build (build.yaml) sets SLYDE_USER=0:0: the Supervisor's /data mount is root-owned.
+ARG SLYDE_USER=1000:1000
 RUN mkdir -p /data && chown 1000:1000 /data
-USER 1000:1000
+USER ${SLYDE_USER}
 VOLUME ["/data"]
 EXPOSE 8080
 
